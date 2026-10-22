@@ -51,4 +51,4 @@ GitHub Pages rebuilds within a minute or two.
 
 ## Do not publish
 
-`materials/` (paper PDFs, original photo) is listed in `.gitignore` and must stay out of the repository. Paper PDFs are never hosted here; the site links only to public arXiv pages and the SWIFT PDF on Yanjin He's site.
+`materials/` (paper PDFs, original photo) is listed in `.gitignore` and must stay out of the repository. Paper PDFs are never hosted here; the site links only to public arXiv pages.
