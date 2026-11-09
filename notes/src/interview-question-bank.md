@@ -342,10 +342,10 @@ End to end, for a language model:
 [more](vision-backbones.html)
 :::
 
-::: {.qa asked="Meta research round, Glassdoor (topic only)"}
+::: {.qa asked="Meta research intern/RS, Glassdoor (topic only)"}
 **What are the main architectural choices in Llama, and why were they made?**
 
-Llama is a decoder-only transformer built from changes that had already worked elsewhere. The more distinctive decision is training relatively small models on far more tokens than is compute-optimal, so they are cheap to serve.
+The report, a Glassdoor snippet, says only that a Meta interviewer asked a research question about Llama; the question above is one reasonable reading, not the reported wording, so be ready for other angles (scaling, data, alignment). Llama is a decoder-only transformer built from changes that had already worked elsewhere. The more distinctive decision is training relatively small models on far more tokens than is compute-optimal, so they are cheap to serve.
 
 Architecture (LLaMA, Touvron et al., 2023; kept in Llama 2 and 3):
 
@@ -406,7 +406,7 @@ The final hidden state at position $t$, after a last normalization, is multiplie
 
 **Decoding rules.**
 
-- *Greedy*: the argmax at each step. Deterministic and cheap, but it does not find the most likely sequence and tends to repeat itself in open-ended text.
+- *Greedy*: the argmax at each step. Deterministic and cheap, but it is not guaranteed to find the most likely sequence and tends to repeat itself in open-ended text.
 - *Beam search*: keep the $B$ partial sequences with the highest total log-probability. It suits tasks with nearly one right answer (translation, speech recognition). Summed log-probabilities favor short outputs unless length-normalized, and for open-ended text high-likelihood outputs tend to be bland and repetitive (Holtzman et al., 2019).
 - *Top-k sampling*: renormalize over the $k$ most likely tokens. A fixed $k$ is too loose when the distribution is peaked and too tight when it is flat.
 - *Top-p (nucleus) sampling*: keep the smallest set of tokens whose total probability reaches $p$, so the candidate set adapts to the model's confidence.
@@ -422,8 +422,8 @@ def sample_next(logits, temperature=1.0, top_k=0, top_p=1.0):
         return int(logits.argmax())
     logits = logits / temperature
     if top_k > 0:
-        kth = torch.topk(logits, top_k).values[-1]
-        logits = logits.masked_fill(logits < kth, float("-inf"))
+        kth = torch.topk(logits, min(top_k, len(logits))).values[-1]
+        logits = logits.masked_fill(logits < kth, float("-inf"))   # ties at kth are kept
     probs = torch.softmax(logits, dim=-1)
     if top_p < 1.0:
         p_sorted, idx = probs.sort(descending=True)
@@ -531,7 +531,7 @@ $$
 \end{aligned}
 $$
 
-Momentum's effective step is $\eta/(1-\mu)$ along consistent directions, while components that flip sign cancel. RMSProp's per-coordinate step is about $\eta$ whatever the gradient scale. **Bias correction**: from $m_0 = 0$, $m_t = (1-\beta_1)\sum_{i=1}^t \beta_1^{t-i} g_i$, whose weights sum to $1 - \beta_1^t$, so for stationary gradients $\mathbb{E}[m_t] = (1 - \beta_1^t)\,\mathbb{E}[g]$ and $\hat m_t = m_t/(1-\beta_1^t)$ removes the shrinkage; likewise $\hat v_t = v_t/(1-\beta_2^t)$. **AdamW** applies weight decay as $\theta \leftarrow \theta - \eta\lambda\theta$ outside the adaptive step; an L2 term added to the gradient gets divided by $\sqrt{\hat v}$, so weights with large gradients are barely regularized.
+Momentum's effective step is $\eta/(1-\mu)$ along consistent directions, while components that flip sign cancel. RMSProp's per-coordinate step is about $\eta$ whatever the gradient scale. **Bias correction**: from $m_0 = 0$, $m_t = (1-\beta_1)\sum_{i=1}^t \beta_1^{t-i} g_i$, whose weights sum to $1 - \beta_1^t$, so for stationary gradients $\mathbb{E}[m_t] = (1 - \beta_1^t)\,\mathbb{E}[g]$ and $\hat m_t = m_t/(1-\beta_1^t)$ removes the shrinkage; likewise $\hat v_t = v_t/(1-\beta_2^t)$. **AdamW** applies weight decay as $\theta \leftarrow \theta - \eta\lambda\theta$ outside the adaptive step; an L2 term added to the gradient gets divided by $\sqrt{\hat v}$, so weights with large gradients are regularized less than decoupled weight decay would regularize them.
 
 **Choosing.** SGD with momentum and a step or cosine schedule remains strong for CNN image classification and stores one state per parameter instead of two; Wilson et al. (2017) found adaptive methods generalizing worse than SGD on several benchmarks. AdamW is the default for transformers and diffusion models, whose blocks have very different gradient scales that no single global step size suits. RMSProp is now used less than Adam, which with $\beta_1 = 0$ is RMSProp plus bias correction.
 
@@ -563,7 +563,7 @@ The norm of the product lies between $\prod_\ell \sigma_{\min}(J_\ell)$ and $\pr
 
 - saturating activations: $\sigma' \le 1/4$, and $\tanh'$ is near 0 for large inputs;
 - weight scale: an initialization that does not preserve variance, or weights that grow during training;
-- RNNs: the same $W_{hh}$ appears at every step; Pascanu et al. (2012) show that if $|\phi'| \le \gamma$ and the largest eigenvalue magnitude of $W_{hh}$ is below $1/\gamma$, long-range gradient terms vanish, and exceeding $1/\gamma$ is necessary for them to explode.
+- RNNs: the same $W_{hh}$ appears at every step; Pascanu et al. (2013) show that if $|\phi'| \le \gamma$ and the largest singular value of $W_{hh}$ is below $1/\gamma$, long-range gradient terms vanish, and exceeding $1/\gamma$ is necessary for them to explode (for a linear RNN the spectral radius, the largest eigenvalue magnitude, is what decides).
 
 **Diagnosis.** Log per-layer gradient norms. Vanishing shows as tiny norms in early layers and a loss that plateaus from the start; exploding as gradient-norm spikes, loss spikes, then NaNs.
 
@@ -618,7 +618,7 @@ def maxpool1d_bwd(dy, idx, n):
     return dx
 ```
 
-Both passes are $O(n)$ in time; dropout stores an $n$-sized mask and max pooling one index per output.
+Dropout is $O(n)$ in both passes and stores an $n$-sized mask. Max pooling's forward pass scans $k$ values per output, $O(nk/s)$, which is $O(n)$ when windows do not overlap; its backward pass is $O(n)$, and it stores one index per output.
 
 [more](deep-learning-training.html)
 :::
@@ -658,12 +658,12 @@ Decide first what you are optimizing. A cross-entropy model is tuned for accurac
 **Pitfalls.** Reweighting and resampling distort the predicted probabilities, so undo them with the prior correction or recalibrate on a validation set drawn from the true distribution; do not tune thresholds on the test set; and report results per class, since an average hides the rare classes.
 :::
 
-::: {.qa asked="NVIDIA 2025, ByteDance MM 2025, Qualcomm"}
+::: {.qa asked="NVIDIA SWE 2025, ByteDance MM 2025, Qualcomm"}
 **Compare data, tensor and pipeline parallelism. How do DeepSpeed and Megatron-LM differ?**
 
 Data parallelism splits the batch and replicates the model; tensor parallelism splits each layer's matrices; pipeline parallelism splits the layers into stages. They trade memory, communication volume and idle time differently, so large runs combine them.
 
-**Data parallelism.** Each of $N$ GPUs holds a full replica and runs its own micro-batch; gradients are averaged with an all-reduce (about $2\Psi$ elements per GPU per step for $\Psi$ parameters), overlapped with backward. Per-GPU memory does not shrink. **ZeRO** and **FSDP** remove the redundancy by sharding optimizer states, then gradients, then parameters across the data-parallel ranks; full sharding brings model states to $16\Psi/N$ bytes per GPU for mixed-precision Adam at about $3\Psi$ communication, since weights are all-gathered in both forward and backward. Every GPU still runs whole layers.
+**Data parallelism.** Each of $N$ GPUs holds a full replica and runs its own micro-batch; gradients are averaged with an all-reduce (about $2\Psi$ elements sent per GPU per step for $\Psi$ parameters, since a ring all-reduce is a reduce-scatter plus an all-gather of $\Psi$ each), overlapped with backward. Per-GPU memory does not shrink. **ZeRO** and **FSDP** remove the redundancy by sharding optimizer states, then gradients, then parameters across the data-parallel ranks; full sharding brings model states to $16\Psi/N$ bytes per GPU for mixed-precision Adam (2 bytes of half-precision weights, 2 of gradients and 12 of fp32 master weights and Adam moments per parameter) at about $3\Psi$ communication, since weights are all-gathered in both forward and backward. Every GPU still runs whole layers.
 
 **Tensor parallelism** (Megatron-LM, Shoeybi et al., 2019). In the MLP $Y = \mathrm{GeLU}(XA)\,B$, split $A$ by columns, $A = [A_1, A_2]$, so each GPU computes $\mathrm{GeLU}(XA_i)$ without communication (the nonlinearity is elementwise). Split $B$ by rows, so $Y = \mathrm{GeLU}(XA_1)B_1 + \mathrm{GeLU}(XA_2)B_2$ needs one all-reduce. Attention is split by heads the same way, giving two all-reduces forward and two backward per layer. Weights, compute and the activations inside each block are divided across GPUs, but the communication is frequent and blocking.
 
@@ -933,7 +933,7 @@ For context, Nesterov acceleration improves these to $O(1/K^2)$ and a factor $1 
 ::: {.qa asked="OpenAI RE (Aced, ~2025)"}
 **Implement all_gather across several nodes. If the links between nodes are noisy, derive a worst-case bound on the number of rounds needed for every node to get every value within a target error, improve the bound, and then use the fact that the values are floating-point numbers to design a better algorithm.**
 
-The report gives no noise model, so state one. The point to reach: sending a real value and averaging copies needs rounds proportional to $1/\varepsilon^2$, while sending a float's bits, decoding each exactly and forwarding it needs rounds proportional to the number of bits.
+The report names only the stages (implement all_gather, bound the rounds over noisy links, improve the bound, exploit floating point) and calls the bound graduate-level information theory. It gives no noise model, topology or target, so everything below, from the Gaussian channel to the ring, is an assumption to state aloud; the interviewer may have had another model in mind, such as bit flips (covered at the end). Under this model the main contrast is: sending a real value and averaging copies needs rounds proportional to $1/\varepsilon^2$, while sending a float's bits, decoding each exactly and forwarding it needs rounds proportional to the number of bits.
 
 **Setup.** Node $i$ of $n$ holds $x_i \in [-R, R]$. Per round, each node sends one symbol $|s| \le A$ to a neighbour, which receives $s + z$, $z \sim \mathcal{N}(0, \sigma^2)$ independent. Ring all_gather takes $n - 1$ steps, each node forwarding to its successor the value it received in the previous step (its own first): $n(n-1)$ value transmissions in all.
 
@@ -946,7 +946,7 @@ $$
 
 for a total of $(n-1)k = O\big(n^2 (R\sigma/A\varepsilon)^2 \log(n/\delta)\big)$ rounds.
 
-**Improving it.** Chebyshev's inequality would give a factor $1/\delta$; the Gaussian tail makes it $\log(1/\delta)$. Fewer hops per value (direct links, or a tree of depth $\log_2 n$) remove the factor $n - 1$ from $k$. But $1/\varepsilon^2$ remains, because averaging shrinks the error only as $1/\sqrt{k}$: each extra bit of precision costs four times the rounds.
+**Improving it.** Chebyshev's inequality would give a factor $1/\delta$; the Gaussian tail makes it $\log(1/\delta)$. Fewer hops per value shrink the factor $n - 1$ in $k$: to 1 with direct links between every pair, or to about $\log_2 n$ with a tree of that depth. But $1/\varepsilon^2$ remains, because averaging shrinks the error only as $1/\sqrt{k}$: each extra bit of precision costs four times the rounds.
 
 **Using floats.** A float32 is a 32-bit string. Send each bit as $\pm A$, $r$ times, and decode by the sign of the average:
 
@@ -1040,7 +1040,7 @@ Treat the denoising chain as an MDP: the state is $(x_t, t, c)$, the action is $
 ::: {.qa asked="Curated diffusion lists (Zhihu, CSDN 2025)"}
 **Why does DDPM add noise in many small steps whose size grows over time, instead of one large step or equal steps?**
 
-Small steps keep each reverse step easy to model. Growing steps spread the information loss evenly, because a fixed amount of added noise destroys far more information while the image is still clean than once it is already noisy.
+Small steps keep each reverse step easy to model. Growing steps match the step size to how much each step destroys: a fixed amount of added noise destroys far more information while the image is still clean than once it is already noisy, so the chain starts with tiny steps and still reaches pure noise in a fixed number of steps. (The linear schedule does not make the loss per step even, as the numbers below show.)
 
 1. *Why many small steps.* Each reverse conditional $q(x_{t-1} \mid x_t)$ is modeled as a Gaussian, which is accurate only when $\beta_t$ is small: forward and reverse kernels then share a functional form, the argument DDPM takes from Sohl-Dickstein et al. (2015). With a single step, $q(x_0 \mid x_1)$ is essentially the data distribution, and a Gaussian fit to it is a blurry average. VDM (Kingma et al., 2021) also shows that, for a good enough denoiser, doubling the number of steps lowers the diffusion loss.
 2. *Why growing steps.* Write $\lambda_t = \log\frac{\bar\alpha_t}{1-\bar\alpha_t}$ and $\mathrm{SNR}_t = e^{\lambda_t}$. Since $1-\bar\alpha_t = (1-\bar\alpha_{t-1}) + \bar\alpha_{t-1}\beta_t$, the log-SNR drop per step is exactly
@@ -1065,7 +1065,7 @@ $$\hat A_t = \sum_{l \ge 0} (\gamma\lambda)^l\, \delta_{t+l}.$$
 
 In diffusion fine-tuning, an episode is the denoising chain, intermediate rewards are zero, the only reward $R$ comes from the final image, and $\gamma = 1$. Then $\delta_t = V(s_{t+1}) - V(s_t)$ until the last step, and with $K$ steps left,
 $$\hat A_t = \lambda^{K-1} R + (1-\lambda)\sum_{l=1}^{K-1} \lambda^{l-1} V(s_{t+l}) - V(s_t).$$
-For $\lambda < 1$ the real signal $R$ is down-weighted by $\lambda^{K-1}$ at early steps (about 0.08 for $\lambda = 0.95$ and 50 steps), so the estimate leans on a critic that must predict the final image's reward from a noisy latent, a hard regression. Most methods therefore use $\lambda = 1$, so $\hat A_t = R - b$ is the same for every step of a trajectory, and replace the critic with a cheap baseline $b$: DDPO (Black et al., 2023) normalizes rewards with a running mean and standard deviation tracked per prompt, and GRPO-style methods use the statistics of a group of samples for the same prompt. A critic can still help: DPOK (Fan et al., 2023) learned $V(x_t, c)$ and reported higher final rewards.
+For $\lambda < 1$ the real signal $R$ is down-weighted by $\lambda^{K-1}$ at early steps (about 0.08 for $\lambda = 0.95$ and 50 steps), so the estimate leans on a critic that must predict the final image's reward from a noisy latent, a hard regression. Many methods therefore skip the critic, which amounts to $\lambda = 1$ with a cheap baseline $b$ in place of $V$, so $\hat A_t = R - b$ is the same for every step of a trajectory: DDPO (Black et al., 2023) normalizes rewards with a running mean and standard deviation tracked per prompt, and GRPO-style methods use the statistics of a group of samples for the same prompt. A critic can still help: DPOK (Fan et al., 2023) learned $V(x_t, c)$ and reported higher final rewards.
 
 [more](text-to-image-multimodal.html)
 :::
@@ -1185,7 +1185,7 @@ DETR (Carion et al., 2020) treats detection as direct set prediction: it outputs
 
 Why no NMS: each object is matched to exactly one query, so a second query predicting the same object is trained toward $\varnothing$, and decoder self-attention lets queries coordinate which one claims it. The paper tested NMS on its outputs: it helped after the first decoder layer and slightly lowered AP after the last.
 
-Weaknesses: slow convergence (500 epochs to reach 42.0 AP on COCO, comparable to a Faster R-CNN baseline of the same size) and small objects (5.5 points lower $\text{AP}_S$ than that baseline), because attention over a single low-resolution map is expensive and starts out nearly uniform. Deformable DETR attends to a few learned sampling points around a reference point on multi-scale features and reports better accuracy, especially on small objects, with 10x fewer epochs. DN-DETR attributes slow convergence to unstable bipartite matching and adds noised ground-truth boxes as extra queries to reconstruct; DINO builds on this with contrastive denoising and better query initialization, reaching 49.4 AP in 12 epochs with ResNet-50.
+Weaknesses: slow convergence (500 epochs to reach 42.0 AP on COCO, comparable to a Faster R-CNN baseline of the same size) and small objects ($\text{AP}_S$ of 20.5 against 26.6 for that baseline in the paper's Table 1), because attention over a single low-resolution map is expensive and starts out nearly uniform. Deformable DETR attends to a few learned sampling points around a reference point on multi-scale features and reports better accuracy, especially on small objects, with 10x fewer epochs. DN-DETR attributes slow convergence to unstable bipartite matching and adds noised ground-truth boxes as extra queries to reconstruct; DINO builds on this with contrastive denoising and better query initialization, reaching 49.4 AP in 12 epochs with ResNet-50.
 :::
 
 ::: {.qa asked="SenseTime 2019, Momo 2021 (Nowcoder)"}
@@ -1193,7 +1193,7 @@ Weaknesses: slow convergence (500 epochs to reach 42.0 AP on COCO, comparable to
 
 V1 replaced standard convolutions with depthwise-separable ones. V2 kept them but rebuilt the block around where nonlinearities lose information, giving inverted residuals with linear bottlenecks.
 
-*MobileNet v1 (Howard et al., 2017).* A plain stack of 3x3 depthwise then 1x1 pointwise convolutions, each followed by BatchNorm and ReLU, with strided depthwise layers for downsampling and no residual connections (28 layers counting both kinds). With $3 \times 3$ kernels this costs 8 to 9 times less than standard convolution. Two global knobs trade accuracy for cost: a width multiplier $\alpha$ thins every layer (cost and parameters scale by about $\alpha^2$) and a resolution multiplier $\rho$ shrinks the input (cost scales by $\rho^2$).
+*MobileNet v1 (Howard et al., 2017).* After one standard 3x3 convolution, a plain stack of 13 pairs of 3x3 depthwise then 1x1 pointwise convolutions, each followed by BatchNorm and ReLU, with strided depthwise layers for downsampling and no residual connections, then pooling and a fully connected layer (28 layers in all, counting depthwise and pointwise layers separately). With $3 \times 3$ kernels this costs 8 to 9 times less than standard convolution. Two global knobs trade accuracy for cost: a width multiplier $\alpha$ thins every layer (cost and parameters scale by about $\alpha^2$) and a resolution multiplier $\rho$ shrinks the input (cost scales by $\rho^2$).
 
 *MobileNet v2 (Sandler et al., 2018).* Each block is
 
@@ -1260,7 +1260,7 @@ SAM 3 (Carion et al., 2025, arXiv 2511.16719) adds an open-vocabulary detector t
 3. Phase 3: 15 domains, and long-tail concepts from a 22.4M-node ontology built on Wikidata.
 4. Phase 4: video.
 
-*What it released.* SA-Co/HQ (5.2M images, 4M unique phrases), a synthetic set labeled without humans (38M phrases, 1.4B masks), SA-Co/VIDEO (52.5K videos) and the SA-Co benchmark (207K concepts, exhaustive masks on 120K images and 1.7K videos), scored by cgF1, the product of localization F1 and image-level presence accuracy (MCC). In ablations, hard negatives raised that presence accuracy from 0.44 to 0.68, and the presence head added 1.5 cgF1.
+*What it built.* Training sets described in the paper: SA-Co/HQ (5.2M images, 4M unique phrases), a synthetic set labeled without humans (38M phrases, 1.4B masks) and SA-Co/VIDEO (52.5K videos). What was publicly released is the SA-Co benchmark (207K concepts, exhaustive masks on 120K images and 1.7K videos), the checkpoints and the inference code. The benchmark is scored by cgF1, the product of a localization F1 on positive phrases and the image-level Matthews correlation coefficient (IL_MCC, a correlation in $[-1, 1]$ that measures whether the model correctly predicts that the concept is present). In ablations, hard negatives raised IL_MCC from 0.44 to 0.68, and the presence head added 1.5 cgF1.
 :::
 
 Deeper: [Vision Backbones](vision-backbones.html).
@@ -1407,7 +1407,7 @@ It matches `torchvision.ops.deform_conv2d` (same offset layout, zero outside the
 Start from a latency budget on the target device and a profile, then cut cost where the profile says it goes. FLOPs and parameter counts often disagree with measured latency; the RepVGG paper makes this point, noting that multi-branch blocks slow inference and depthwise convolutions raise memory-access cost.
 
 1. *Measure.* Fix the target (phone NPU, server GPU, real-time video at a given resolution) and a quality floor measured on your own data, then profile per layer: compute-bound convolutions, memory-bound element-wise ops, data movement, pre- and post-processing.
-2. *Architecture.* Keep all computation at low resolution and upsample once at the end with pixel shuffle, which saves a factor $s^2$ over networks that interpolate first; FSRCNN's redesign of SRCNN along these lines reported a speed-up of more than 40x. Use few channels and blocks, plain 3x3 convolutions that the hardware runs well, no attention at high resolution, and a global residual over a cheap interpolation so the network predicts only detail.
+2. *Architecture.* Keep all computation at low resolution and upsample once at the end (pixel shuffle, as in ESPCN, or a final deconvolution), which saves a factor $s^2$ over networks that interpolate first; FSRCNN's redesign of SRCNN, combining a final deconvolution with a shrink-then-expand mapping and smaller filters, reported a speed-up of more than 40x. Use few channels and blocks, plain 3x3 convolutions that the hardware runs well, no attention at high resolution, and a global residual over a cheap interpolation so the network predicts only detail.
 3. *Free at inference.* Structural re-parameterization: train multi-branch blocks (3x3, 1x1, identity) and fold them into a single 3x3 convolution for deployment. Knowledge distillation from a larger teacher.
 4. *Compression.* Channel pruning, then int8 quantization, with quantization-aware training if post-training quantization costs too much quality. SR outputs are dense intensities, so quantization error shows up directly as banding or lost PSNR.
 5. *System.* Run the network on the luma (Y) channel only and upsample chroma bilinearly; tile large images with overlap; fuse operators and compile with a vendor runtime such as TensorRT; use fp16; for video, reuse computation across frames or skip static regions.
@@ -1587,7 +1587,7 @@ Test the result with prompts that vary what you captioned (pose, background) and
 [more](text-to-image-multimodal.html)
 :::
 
-::: {.qa asked="Xiaohongshu CV/multimodal intern (2021, 2024)"}
+::: {.qa asked="Xiaohongshu CV/MM intern 2024, campus 2021 (Nowcoder)"}
 **How are vision and language aligned and fused in multimodal models, and does alignment actually help?**
 
 Alignment makes the two modalities' representations comparable, so matched image and text land close together; fusion lets tokens of one modality read the other so the model can reason jointly. Most models use both.
@@ -1613,14 +1613,14 @@ Alignment makes the two modalities' representations comparable, so matched image
 ::: {.qa asked="Tencent multimodal 2026 (Nowcoder), JD 2026 (repo)"}
 **Describe the Qwen2.5-VL architecture.**
 
-Qwen2.5-VL (Qwen Team, 2025, arXiv 2502.13923) is a ViT, an MLP merger and a Qwen2.5 LLM, released at 3B, 7B and 72B. Its changes from Qwen2-VL target efficiency at native resolution and timing in video.
+Qwen2.5-VL (Qwen Team, 2025, arXiv 2502.13923) is a ViT, an MLP merger and a Qwen2.5 LLM; the report covers 3B, 7B and 72B models, and a 32B model was released later. Its changes from Qwen2-VL target efficiency at native resolution and timing in video.
 
 1. *Vision encoder.* A ViT trained from scratch, with the same configuration in all three sizes (hidden size 1280, 32 layers, 16 heads) and 14x14 patches on images resized to multiples of 28. To keep cost linear in image size, most layers use window attention with windows of at most 112x112 pixels (8x8 patches); only four layers (indices 7, 15, 23 and 31) use full attention. It uses 2D RoPE, and RMSNorm and SwiGLU as in the LLM. For video, two consecutive frames form one 3D patch, halving the token count.
 2. *Merger.* Features of each 2x2 group of neighbouring patches are concatenated and projected by a two-layer MLP to the LLM width (2048, 3584 or 8192), so the LLM receives one token per 28x28 pixels.
 3. *LLM.* Initialized from Qwen2.5 and using M-RoPE with temporal, height and width indices. The temporal index is tied to absolute time, so the spacing between indices encodes real time, and training samples videos at dynamic frame rates.
 4. *Native coordinates.* Boxes and points use the input image's actual pixel coordinates instead of normalized ones, so the model learns scale.
 
-Training: the ViT is first trained alone (CLIP-style pretraining, then alignment with the LLM with only the ViT updated), then all parameters are unfrozen for multimodal pretraining at sequence length 8,192, then a long-context phase at 32,768 with more video and agent data, then SFT and DPO with the ViT frozen.
+Training: the ViT is first trained alone (CLIP-style pretraining, then alignment with the LLM with only the ViT updated), then all parameters are unfrozen for multimodal pretraining (both of these phases pack data to sequence length 8,192), then a long-context phase at 32,768 with more video and agent data, then SFT and DPO with the ViT frozen.
 
 Points to discuss: window attention gives up some global interaction for linear cost, and the four full-attention layers restore it; the 4x token merge keeps long documents and videos affordable; absolute-time M-RoPE supports temporal grounding without timestamp tokens or extra heads.
 :::
@@ -1638,7 +1638,7 @@ Match the mechanism to the shape of the condition: a global vector, a token sequ
 
 In a video DiT, per-frame structural controls (pose or depth sequences) go through channel concatenation or a control branch, and camera control often uses per-pixel Plücker ray embeddings.
 
-*RoPE.* DiT used fixed 2D sine-cosine embeddings, which must be interpolated or extrapolated at other sizes, changing what each position means. RoPE encodes relative offsets inside attention along each axis, so variable resolution, aspect ratio and duration come naturally, and an offset can tag context tokens (Kontext puts context-image tokens at a constant offset on a virtual time axis). CogVideoX uses 3D RoPE (channels split 3:3:2 over $x$, $y$, $t$) and found it converged faster than sinusoidal absolute embeddings; HunyuanVideo and FLUX also use RoPE. A DiT does not strictly need it (SD3 uses 2D sinusoidal embeddings on an extended grid), but it is the common default for mixed-size image and video training.
+*RoPE.* DiT used fixed 2D sine-cosine embeddings, which must be interpolated or extrapolated at other sizes, changing what each position means. RoPE encodes relative offsets inside attention along each axis, so variable resolution, aspect ratio and duration come naturally, and an offset can tag context tokens (Kontext puts context-image tokens at a constant offset on a virtual time axis). CogVideoX's paper uses 3D RoPE (channels split 3:3:2 over $x$, $y$, $t$) and found it converged faster than sinusoidal absolute embeddings (the released 5B model uses it, while the released 2B model keeps 3D sinusoidal embeddings); HunyuanVideo and FLUX also use RoPE. A DiT does not strictly need it (SD3 uses 2D sinusoidal embeddings on a position grid that is partly extended and partly rescaled for other sizes, then center-cropped), but it is the common default for mixed-size image and video training.
 
 [more](text-to-image-multimodal.html)
 :::
@@ -1650,7 +1650,7 @@ ControlNet injects structure that is pixel-aligned with the output; ReferenceNet
 
 *ControlNet* copies the U-Net encoder, feeds it a control map (edges, depth, pose) and adds its outputs to the frozen U-Net through zero convolutions. The addition is location by location, so it makes sense only when control pixel $(i, j)$ corresponds to output pixel $(i, j)$.
 
-*ReferenceNet* (Animate Anyone, Hu et al., 2023) is a copy of the denoising U-Net without temporal layers, initialized from the same Stable Diffusion weights and trained separately, that encodes the reference image. In each self-attention layer of the denoiser, the reference feature map is concatenated with the denoiser's along the width, self-attention runs over both, and only the denoiser's half is kept. Every output location can pull detail from anywhere in the reference, which handles a character whose pose differs from the reference, and shared architecture and initialization put both feature maps in the same space. The reference features are extracted once per generation, not at every denoising step, so the inference overhead is modest. CLIP image features also enter by cross-attention for semantics, and pose enters through a light convolutional pose guider added to the noisy latent. The authors found ControlNet a poor fit here because the reference is not spatially aligned with the target.
+*ReferenceNet* (Animate Anyone, Hu et al., 2023) is a copy of the denoising U-Net without temporal layers, initialized from the same Stable Diffusion weights but with its own, unshared weights, that encodes the reference image; it is trained jointly with the denoiser in the first (image) stage and frozen in the second stage, where only the temporal layers train. In each self-attention layer of the denoiser, the reference feature map is concatenated with the denoiser's along the width, self-attention runs over both, and only the denoiser's half is kept. Every output location can pull detail from anywhere in the reference, which handles a character whose pose differs from the reference, and shared architecture and initialization put both feature maps in the same space. The reference features are extracted once per generation, not at every denoising step, so the inference overhead is modest. CLIP image features also enter by cross-attention for semantics, and pose enters through a light convolutional pose guider added to the noisy latent. The authors found ControlNet a poor fit here because the reference is not spatially aligned with the target.
 
 *Tools for preserving the input:*
 
@@ -1665,19 +1665,19 @@ ControlNet injects structure that is pixel-aligned with the output; ReferenceNet
 ::: {.qa asked="JD algorithm intern, Nowcoder 2024"}
 **Describe DeepFloyd IF's structure and its advantages.**
 
-DeepFloyd IF is an openly released, pixel-space cascade in the style of Imagen: a frozen T5 text encoder conditions three diffusion U-Nets that generate at 64x64 and then upsample to 256x256 and 1024x1024.
+DeepFloyd IF is an openly released cascade in the style of Imagen: a frozen T5 text encoder conditions pixel-space diffusion U-Nets that generate at 64x64 and upsample to 256x256, and a third stage upsamples to 1024x1024.
 
 1. *Text encoder:* frozen T5-v1.1-XXL. Per the model card, its per-token outputs pass through a linear projection into hybrid self- and cross-attention in the U-Net, and an attention-pooled summary is added to the timestep embedding.
 2. *Stage I:* 64x64 text-to-image, up to 4.3B parameters (IF-I-XL), trained with 1,000 diffusion steps, a cosine schedule and 10% caption dropout for classifier-free guidance.
 3. *Stage II:* 64 to 256 super-resolution conditioned on the text and the stage-I image, up to 1.2B parameters (IF-II-L).
-4. *Stage III:* 256 to 1024. The release used the Stable Diffusion x4 upscaler here, with its own stage-III model listed as coming later.
+4. *Stage III:* 256 to 1024. The release used the Stable Diffusion x4 upscaler here, a latent diffusion model with its own VAE and OpenCLIP text encoder, with IF's own stage-III model listed as coming later.
 
 The repository reports a zero-shot FID-30K of 6.66 on COCO. Imagen (Saharia et al., 2022) explains the design: scaling the frozen text encoder helped more than scaling the U-Net, raters preferred T5-XXL to CLIP text encoders on hard compositional prompts, and super-resolution stages trained with noise-conditioning augmentation (the low-resolution input is noised and the noise level is passed as a condition) tolerate artifacts from the stage before.
 
 *Advantages.*
 
 - Language understanding from a large T5, which helps compositional prompts and written text; SD3 later measured that T5 matters most for typography.
-- No autoencoder bottleneck: generating in pixels avoids the latent's reconstruction limit on small glyphs and fine detail.
+- No autoencoder bottleneck in stages I and II: generating in pixels avoids the latent's reconstruction limit on small glyphs and fine detail (the released stage III, being a latent upscaler, reintroduces one at 1024x1024).
 - Modularity: each stage can be replaced or fine-tuned separately, and stage I is cheap per step at 64x64.
 
 *Costs.* Three models run in sequence, each with its own steps and guidance; the super-resolution U-Nets work at high resolution in pixel space, which is expensive; layout errors made at 64x64 cannot be fixed later; T5-XXL alone is a multi-billion-parameter encoder; and the cascade needs per-stage tuning of noise augmentation and guidance. Later latent transformers with T5 encoders (SD3, FLUX) kept the language-model conditioning and dropped the cascade.
@@ -1723,7 +1723,7 @@ A typical implementation:
 2. Put each image in the bucket with the nearest aspect ratio, resize it to cover the bucket, and crop the small remainder.
 3. Sample batches one bucket at a time, choosing buckets in proportion to their size, and shuffle within buckets.
 
-Sides must be divisible by the model's total downsampling factor: the VAE's 8x times the U-Net's internal downsampling (3 halvings in SD 1.x, giving 64; 2 in SDXL, giving 32) or times the patch size in a DiT. Because the pixel count is about constant, cost per step and the effective noise level stay comparable across buckets.
+Sides are kept divisible by the model's total downsampling factor, so every level has whole-number sizes and skip connections line up without extra handling (a convention more than a hard limit; diffusers' Stable Diffusion pipeline itself accepts multiples of 8): the VAE's 8x times the U-Net's internal downsampling (3 halvings in SD 1.x, giving 64; 2 in SDXL, giving 32) or times the patch size in a DiT. Because the pixel count is about constant, cost per step and the effective noise level stay comparable across buckets.
 
 *Why not center-crop to squares?* Crops cut off heads and feet, and the model learns that framing: SDXL showed earlier Stable Diffusion models generating cut-off subjects. Square training also loses the composition of wide and tall images and leaves the model untrained at non-square sizes. Padding wastes compute and can teach borders. Alternatives: SDXL's crop conditioning (keep random crops but give the model the crop offsets, then request $(0, 0)$ at inference), and in transformers, packing variable-size token sequences (NaViT-style, as in CogVideoX's frame packing). Watch for rare buckets that give small or repetitive batches.
 
@@ -1789,7 +1789,7 @@ Assess both the same way: what is claimed, what the evidence supports, what is u
 
 *Sora (technical report, 2024).*
 
-- Claims: a video compression network plus a diffusion transformer on spacetime patches, trained jointly on images and videos at native durations, resolutions and aspect ratios; up to a minute of high-definition video; descriptive re-captioning and GPT prompt expansion; quality improving with training compute; 3D consistency and object permanence that hold "often, though not always".
+- Claims: a video compression network plus a diffusion transformer on spacetime patches, trained jointly on images and videos at native durations, resolutions and aspect ratios; up to a minute of high-definition video; descriptive re-captioning and GPT prompt expansion; quality improving with training compute; 3D consistency; long-range coherence and object permanence that hold "often, though not always".
 - Evidence: qualitative samples, including the same prompt at base, 4x and 16x compute and a square-crop versus native-aspect comparison.
 - Unknown: size, data, objective details and quantitative metrics; the report says model and implementation details are not included.
 - Admitted limits: physics such as glass shattering, state changes such as eating, and incoherence in long samples.
@@ -1807,7 +1807,7 @@ Assess both the same way: what is claimed, what the evidence supports, what is u
 1. *3D causal VAE.* 3D convolutions with all temporal padding on the past side compress 8x8 in space and 4x in time. It is trained with L1, LPIPS and KL losses (plus a 3D GAN loss later), first on 17-frame clips, then on 161 frames split across devices, which causality makes cheap. Their ablation found 16x16x8 compression hard to converge even with more channels.
 2. *Expert transformer.* T5 text embeddings and patchified video latents are concatenated into one sequence. Because the two modalities have different feature statistics, separate vision and text "expert" adaLN modulations, both driven by the timestep, are applied to their tokens; at equal parameter count this beat MMDiT in their ablation.
 3. *3D full attention* over all text and video tokens. They found separate spatial and temporal attention less stable and worse for large motion, because a moving object's tokens in adjacent frames cannot attend to each other directly.
-4. *3D RoPE.* 1D RoPE on $x$, $y$ and $t$ using 3/8, 3/8 and 2/8 of the channels, extended rather than rescaled for new sizes; it converged faster than sinusoidal absolute embeddings.
+4. *3D RoPE.* 1D RoPE on $x$, $y$ and $t$ using 3/8, 3/8 and 2/8 of the channels, extended rather than rescaled for new sizes; it converged faster than sinusoidal absolute embeddings. (This is the paper's design and the 5B release's; the released 2B model uses 3D sinusoidal embeddings.)
 
 Training uses v-prediction with zero terminal SNR; mixed-duration batches (multi-resolution frame packing, after NaViT's sequence packing); progressive resolution from 256 to 512 to 768 px; and explicit uniform sampling, which gives each data-parallel rank its own interval of timesteps so the batch covers $[1, T]$ evenly and the loss is more stable. Captions come from a pipeline in which a video model writes a short caption, CogVLM writes dense captions of frames, and GPT-4 summarizes them; a fine-tuned Llama 2 and then an end-to-end CogVLM2-Caption model replaced the expensive steps.
 
@@ -1821,9 +1821,9 @@ Training uses v-prediction with zero terminal SNR; mixed-duration batches (multi
 
 U-Nets inflated from image models are cheap to start from and efficient at high resolution; DiTs treat every token the same way, allow full space-time attention and scale more predictably, at a cost quadratic in the token count. Most recent large video models are DiTs.
 
-*Inflated U-Nets* (Video Diffusion Models, Make-A-Video, AnimateDiff, Stable Video Diffusion) add temporal layers (temporal attention, temporal convolutions or both) after the spatial layers of an image U-Net, often initialized as identities or with zeroed outputs.
+*Factorized 3D U-Nets* add temporal layers (temporal attention, temporal convolutions or both) after the spatial layers of an image U-Net. Video Diffusion Models (Ho et al., 2022) trained such a U-Net from scratch on images and videos jointly; Make-A-Video, AnimateDiff and Stable Video Diffusion inflate a pretrained image U-Net, with the new temporal layers often initialized as identities or with zeroed outputs.
 
-- Pros: they reuse a strong image prior and, in AnimateDiff's plug-in motion module, its community fine-tunes; the multiscale hierarchy puts attention at low resolution, keeping high-resolution cost manageable; convolutions add locality and translation equivariance, which helps data efficiency.
+- Pros: inflated models reuse a strong image prior and, in AnimateDiff's plug-in motion module, its community fine-tunes; the multiscale hierarchy puts attention at low resolution, keeping high-resolution cost manageable; convolutions add locality and translation equivariance, which helps data efficiency.
 - Cons: temporal attention links only tokens at the same spatial position and temporal convolutions are local, so large motion must propagate through many layers; global temporal context and long clips are limited; heterogeneous blocks are harder to scale and parallelize; and text enters only through cross-attention.
 
 *Video DiTs* (CogVideoX, HunyuanVideo, Wan, and Sora as described in its report) cut a compressed spacetime latent (a causal 3D VAE in the open models) into patch tokens and run a uniform transformer.
@@ -1903,7 +1903,7 @@ Use several axes: image quality (FID or a DINOv2-based distance against a refere
 FVD computes a Fréchet distance on I3D video features and is more sensitive to per-frame content than to motion. VBench splits quality into dimensions such as subject consistency, motion smoothness, dynamic degree, aesthetics and text alignment. Per-frame metrics (FID, CLIP score) miss temporal artifacts, and static videos can score well on consistency, so pair consistency with a motion measure. Human evaluation remains the reference.
 :::
 
-::: {.qa asked="Meta AI research design round, Blind 2024"}
+::: {.qa asked="Meta AI research EM design round, Blind 2024"}
 **What is the difference between offline and online metrics, and how do you choose them?**
 
 Offline metrics are computed on fixed held-out data before deployment; online metrics measure what users do on live traffic, usually in an A/B test. Offline metrics are cheap, fast and reproducible, so they drive iteration; online metrics are closer to the goal, but slow, noisy and risky, so they decide launches.
@@ -1948,14 +1948,14 @@ $$d(x, x_0) = \sum_l \frac{1}{H_l W_l} \sum_{h,w} \big\lVert w_l \odot (\hat y^l
 
 With all $w_l = 1$ this is a cosine distance, since $\lVert a - b \rVert^2 = 2 - 2\cos(a, b)$ for unit vectors.
 
-The weights are trained on BAPPS, a dataset of human judgments on $64 \times 64$ patches covering traditional distortions, CNN-based distortions and real algorithm outputs. In the 2AFC task, people see a reference and two distorted versions and pick the closer one. A small network maps the pair of distances $(d_0, d_1)$ to the probability of that choice and is trained with cross-entropy. Three variants: *lin* freezes the backbone and learns only $w$ (1,472 parameters for VGG), *tune* fine-tunes the whole pretrained network, and *scratch* trains from random initialization. The official code expects RGB inputs scaled to $[-1, 1]$.
+The weights are trained on BAPPS, a dataset of human judgments on $64 \times 64$ patches: the training split covers traditional and CNN-based distortions (about 150k patch pairs), while outputs of real algorithms (super-resolution, frame interpolation, deblurring, colorization) are held out for evaluation. In the 2AFC task, people see a reference and two distorted versions and pick the closer one. A small network maps the pair of distances $(d_0, d_1)$ to the probability of that choice and is trained with cross-entropy. Three variants: *lin* freezes the backbone and learns only $w$ (1,472 parameters for VGG), *tune* fine-tunes the whole pretrained network, and *scratch* trains from random initialization. The official code expects RGB inputs scaled to $[-1, 1]$.
 
 Limitations: it needs a pixel-aligned reference, so small shifts change the score; it compares pairs, not distributions (unlike FID); scores differ by backbone, so report which you used; and because it is differentiable and often used as a training loss, evaluating with the same LPIPS flatters models trained on it.
 
 [more](evaluation-metrics.html)
 :::
 
-::: {.qa asked="NVIDIA (PracHub 2026)"}
+::: {.qa asked="NVIDIA MLE question (PracHub 2026)"}
 **What is model calibration, and how do you measure and fix it?**
 
 A classifier is calibrated if, among predictions made with confidence $p$, a fraction $p$ is correct: $P(\hat Y = Y \mid \hat P = p) = p$. Calibration is separate from accuracy; a model can be accurate and still overconfident.
@@ -1966,7 +1966,7 @@ $$\mathrm{ECE} = \sum_{m=1}^{M} \frac{|B_m|}{n}\,\big|\mathrm{acc}(B_m) - \mathr
 
 ECE has known flaws: it depends on the number and type of bins, sparse high-confidence bins are noisy, the usual version looks only at the top-class probability, and it is not a proper scoring rule. A model that predicts the base rate for every input has zero ECE and no skill, so report NLL or the Brier score alongside it. Nixon et al. (2019) found that the ranking of recalibration methods changes with these choices, and recommend adaptive bins and class-conditional variants.
 
-**Why modern networks are overconfident.** Guo et al. (2017) found that greater depth and width, BatchNorm and less weight decay go with worse calibration, and observed that test NLL can overfit while test error keeps falling: the network keeps enlarging logits on examples it already classifies correctly.
+**Why modern networks are overconfident.** Guo et al. (2017) found that greater depth and width, BatchNorm and less weight decay go with worse calibration, and observed that test NLL can overfit while test error keeps falling, which they describe as accuracy improving at the expense of well-modelled probabilities: the predictions keep getting more confident, including the wrong ones, and each confident mistake costs a lot of NLL.
 
 **Fixing it.**
 
@@ -1977,7 +1977,7 @@ ECE has known flaws: it depends on the number and type of bins, sparse high-conf
 Post-hoc calibration fit in-distribution degrades under dataset shift; in Ovadia et al. (2019), methods that average over several models, such as ensembles, held up better.
 :::
 
-::: {.qa asked="NVIDIA (PracHub 2026)"}
+::: {.qa asked="NVIDIA MLE question (PracHub 2026)"}
 **What is data or model drift, and how do you detect and handle it?**
 
 Drift means the production distribution moves away from the training distribution, so performance decays silently. Factor $p(x, y)$ to name the kinds:
@@ -2005,7 +2005,7 @@ The biggest risks are leakage and shift between sites, not the backbone. Split b
 - CT values are in Hounsfield units: clip to a task window (a lung or a soft-tissue window) and rescale. MRI intensities are not standardized across scanners, so normalize per volume (percentile clipping, z-score within a body mask), optionally after bias-field correction. For X-rays, handle bit depth and inverted DICOM photometric interpretation.
 - Resample 3D volumes to a common voxel spacing and crop to the anatomy.
 - Augment within anatomical limits: small rotations and scaling, contrast and noise jitter, mild elastic deformation. Avoid left-right flips when laterality matters, and crops that can cut out the lesion.
-- Look for shortcuts such as burned-in text, markers or scanner signatures. Zech et al. (2018) found that pneumonia CNNs could identify the hospital system that produced a chest X-ray, and performed significantly worse on outside hospitals in 3 of 5 comparisons.
+- Look for shortcuts such as burned-in text, markers or scanner signatures. Zech et al. (2018) showed that a CNN trained for the purpose could identify which hospital system produced a chest X-ray almost perfectly, and that pneumonia CNNs performed significantly worse on outside hospitals in 3 of 5 comparisons.
 
 **Cross-validation.**
 
@@ -2619,7 +2619,7 @@ Memory: with mixed-precision Adam, each parameter costs about 16 bytes (2 for BF
 With Euclidean distance, $\arg\min_i \|x - x_i\|^2 = \arg\max_i \big(x_i^\top x - \tfrac{1}{2}\|x_i\|^2\big)$, because $\|x\|^2$ is the same for every $i$. So a linear layer with weight rows $x_i$ and biases $-\tfrac{1}{2}\|x_i\|^2$, followed by an argmax (a winner-take-all layer, or a softmax with temperature near zero for a differentiable version), selects the nearest training point, and a second linear layer whose weights are the one-hot labels outputs its class. This is also attention with the training points as keys and their labels as values, in the zero-temperature limit.
 :::
 
-::: {.qa asked="Qualcomm 2026 (Glassdoor), NVIDIA (PracHub 2026)"}
+::: {.qa asked="Qualcomm 2026 (Glassdoor), NVIDIA SWE (PracHub 2026)"}
 **Quantize an FP32 tensor to int8: compute the scale and zero point, and explain which errors quantization introduces.**
 
 Quantization stores a real value as an integer through an affine map, $x \approx s\,(q - z)$, with a float scale $s$ and an integer zero point $z$. You choose $s$ and $z$ from the range you decide to represent. The errors are rounding inside that range, clipping outside it, and what both turn into after integer arithmetic and later layers.
@@ -2881,7 +2881,7 @@ Follow-ups usually probe the representation and the skew:
 - **Scale.** Shard by index range, compute partial sums per shard and add them; accumulate in float64 when there are many terms.
 :::
 
-::: {.qa asked="NVIDIA (PracHub 2026); Luma RE"}
+::: {.qa asked="NVIDIA SWE (PracHub 2026); Luma RE"}
 **Work out the tensor shapes through an MLP and explain PyTorch broadcasting.**
 
 `nn.Linear(d_in, d_out)` stores a weight of shape `(d_out, d_in)` and a bias of shape `(d_out,)`, and computes $y = xW^\top + b$ over the last dimension only, so leading batch and sequence dimensions pass through unchanged. Broadcasting aligns shapes from the right and stretches size-1 dimensions; it is convenient and a common source of silent bugs.
@@ -3210,7 +3210,7 @@ class CountMin:
 ::: {.qa asked="OpenAI RE (Aced, ~2025)"}
 **Given a Python package, find the latest Python version that supports it, using far fewer calls to the expensive compatibility check than there are versions. Then make the solution work in the general case.**
 
-Binary search needs a monotone predicate, so first agree with the interviewer on what is monotone. Parse versions into integer tuples, since string comparison puts "3.10" before "3.9". If support is one contiguous range, keep the releases at or above a version known to work; `works(v)` is then True up to the answer and False after it, and a last-True binary search needs $\lceil \log_2(N+1) \rceil$ checks. The report does not spell out the general case. One version that needs a hierarchical search: support is not monotone over the flat list (a patch release breaks the package) but is monotone level by level.
+The report names only the topic, a hierarchical binary search over Python versions; the problem statement above and the "general case" below are a reconstruction, not the interviewer's wording. Binary search needs a monotone predicate, so first agree with the interviewer on what is monotone. Parse versions into integer tuples, since string comparison puts "3.10" before "3.9". If support is one contiguous range, keep the releases at or above a version known to work; `works(v)` is then True up to the answer and False after it, and a last-True binary search needs $\lceil \log_2(N+1) \rceil$ checks. One plausible general case that needs a hierarchical search: support is not monotone over the flat list (a patch release breaks the package) but is monotone level by level.
 
 Assume that at every level a group (a major, or a minor within a major) contains a supported release only if its first release is supported, and that groups whose first release works come before those whose first release fails; later releases inside a group may still be broken. Binary-search the majors by their first releases, recurse into the last major that passes, and repeat for minors and patches. No later group contains a supported release, so the answer lies in the last passing group, where the same assumption holds one level down.
 
@@ -3241,13 +3241,13 @@ def latest_supported(tree, works, prefix=()):
     return None if i < 0 else latest_supported(tree[keys[i]], works, prefix + (keys[i],))
 ```
 
-On releases 3.6.0 to 3.13.2 with support up to 3.11.4 and a broken 3.9.3, the flat search stops at 3.9.2 and the hierarchical one returns 3.11.4. It uses $O(\log M + \log m + \log p)$ checks for $M$ majors, $m$ minors and $p$ patches, which is $O(\log N)$, and fetches only the version lists along its path. For the earliest supporting version, mirror it: represent each group by its latest release and search for the first True. With no structure at all, the worst case needs every version checked, since the one supported version could be anywhere, so stating the assumption is part of the answer.
+With support up to 3.11.4 and a broken 3.9.3, a flat search returns 3.9.2 whenever one of its probes lands on 3.9.3, because it then discards everything later; the hierarchical search probes only the first release of each major and minor (3.9.0, not 3.9.3) and returns 3.11.4. It uses $O(\log M + \log m + \log p)$ checks for $M$ majors, $m$ minors and $p$ patches, which is $O(\log N)$, and fetches only the version lists along its path. For the earliest supporting version, mirror it: represent each group by its latest release and search for the first True. With no structure at all, the worst case needs every version checked, since the one supported version could be anywhere, so stating the assumption is part of the answer.
 :::
 
 ::: {.qa asked="OpenAI RS, PracHub 2026"}
 **Implement a card game whose rules arrive in stages: rank hands (three of a kind beats a pair, which beats a high card), then add a flush between three of a kind and pair, then add a rule that discards some hands before comparison. Return a log of the game, and keep the design open to new rules.**
 
-The round tests whether the first part's design absorbs the later parts without a rewrite; the reporter warned that changing the design afterwards was very painful. Separate the card model, hand evaluation, comparison, discard policy, game flow and logging, and make the hand categories data: an ordered list of rules, each a function that returns a tie-break key when the hand matches and `None` otherwise.
+The three stages above come from one candidate's PracHub report (September 2026); that candidate's discard rule was "discard a hand that is not a pair" and they noted that others had posted a different rule, so treat the specifics as one variant. The round tests whether the first part's design absorbs the later parts without a rewrite; the reporter warned that changing the design afterwards was very painful. Separate the card model, hand evaluation, comparison, discard policy, game flow and logging, and make the hand categories data: an ordered list of rules, each a function that returns a tie-break key when the hand matches and `None` otherwise.
 
 ```python
 from collections import Counter
@@ -3301,10 +3301,10 @@ A hand's score is the tuple (category strength, tie-break), and Python compares 
 Test each category boundary (pair against high card, flush against pair, three of a kind against flush), ties, and the all-discarded case, plus a regression test that adding the flush leaves comparisons between non-flush hands unchanged. A single `compare` function with nested cases for each pair of categories grows quadratically and must be edited for every new rule; a subclass per category fits poorly because a hand's category is computed from its cards, not declared. Natural follow-ups, such as a straight or a different discard rule chosen at runtime, then stay small, local changes.
 :::
 
-::: {.qa asked="Anthropic CodeSignal (Glassdoor, guides)"}
+::: {.qa asked="Anthropic CodeSignal task, Glassdoor 2024"}
 **In a timed CodeSignal assessment, implement a simplified banking system whose requirements arrive in levels. How do you design and test it?**
 
-The reports describe building bank-account functionality in Python, with requirements that arrive in stages. That matches CodeSignal's published format for project-based tasks: one task in four progressive levels, at most 90 minutes, partial credit per passing test, and method signatures fixed by earlier levels, so later levels force you to refactor your own code. Unofficial reconstructions on practice sites (not confirmed) list accounts and deposits, then transfers and a top-spenders ranking, then payments with delayed cashback, then account merges. Design so those later levels are cheap:
+The one Glassdoor report (2024) says only that the CodeSignal task was building bank-account functionality in Python; that its requirements came in levels is an assumption based on CodeSignal's format, not something the report states. CodeSignal's published description of its Industry Coding Framework is one project task in four progressive levels, at most 90 minutes, partial credit for each passing test, and a request not to change existing method signatures, so later levels force you to refactor your own code. Unofficial reconstructions on practice sites (not confirmed) list accounts and deposits, then transfers and a top-spenders ranking, then payments with delayed cashback, then account merges. Design so those later levels are cheap:
 
 - Take a timestamp in every operation from level 1, and settle pending timed events (a min-heap by due time, with a sequence number for ties) at the start of every public method.
 - Route every balance change through one internal method that also records history and updates aggregates such as outgoing totals.
@@ -3384,7 +3384,7 @@ def longest_palindrome(s):
 Time $O(n^2)$ in the worst case (a string of one repeated letter), space $O(1)$. Manacher's algorithm gets $O(n)$: it reuses the radius of the mirror-image centre inside the rightmost palindrome found so far, so the right boundary only moves forward. Common follow-ups: count all palindromic substrings (the same expansion, adding one per successful step), or the longest palindromic subsequence, which needs an $O(n^2)$ interval DP instead.
 :::
 
-::: {.qa asked="Tencent Youtu 2024, JD 2026 (Nowcoder)"}
+::: {.qa asked="Tencent Youtu 2024 (Nowcoder), JD 2026 (repo)"}
 **Find the maximum subarray sum, then return the subarray itself.**
 
 Kadane's algorithm: let `cur` be the best sum of a subarray that ends at index $i$. Either that subarray is `a[i]` alone or it extends the best one ending at $i-1$, so `cur = a[i] + max(cur, 0)`. The answer is the largest `cur` seen. To return the subarray, remember where the current run started and copy the run's start and end whenever it beats the best.
@@ -3777,7 +3777,7 @@ def window_medians(a, k):
 
 The searches are $O(\log k)$ but list insertion and deletion shift elements, so the worst case is $O(nk)$ time (fast in practice because the shift is a memory move), with $O(k)$ space.
 
-For guaranteed $O(n \log k)$, use two heaps: a max-heap for the lower half and a min-heap for the upper half, balanced so the lower one has the same size or one more. The median is the top of the lower heap (or the mean of both tops). Heaps cannot delete an arbitrary element, so deletion is lazy: record the outgoing value in a hash map of pending removals, adjust a balance counter for the side it was on, and pop such values only when they reach a heap's top.
+The usual logarithmic answer is two heaps: a max-heap for the lower half and a min-heap for the upper half, balanced so the lower one has the same size or one more. The median is the top of the lower heap (or the mean of both tops). Heaps cannot delete an arbitrary element, so deletion is lazy: record the outgoing value in a hash map of pending removals, adjust a balance counter for the side it was on, and pop such values only when they reach a heap's top. Stale entries buried below the tops can pile up (on an increasing input the lower heap keeps every old value), so the worst case is $O(n \log n)$ time and $O(n)$ space. For a guaranteed $O(n \log k)$ with $O(k)$ space, use a structure that deletes in $O(\log k)$: a balanced search tree or order-statistic tree, or heaps that track each element's position.
 
 For median filtering of 8-bit images, use a 256-bin histogram of the window instead. Sliding the window one pixel updates only the entering and leaving column or row, and the median is found by accumulating bin counts up to half the window size, so the cost no longer grows as $k^2 \log k$ with the window size.
 :::
@@ -3916,7 +3916,7 @@ Time $O(mn)$. The distance alone needs only two rows, $O(\min(m, n))$ space afte
 
 The longest path in a tree bends at exactly one highest node. At that node it goes down the deepest path of the left subtree and the deepest path of the right subtree. So one post-order DFS that returns each subtree's height (in nodes) and updates a global best with `left + right + 1` at every node finds it.
 
-The trap in the report: the common LeetCode version counts edges. A path with $k$ nodes has $k - 1$ edges, so the node count is `left + right + 1` with heights measured in nodes, while the edge count is `left + right`. Fix the convention before coding and check it on a single node (1 node, 0 edges) and an empty tree (0 nodes).
+The report asks for nodes, while the common LeetCode version counts edges. A path with $k$ nodes has $k - 1$ edges, so the node count is `left + right + 1` with heights measured in nodes, while the edge count is `left + right`. Fix the convention before coding and check it on a single node (1 node, 0 edges) and an empty tree (0 nodes).
 
 ```python
 class TreeNode:
