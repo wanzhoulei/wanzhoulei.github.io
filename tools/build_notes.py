@@ -110,10 +110,11 @@ def build_index(notes):
     topics = [n for n in notes if n["slug"] != "interview-question-bank"]
     topic_q = sum(n["qcount"] for n in topics)
     bank_q = sum(n["qcount"] for n in bank)
+    bank_asked = sum(n["asked"] for n in bank)
     updated = max((n["updated"] for n in notes), default="")
     featured = card(bank[0], featured=True) if bank else ""
     cards = "\n      ".join(card(n, num=i) for i, n in enumerate(topics, 1))
-    page = INDEX.format(featured=featured, cards=cards, topic_q=topic_q, bank_q=bank_q,
+    page = INDEX.format(featured=featured, cards=cards, topic_q=topic_q, bank_q=bank_q, bank_asked=bank_asked,
                         n_topics=len(topics), updated=html.escape(updated))
     (OUT / "index.html").write_text(page, encoding="utf-8")
 
@@ -151,7 +152,7 @@ INDEX = """<!DOCTYPE html>
   <div class="notes-head">
     <h1 class="page-title">Notes</h1>
     <p class="page-lede">Notes on generative modeling, computer vision and deep learning. Each page builds the core ideas from first principles, derives the key equations, and ends with practice questions you can expand one at a time.</p>
-    <p class="note-meta"><span>{n_topics} topics</span><span>{topic_q} practice questions in the topic notes</span><span>{bank_q} questions from real interviews in the bank</span><span>Updated {updated}</span></p>
+    <p class="note-meta"><span>{n_topics} topics</span><span>{topic_q} practice questions in the topic notes</span><span>{bank_q} interview-bank questions, {bank_asked} with a cited source</span><span>Updated {updated}</span></p>
   </div>
   {featured}
   <div class="note-grid">

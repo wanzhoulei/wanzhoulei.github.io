@@ -1,13 +1,13 @@
 ---
 title: "Research Interview Question Bank"
-subtitle: "Questions reported in research-scientist-intern interviews for generative modeling and computer vision, across companies, with short answers."
+subtitle: "Questions reported in research-scientist-intern interviews for generative modeling and computer vision, across companies, with model answers."
 order: 0
 updated: 2026-11-08
 ---
 
 This page collects questions that candidates reported from research-scientist-intern interviews in generative modeling and computer vision, with a short model answer for each. It was compiled from public interview reports on Glassdoor, Blind, Reddit, 1point3acres, Nowcoder, Zhihu, Jointaro, PracHub and similar sites, mostly posted between 2019 and 2026. Many reports were visible only as search-engine snippets or login-wall summaries, so dates and roles are approximate, and every question below is paraphrased. Chinese reports usually come from "algorithm intern" roles on AIGC, multimodal and vision teams rather than from programs titled research intern; some English reports are from adjacent roles (ML intern, applied scientist intern, a few full-time research roles), and the badges say so.
 
-**How to read the badges.** A question with an `asked` badge appeared in at least one report; the badge names the companies and, when the theme recurred, the approximate number of independent reports. A badge means the question has been asked somewhere, not that a company asks it every time. Questions without a badge were added because they test the same material; several of them come from curated Chinese AIGC question lists, which are written by bloggers and are weaker evidence than first-hand reports. The numbers in square brackets point to the [Sources](#sources) list at the end.
+**How to read the badges.** A question with an `asked` badge appeared in at least one report; the badge names the companies and, when the theme recurred, the approximate number of independent reports. A badge means the question has been asked somewhere, not that a company asks it every time. A few badges instead say "curated" (a blogger-written question list), "job ad", "advice thread" or "prep guide"; they name where the question came from, not an interview report. Questions without a badge were added because they test the same material; several of them come from curated Chinese AIGC question lists, which are written by bloggers and are weaker evidence than first-hand reports. The numbers in square brackets point to the [Sources](#sources) list at the end.
 
 ## How the interviews are structured
 
@@ -170,6 +170,60 @@ Organize the discussion as claim, mechanism, evidence, and the gap between them.
 Use the order problem, why it matters, current approaches and their shortfall, your idea, why it works (one key figure or equation), results, limitations and next steps. Put the takeaway of each slide in its title, plan roughly one slide per minute, and leave time for questions. Keep backup slides for the questions you expect (derivations, ablations, failure cases). For interns, the questions after the talk usually matter more than the slides themselves.
 :::
 
+::: {.qa asked="Meituan CV intern, Nowcoder 2024"}
+**Your paper was rejected. What did the reviewers object to, and what will you do with it now?**
+
+The interviewer is checking whether you can separate valid criticism from noise and turn it into a plan. Cover, in order:
+
+1. The paper's claim in one sentence.
+2. The two or three main objections, grouped by type (novelty relative to a named prior work, a missing baseline, weak evaluation, unclear writing), stated fairly and in the reviewers' terms.
+3. Your assessment of each: which you agree with and why, and which came from a misreading that your writing allowed.
+4. What has changed since: the new experiment, baseline or rewrite for each objection, with its result if you have it.
+5. The plan: resubmit with those changes, or narrow or reframe the claim if an objection hit the core.
+
+If a criticism was right, say how it changed your claim; that reads as maturity. Avoid blaming reviewers or the process, and avoid claiming every objection was wrong. Expect the follow-up "do you still believe the main result?", and answer it with evidence.
+:::
+
+::: {.qa asked="DJI, Nowcoder 2022"}
+**How would you evaluate the academic value of your own paper?**
+
+Use the criteria a careful reviewer would, and apply them to yourself honestly.
+
+1. **Novelty**: the precise difference from the closest prior work, stated as a delta ("X did A under assumption B; we remove B").
+2. **Significance**: who would change what they do because of it. A practitioner who would adopt the method, a researcher who would build on the finding, a benchmark that changes how a task is measured.
+3. **Rigor**: how strong the evidence is: baseline strength, ablations, seeds and variance, whether the metric measures the claim.
+4. **Generality**: whether the insight holds beyond your datasets and setting, or only there.
+5. **Uptake**, stated modestly: follow-up work, independent reproductions, use of your code. Do not make citation counts the answer.
+6. **Limitations**, and the one experiment that would most raise the paper's value.
+
+A good closing line has the shape "the main value is X; the weakest part is Y." Avoid both inflation and false modesty.
+:::
+
+::: {.qa asked="ByteDance 2026, Tencent multimodal 2026 (Nowcoder)"}
+**How did you build and clean your dataset, and how do you estimate how many good samples your filters threw away?**
+
+Walk through the pipeline in order: sources and licensing (with provenance recorded), deduplication (exact hashes, then near-duplicates by perceptual hash or embedding, also against your evaluation sets), then each filter as rule, threshold, reason and share removed. Store scores, not pass or fail flags, so thresholds can move later.
+
+To estimate false rejections, label a uniform random sample of $n$ items from a filter's rejected pool. If $k$ are good, $\hat p = k/n$, the number of good items lost is about $N_{\text{rej}}\hat p$, and a 95% interval is roughly $\hat p \pm 1.96\sqrt{\hat p(1-\hat p)/n}$; if $k = 0$, the rule of three gives an upper bound near $3/n$. Since filters run in sequence, also score one random sample of raw data with every filter, so earlier filters do not hide later ones' losses. The decisive test is training small models at several thresholds under equal compute.
+
+On "why not the strongest model, or an LLM or VLM API?": APIs judge semantic criteria well, but weigh cost at your scale, rate limits, silent model updates, licence terms and reproducibility. A common compromise: label a sample with the API, check agreement with humans, and distil it into a cheap classifier for the full corpus.
+
+[more](video-generation.html)
+:::
+
+::: {.qa asked="Meta RS FT 2026, SenseTime 2026, Xiaohongshu 2024"}
+**What was the hardest problem in your project, or in reproducing a method, and how did you solve it?**
+
+Pick a technical difficulty, not a scheduling one, and tell it as a debugging story with evidence.
+
+1. **Symptom**, with numbers: the loss diverged at a certain step, or you were 2 dB below the reported result.
+2. **Hypotheses**, and the experiments that told them apart: overfitting a single batch, comparing intermediate outputs against a reference implementation layer by layer, swapping one component at a time.
+3. **Root cause and fix**, with before-and-after results over several seeds.
+4. **What you would do differently.**
+
+For reproductions, the usual causes are worth naming: undocumented details (EMA, warmup, learning-rate schedule, data preprocessing and normalization range), evaluation-protocol mismatches (metric implementation, resizing before FID, PSNR on the Y channel versus RGB, border cropping, test split), seed variance larger than the gap you are chasing, and numerical precision (fp16 overflow, TF32 defaults, library version changes). A strong lesson is often "first reproduce the released checkpoint's numbers with my own evaluation code, then train." Avoid stories where luck or someone else solved it.
+:::
+
 ## ML and deep-learning fundamentals
 
 ::: {.qa asked="ByteDance, Kling, TME, Meta, NVIDIA (10+ reports)"}
@@ -268,6 +322,360 @@ A $k \times k$ convolution from $C_{\text{in}}$ to $C_{\text{out}}$ channels has
 Minimize $\|y - Xw\|^2$; setting the gradient $-2X^\top(y - Xw)$ to zero gives the normal equations $X^\top X w = X^\top y$, so $w = (X^\top X)^{-1} X^\top y$ when $X$ has full column rank. In practice you solve with QR or Cholesky rather than forming the inverse, or use gradient descent at scale; ridge regression adds $\lambda I$ to $X^\top X$. If $y = Xw + \epsilon$ with $\epsilon \sim \mathcal{N}(0, \sigma^2 I)$, the log-likelihood is $-\|y - Xw\|^2 / (2\sigma^2)$ plus a constant, so minimizing MSE is maximum likelihood under Gaussian noise and estimates the conditional mean.
 :::
 
+::: {.qa asked="Amazon AS, NVIDIA, Qualcomm, ByteDance, Taotian (5)"}
+**Walk through the transformer architecture end to end. Why does it capture long-range dependencies better than an RNN?**
+
+A transformer maps token vectors to contextual vectors through a stack of identical blocks: every position reads from every other position (self-attention), then each position is transformed on its own (an MLP), with a residual connection around both. Any two tokens interact in one attention step instead of through a chain of recurrent updates.
+
+End to end, for a language model:
+
+1. **Input.** An embedding table $E \in \mathbb{R}^{V \times d}$ maps token IDs to vectors. Attention is permutation-equivariant, so order is injected: learned or sinusoidal vectors added at the input, or rotary embeddings applied to queries and keys in every layer.
+2. **Block.** In the now-standard pre-norm form, $h = x + \mathrm{MHA}(\mathrm{LN}(x))$, then $x' = h + \mathrm{FFN}(\mathrm{LN}(h))$ with $\mathrm{FFN}(u) = W_2\,\phi(W_1 u)$ of hidden width about $4d$. The original model was post-norm, $\mathrm{LN}(x + \mathrm{Sublayer}(x))$, which normalizes the residual path and is harder to train deep without warmup (Xiong et al., 2020).
+3. **Masks.** A padding mask hides pad tokens; a causal mask stops position $t$ from attending to later positions.
+4. **Layouts.** Encoder-decoder (the original model, T5): a bidirectional encoder and a causal decoder that cross-attends to it. Encoder-only (BERT, ViT): bidirectional, for representations. Decoder-only (GPT, Llama): one causal stack trained on next-token prediction, the LLM default because one objective on raw text both scales and generates.
+5. **Output.** A final norm, a linear map to $V$ logits (sometimes tied to $E$), softmax, and cross-entropy against the input shifted by one; with teacher forcing all positions train in parallel.
+
+**Why long range works better.** In an RNN, token $i$ reaches step $j$ through $j - i$ state updates, so $\partial h_j / \partial h_i$ is a product of $j - i$ Jacobians that tends to shrink or grow geometrically, and the whole prefix must fit in a fixed-size state. In self-attention every pair of positions is connected within one layer (maximum path length $O(1)$ versus $O(n)$ for recurrence, Table 1 of Vaswani et al., 2017), lookup is by content rather than distance, and past tokens are kept individually. Training is also parallel across positions instead of $O(n)$ sequential steps, which made very large corpora practical.
+
+**Costs.** Attention needs $O(n^2 d)$ compute and, unless tiled, $O(n^2)$ memory per layer; the KV cache grows with context while an RNN's state does not; and with no built-in bias toward order or locality, positions must be encoded and generalization past the trained length is not automatic.
+
+[more](vision-backbones.html)
+:::
+
+::: {.qa asked="Meta research round, Glassdoor (topic only)"}
+**What are the main architectural choices in Llama, and why were they made?**
+
+Llama is a decoder-only transformer built from changes that had already worked elsewhere. The more distinctive decision is training relatively small models on far more tokens than is compute-optimal, so they are cheap to serve.
+
+Architecture (LLaMA, Touvron et al., 2023; kept in Llama 2 and 3):
+
+- **Pre-normalization with RMSNorm.** Each sub-layer normalizes its input rather than its output, which leaves the residual path an identity and stabilizes training. RMSNorm divides by the root mean square without subtracting the mean, which is cheaper than LayerNorm.
+- **SwiGLU feed-forward**, $W_2\big(\mathrm{SiLU}(W_1 x) \odot W_3 x\big)$. Gated MLPs gave lower perplexity than ReLU or GELU MLPs at equal parameter count (Shazeer, 2020); with three matrices the hidden width is $\tfrac{2}{3} \cdot 4d$ to match a $4d$ two-matrix MLP.
+- **Rotary position embeddings** in every layer instead of absolute position embeddings, so attention scores depend on relative offsets. Llama 3 raises the RoPE base frequency to 500,000 for longer contexts.
+- **No bias terms** in the linear layers of the reference implementation.
+- **Grouped-query attention.** Llama 2 uses it only in the 34B and 70B models; Llama 3 uses 8 key-value heads at all sizes (8B, 70B, 405B). It shrinks the KV cache and speeds up decoding at a small quality cost.
+
+**Tokenizer.** LLaMA and Llama 2 use SentencePiece BPE with 32k tokens, split numbers into single digits and fall back to bytes for unknown UTF-8. Llama 3 moves to 128K tokens (100K from tiktoken plus 28K for non-English text), which raised English compression from 3.17 to 3.94 characters per token, so the same compute covers more text.
+
+**Data and scale.** LLaMA trained the 7B and 13B models on 1.0T tokens and the 33B and 65B models on 1.4T. The paper notes that Hoffmann et al. recommend a 10B model on 200B tokens, yet its 7B model was still improving after 1T, and LLaMA-13B outperformed GPT-3 on most benchmarks. Llama 2 used 2T tokens and doubled the context to 4k. Llama 3's 405B model used 15.6T tokens, near the optimum of the authors' own scaling laws, while its smaller models were trained far beyond it. Training past the compute-optimal point costs more training compute per unit of loss but pays off when the model serves many queries. Llama 3 also stays dense rather than mixture-of-experts, for training stability, and masks attention between documents packed into one sequence.
+:::
+
+::: {.qa asked="Apple ML research intern (NLP team), Jointaro 2023"}
+**Explain BERT: its architecture, pretraining objectives, and how it differs from GPT.**
+
+BERT (Devlin et al., 2018) is a transformer encoder pretrained to recover masked tokens from context on both sides, then fine-tuned with a small task head. GPT is a transformer decoder trained to predict the next token from the left context only.
+
+**Architecture.** BERT-Base has 12 layers, hidden size 768 and 12 heads (110M parameters), chosen to match the original GPT's size; BERT-Large has 24 layers, hidden size 1024 and 16 heads (340M). Inputs are WordPiece tokens (30,000 vocabulary), up to 512 positions, with `[CLS]` at the start and `[SEP]` after each segment. Each input vector is the sum of a token, a learned position and a segment (A or B) embedding. Attention is unmasked.
+
+**Masked language modeling.** Choose 15% of positions; replace 80% of those with `[MASK]`, 10% with a random token, and leave 10% unchanged; predict the original tokens with cross-entropy at the chosen positions only. The split exists because `[MASK]` never appears during fine-tuning; since the model cannot tell which tokens were altered, it must keep a good representation of every token. The cost is that only 15% of positions give a loss, a weaker signal per sequence than next-token prediction.
+
+**Next-sentence prediction.** Half the time segment B follows A in the corpus, otherwise it is a random sentence; a classifier on the `[CLS]` output predicts which. RoBERTa (Liu et al., 2019) found that removing NSP matched or slightly improved downstream results, and that BERT was undertrained: dynamic masking, more data, larger batches and longer training helped.
+
+**Fine-tuning.** Add one output layer, on `[CLS]` for classification or on every token for tagging and span extraction, and train all weights.
+
+**Versus GPT.** A causal mask makes every position a training target and makes generation natural, left to right. Bidirectional context gives BERT stronger representations for understanding tasks at the same size, but MLM does not define a left-to-right factorization of the sequence probability, so BERT does not generate text directly. BERT also learns `[CLS]`, `[SEP]` and segment embeddings during pretraining, whereas the original GPT added them only for fine-tuning. Today encoders are used mostly for embeddings, retrieval and classification, and decoder-only models for generation.
+:::
+
+::: {.qa asked="Amazon AS intern, Glassdoor 2026"}
+**What does a tokenizer do, and how does byte-pair encoding work?**
+
+A tokenizer maps text to integer IDs from a fixed vocabulary, and back. Subword tokenizers sit between characters (long sequences) and words (huge vocabulary, unknown words): frequent strings become single tokens and rare words split into pieces, so nothing is out of vocabulary.
+
+**BPE training** (Sennrich et al., 2016, adapted from a compression algorithm):
+
+1. Pre-split the corpus into words, count them, and write each word as a sequence of base symbols (characters or bytes).
+2. Count adjacent symbol pairs, weighted by word frequency.
+3. Merge the most frequent pair into a new symbol, record the merge, and rewrite the words.
+4. Repeat until the vocabulary reaches its target size.
+
+Example with word counts `cat` 6, `cats` 2, `hat` 4, `that` 3. The pair counts are (a, t) 15, (c, a) 8, (h, a) 7, (t, h) 3 and (t, s) 2, so the first merge is `at`. Then (c, at) has 8 and (h, at) has 7, so the next merges are `cat`, then `hat`. **Encoding** applies the merges to new text in the order they were learned: `chats` goes from c h a t s to c h at s to c hat s, giving [c, hat, s]. An unseen word still gets a segmentation.
+
+**Variants.** Byte-level BPE (GPT-2) starts from the 256 byte values, so any string is encodable, and pre-splits with a regex so merges do not cross word and punctuation boundaries. WordPiece (BERT) picks merges by likelihood gain instead of raw frequency and, at inference, takes the longest matching vocabulary entry first. Unigram (Kudo, 2018) starts from a large vocabulary, prunes pieces whose removal costs the least corpus likelihood, and segments with Viterbi. SentencePiece runs BPE or Unigram on raw text with the space as a symbol, so no language-specific pre-tokenizer is needed.
+
+**Vocabulary size.** A larger vocabulary gives shorter sequences (less attention compute, more text per context) but larger embedding and output matrices, and rare tokens receive few updates.
+
+**Side effects.** Numbers can be chunked inconsistently, hiding digit alignment, which is why LLaMA splits numbers into single digits. Languages underrepresented in the tokenizer's training data need more tokens per word, so they cost more and fit less in context. The model sees tokens, not letters, which makes spelling and character counting hard, and " the" and "the" are different tokens, so a trailing space in a prompt can change the output.
+:::
+
+::: {.qa asked="Tencent multimodal, Nowcoder 2026"}
+**How does an LLM turn hidden states into token probabilities, and how does decoding choose the next token?**
+
+The final hidden state at position $t$, after a last normalization, is multiplied by an output matrix $W_U \in \mathbb{R}^{V \times d}$ to give one logit per vocabulary entry, and a softmax turns the logits into a next-token distribution. Decoding is the rule that picks a token from that distribution; greedy, beam, top-k and top-p use the same network and differ only in that rule.
+
+**Probabilities.** $z_t = W_U h_t$ and $p(v \mid x_{<t}) = \mathrm{softmax}(z_t / T)_v$, with temperature $T = 1$ in training. The original transformer ties $W_U$ to the input embedding; LLaMA keeps them separate. By the chain rule, $\log p(x_{1:n}) = \sum_t \log p(x_t \mid x_{<t})$; we work in log space because a product of thousands of probabilities underflows. Training minimizes the mean negative log-probability, and perplexity is its exponential. Dividing logits by $T$ keeps the ranking but changes the shape: $T \to 0$ approaches the argmax, and $T > 1$ flattens the distribution.
+
+**Decoding rules.**
+
+- *Greedy*: the argmax at each step. Deterministic and cheap, but it does not find the most likely sequence and tends to repeat itself in open-ended text.
+- *Beam search*: keep the $B$ partial sequences with the highest total log-probability. It suits tasks with nearly one right answer (translation, speech recognition). Summed log-probabilities favor short outputs unless length-normalized, and for open-ended text high-likelihood outputs tend to be bland and repetitive (Holtzman et al., 2019).
+- *Top-k sampling*: renormalize over the $k$ most likely tokens. A fixed $k$ is too loose when the distribution is peaked and too tight when it is flat.
+- *Top-p (nucleus) sampling*: keep the smallest set of tokens whose total probability reaches $p$, so the candidate set adapts to the model's confidence.
+
+**Why the settings change diversity.** Sampling the full distribution gives diversity but also visits the low-probability tail, and that adds up over a long output: if the tail holds 5% of the mass at every step, the chance of never sampling it in 100 tokens is $0.95^{100} \approx 0.006$. Lower temperature and truncation cut the tail (more coherent, less diverse); higher temperature and larger $k$ or $p$ do the reverse.
+
+```python
+import torch
+
+def sample_next(logits, temperature=1.0, top_k=0, top_p=1.0):
+    # logits: (V,) for one position; returns a token id
+    if temperature == 0:
+        return int(logits.argmax())
+    logits = logits / temperature
+    if top_k > 0:
+        kth = torch.topk(logits, top_k).values[-1]
+        logits = logits.masked_fill(logits < kth, float("-inf"))
+    probs = torch.softmax(logits, dim=-1)
+    if top_p < 1.0:
+        p_sorted, idx = probs.sort(descending=True)
+        drop = p_sorted.cumsum(0) - p_sorted >= top_p   # mass before this token already >= p
+        p_sorted[drop] = 0.0
+        probs = torch.zeros_like(probs).scatter(0, idx, p_sorted)
+    return int(torch.multinomial(probs / probs.sum(), 1))
+```
+
+Per step this costs $O(V \log V)$ for the sort ($O(V)$ without top-p) and $O(V)$ memory.
+:::
+
+::: {.qa asked="Tencent multimodal, Nowcoder 2026"}
+**What gating mechanisms appear in neural networks, and what does a gate buy you?**
+
+A gate is a learned factor, usually a sigmoid in $(0, 1)$, sometimes a softmax over options or a scalar such as $\tanh(\alpha)$, that multiplies another signal and so decides how much of it passes. Gates give input-dependent multiplicative interactions, control over what is kept or overwritten, and a clean way to start a new path switched off.
+
+Where they appear:
+
+- **LSTM and GRU.** The LSTM computes forget, input and output gates $f_t, i_t, o_t = \sigma(\cdot)$ and updates $c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$, $h_t = o_t \odot \tanh(c_t)$. The direct path through the cell has Jacobian $\mathrm{diag}(f_t)$, so with the forget gate near 1, information and gradients survive many steps. The GRU's update gate interpolates between the old state and a candidate.
+- **Highway networks** (Srivastava et al., 2015): $y = H(x)\,T(x) + x\,(1 - T(x))$, with the gate's bias initialized negative so layers start by mostly carrying their input. ResNets drop the gate and keep a fixed identity path.
+- **Gated linear units**: $(xW) \odot \sigma(xV)$ (Dauphin et al., 2016) and SwiGLU, $(\mathrm{SiLU}(xW) \odot xV)W_2$, which improved transformer feed-forward layers at equal parameter count (Shazeer, 2020) and is used in PaLM and Llama.
+- **Channel gates**: Squeeze-and-Excitation rescales each feature map by a sigmoid of a small MLP on pooled features.
+- **Mixture-of-experts routers**: a softmax with top-$k$ selection decides which experts process each token (Shazeer et al., 2017), so capacity grows without growing per-token compute; an auxiliary loss balances the load.
+- **Conditioning gates.** DiT's adaLN-Zero regresses a per-channel gate from the timestep and class embedding and multiplies each residual branch by it; the regressing layer is zero-initialized, so every block starts as the identity. Flamingo inserts cross-attention layers into a frozen language model as $y \leftarrow y + \tanh(\alpha)\,\mathrm{xattn}(y, \text{visual})$ with a per-layer scalar $\alpha$ initialized at 0, so training starts from exactly the pretrained LM.
+
+**What a gate buys:** input-dependent multiplicative routing that an additive layer can only approximate with more units; near-identity gradient paths when a carry gate is open; safe insertion of new modules into a pretrained network; and conditional computation when the gate is hard (top-$k$).
+
+**Caveats.** A saturated sigmoid passes almost no gradient. Zero-initialize the gate or the branch, not both in a way that blocks learning: in Flamingo the gradient for $\alpha$ is $\tanh'(0) = 1$ times the branch output, which is nonzero. MoE routers can collapse onto a few experts.
+:::
+
+::: {.qa asked="Amazon AS intern 2026, Microsoft AS intern 2026"}
+**Describe the LLM training pipeline after pretraining: what do SFT, RLHF with PPO, DPO and GRPO each do?**
+
+SFT imitates demonstrations; RLHF learns a reward from human comparisons and maximizes it with PPO; DPO fits the same preference objective directly, with no reward model and no sampling; GRPO is online RL that replaces PPO's value network with a group baseline.
+
+**SFT.** Train on (prompt $x$, response $y$) pairs in the chat template with cross-entropy on response tokens only, $-\sum_t \log\pi_\theta(y_t \mid x, y_{<t})$; masking the prompt stops the model from learning to write user turns. It is only as good as the demonstrations.
+
+**Reward model.** From comparisons $(x, y_w, y_l)$, train a scalar-output model (typically the SFT model with a new head) under Bradley-Terry, $P(y_w \succ y_l) = \sigma(r(x, y_w) - r(x, y_l))$, by minimizing $-\log\sigma(r_w - r_l)$.
+
+**PPO.** Maximize $\mathbb{E}_{y \sim \pi_\theta}[r(x, y)] - \beta\,\mathrm{KL}(\pi_\theta \,\|\, \pi_{\text{ref}})$ with $\pi_{\text{ref}}$ the SFT model. In practice the KL is a per-token penalty $-\beta \log(\pi_\theta / \pi_{\text{ref}})$ added to the reward, advantages $A_t$ come from a learned value function, and the update maximizes $\mathbb{E}[\min(\rho_t A_t, \mathrm{clip}(\rho_t, 1 - \varepsilon, 1 + \varepsilon) A_t)]$ with $\rho_t = \pi_\theta / \pi_{\text{old}}$. The KL keeps the policy where the reward model is reliable. The cost is four models in memory (policy, reference, reward, value).
+
+**DPO.** The KL-regularized objective equals $-\beta\,\mathrm{KL}\big(\pi \,\|\, \pi_{\text{ref}} e^{r/\beta} / Z\big) + \beta \log Z(x)$ with $Z(x) = \sum_y \pi_{\text{ref}}(y|x) e^{r(x,y)/\beta}$, so its maximizer is $\pi^* = \pi_{\text{ref}} e^{r/\beta} / Z$. Inverting, $r = \beta \log(\pi^* / \pi_{\text{ref}}) + \beta \log Z(x)$. Bradley-Terry uses only $r_w - r_l$, so $Z$ cancels and the policy is fit directly:
+
+$$
+\mathcal{L}_{\text{DPO}} = -\mathbb{E}\Big[\log\sigma\Big(\beta \log\frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \beta \log\frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\Big)\Big].
+$$
+
+It is offline and stable and needs only the policy and a frozen reference, but it learns only from the given pairs, and since the loss sees only the margin, the chosen response's likelihood can fall too.
+
+**GRPO** (Shao et al., 2024). For each prompt, sample $G$ outputs, score them (often with a checkable reward such as a correct answer), and give every token of output $i$ the advantage $\hat A_i = (r_i - \mathrm{mean}(r)) / \mathrm{std}(r)$. The objective is PPO's clipped surrogate averaged over the group, with the KL to the reference added to the loss. The group mean replaces the value network, saving memory and avoiding a per-token critic trained from one end-of-sequence reward.
+
+**Trade-offs.** PPO is the most general but expensive; DPO is simple but offline; GRPO is online, lighter than PPO, and suits verifiable rewards. All can over-optimize their reward, and $\beta$ limits how far the model moves.
+
+[more](text-to-image-multimodal.html)
+:::
+
+::: {.qa asked="NVIDIA AI intern, Jointaro 2023"}
+**How would you train an LLM to perform a given list of tasks?**
+
+Treat it as a measurement problem first: define each task's metric and a held-out set, get a prompting baseline, and fine-tune only where the baseline falls short, adding data where the evaluation shows failures.
+
+1. **Clarify.** What are the tasks, their input and output formats and metrics? Do latency or cost limits fix the model size? How much labeled data exists per task? Must the model keep its general abilities, and will one model serve every task?
+2. **Baseline.** Prompt a strong instruction-tuned model zero- and few-shot, with retrieval if the tasks need knowledge. This sets the bar, sometimes solves easy tasks outright, and shows where training is needed.
+3. **Data per task.** Convert existing labeled data to instruction format with several prompt templates per task, as in instruction tuning (FLAN, Wei et al., 2021); generate synthetic examples with a stronger model and filter them (exact-match checks, unit tests, a judge model, deduplication); write examples by hand for hard or subjective tasks; remove overlap with the evaluation sets.
+4. **Mixture.** Set per-task sampling weights so large tasks do not swamp small ones (for example, cap each task's share), and mix in general instruction data to limit forgetting.
+5. **Training.** SFT with loss on response tokens. Full fine-tuning has the most capacity; LoRA is cheaper, allows one adapter per task, and tends to learn less but forget less of the base model (Biderman et al., 2024). Use a small learning rate and a few epochs, and pick checkpoints on per-task validation.
+6. **Evaluation.** Per-task metrics on held-out data (exact match, F1, pass@k, a calibrated judge model or humans), plus general benchmarks to catch regressions. Look at the worst task and at individual failures, not only the average, and feed them back into the data.
+7. **Beyond SFT.** Where quality is subjective, collect preference pairs and use DPO; where correctness can be checked automatically (math, code, structured outputs), use RL with verifiable rewards such as GRPO.
+
+What the interviewer is checking: that you start simple, fix data and metrics before methods, and plan for tasks interfering with each other.
+:::
+
+::: {.qa asked="Microsoft AS intern, PracHub 2026"}
+**What is an LLM agent, and how would you build and evaluate one?**
+
+An agent is an LLM in a loop: it chooses an action (a tool call, code to run, a click), observes the result, and continues until it decides the task is done. Compared with a single call, it has state, tools and many steps, so errors can compound and evaluation has to judge outcomes over whole trajectories.
+
+**Components.**
+
+- *Policy*: the LLM, with a system prompt that describes the tools. With function calling, tools are declared as schemas, the model emits a structured call, the runtime executes it, and the result is appended to the context.
+- *Reasoning and acting*: ReAct (Yao et al., 2022) interleaves reasoning traces with actions, so the reasoning updates the plan and the actions fetch information.
+- *Memory*: the context window for the current task (with summarization when it fills up), plus an external store of notes or past results retrieved when relevant.
+- *Planning*: implicit step by step, an explicit plan then execution, or sub-agents for sub-tasks, with checks and retries.
+
+**Building.** Start with one loop and a few well-documented tools; keep anything that needs no judgment in ordinary code; validate tool arguments; set step, time and cost limits; log full trajectories.
+
+**Failure modes.** Errors compound: at 95% per-step reliability, a 20-step task succeeds about $0.95^{20} \approx 36\%$ of the time if errors are independent. Others: wrong tool arguments or invented tools, loops, losing the instructions as the context grows, declaring success early, and prompt injection from tool outputs such as web pages.
+
+**Evaluation.** Measure task success on held-out tasks with automatic checks of the end state, for example tests that must pass, as in SWE-bench (Jimenez et al., 2023), or web tasks with checkable outcomes, as in WebArena (Zhou et al., 2023). Run each task several times and report the mean and the spread, since runs are stochastic and reliability matters as much as best-case success. Read and categorize failed trajectories, track cost (tokens, tool calls) and latency, and ablate tools and prompts.
+
+**Safety.** Run tools in a sandbox with least-privilege credentials and network allowlists, require confirmation for irreversible actions, treat tool outputs as untrusted data rather than instructions, and keep audit logs.
+:::
+
+::: {.qa asked="MSR intern, ByteDance 2020, Meituan 2022"}
+**Explain SGD with momentum, RMSProp and Adam. When would you choose each, and how do you control how fast Adam converges?**
+
+Momentum averages gradient directions over time; RMSProp divides each coordinate by a running estimate of its gradient magnitude; Adam does both and corrects the bias from starting the averages at zero.
+
+$$
+\begin{aligned}
+&\text{Momentum:} && v_t = \mu v_{t-1} + g_t, \quad \theta_t = \theta_{t-1} - \eta v_t \\
+&\text{RMSProp:} && s_t = \rho s_{t-1} + (1-\rho) g_t^2, \quad \theta_t = \theta_{t-1} - \eta\, g_t / (\sqrt{s_t} + \epsilon) \\
+&\text{Adam:} && m_t = \beta_1 m_{t-1} + (1-\beta_1) g_t, \quad v_t = \beta_2 v_{t-1} + (1-\beta_2) g_t^2, \quad \theta_t = \theta_{t-1} - \alpha\, \hat m_t / (\sqrt{\hat v_t} + \epsilon)
+\end{aligned}
+$$
+
+Momentum's effective step is $\eta/(1-\mu)$ along consistent directions, while components that flip sign cancel. RMSProp's per-coordinate step is about $\eta$ whatever the gradient scale. **Bias correction**: from $m_0 = 0$, $m_t = (1-\beta_1)\sum_{i=1}^t \beta_1^{t-i} g_i$, whose weights sum to $1 - \beta_1^t$, so for stationary gradients $\mathbb{E}[m_t] = (1 - \beta_1^t)\,\mathbb{E}[g]$ and $\hat m_t = m_t/(1-\beta_1^t)$ removes the shrinkage; likewise $\hat v_t = v_t/(1-\beta_2^t)$. **AdamW** applies weight decay as $\theta \leftarrow \theta - \eta\lambda\theta$ outside the adaptive step; an L2 term added to the gradient gets divided by $\sqrt{\hat v}$, so weights with large gradients are barely regularized.
+
+**Choosing.** SGD with momentum and a step or cosine schedule remains strong for CNN image classification and stores one state per parameter instead of two; Wilson et al. (2017) found adaptive methods generalizing worse than SGD on several benchmarks. AdamW is the default for transformers and diffusion models, whose blocks have very different gradient scales that no single global step size suits. RMSProp is now used less than Adam, which with $\beta_1 = 0$ is RMSProp plus bias correction.
+
+**Controlling Adam's speed.** Ignoring $\epsilon$, each coordinate moves about $\alpha$ per step, so:
+
+- the **learning rate and schedule** are the main lever; warmup avoids large steps while $v$ is poorly estimated;
+- **$\beta_1$** sets inertia: higher is smoother but reacts more slowly;
+- **$\beta_2$** sets the memory of gradient scale: 0.999 averages about 1000 steps and can lag a sudden rise in gradient scale, giving oversized steps and loss spikes, which is why many LLM recipes use 0.95;
+- **$\epsilon$** is the gradient scale below which normalization stops; raising it makes small-gradient coordinates take smaller, SGD-like steps;
+- **gradient clipping** caps the step during spikes.
+
+To slow Adam down on purpose, for stability or gentle fine-tuning: lower the peak learning rate, lengthen warmup, raise $\beta_1$ or $\epsilon$, and clip.
+
+[more](deep-learning-training.html)
+:::
+
+::: {.qa asked="ByteDance algorithm intern, Nowcoder 2020"}
+**What causes vanishing and exploding gradients, and how do you handle them?**
+
+Backpropagation multiplies one Jacobian per layer (or per time step in an RNN), so the gradient's norm changes geometrically with depth: if each factor shrinks it a little it vanishes, and if each grows it a little it explodes.
+
+**Mechanism.** For $h_\ell = \phi(a_\ell)$ with $a_\ell = W_\ell h_{\ell-1}$,
+
+$$
+\frac{\partial\mathcal{L}}{\partial h_0} = J_1^\top J_2^\top \cdots J_L^\top\,\frac{\partial\mathcal{L}}{\partial h_L}, \qquad J_\ell = \mathrm{diag}\big(\phi'(a_\ell)\big)\,W_\ell .
+$$
+
+The norm of the product lies between $\prod_\ell \sigma_{\min}(J_\ell)$ and $\prod_\ell \sigma_{\max}(J_\ell)$ times $\|\partial\mathcal{L}/\partial h_L\|$, so a typical per-layer factor $\gamma$ compounds to about $\gamma^L$: $0.9^{50} \approx 0.005$ and $1.1^{50} \approx 117$. The causes:
+
+- saturating activations: $\sigma' \le 1/4$, and $\tanh'$ is near 0 for large inputs;
+- weight scale: an initialization that does not preserve variance, or weights that grow during training;
+- RNNs: the same $W_{hh}$ appears at every step; Pascanu et al. (2012) show that if $|\phi'| \le \gamma$ and the largest eigenvalue magnitude of $W_{hh}$ is below $1/\gamma$, long-range gradient terms vanish, and exceeding $1/\gamma$ is necessary for them to explode.
+
+**Diagnosis.** Log per-layer gradient norms. Vanishing shows as tiny norms in early layers and a loss that plateaus from the start; exploding as gradient-norm spikes, loss spikes, then NaNs.
+
+**Fixes, and why they work.**
+
+1. ReLU-family activations: derivative exactly 1 on active units.
+2. Variance-preserving initialization (He, Xavier; orthogonal for RNNs), so each layer's Jacobian roughly preserves norms at step 0.
+3. Normalization layers rescale activations at every layer, so drift in weight scale does not compound.
+4. Residual connections: $h_{\ell+1} = h_\ell + F(h_\ell)$ has Jacobian $I + \partial F/\partial h$, which gives an identity path from the loss to every layer.
+5. Gating in LSTMs and GRUs: the additive cell update gives the direct path Jacobian $\mathrm{diag}(f_t)$, close to the identity when the forget gate is open.
+6. Global-norm clipping, $g \leftarrow g \min(1, c/\|g\|)$, bounds the step during spikes and keeps its direction.
+7. Smaller learning rates with warmup, truncated backpropagation through time, and bf16 instead of fp16 to avoid overflow.
+
+Clipping treats only explosions; vanishing gradients need changes to the architecture or the initialization.
+
+[more](deep-learning-training.html)
+:::
+
+::: {.qa asked="ByteDance CV 2023, Horizon 2022 (Nowcoder)"}
+**How do dropout and pooling layers behave in the forward and backward passes, and how does dropout change between training and inference?**
+
+None of these layers has parameters, and their backward passes only route the upstream gradient: dropout through the same random mask used in the forward pass, max pooling to the input that won each window, and average pooling evenly across each window.
+
+**Dropout (inverted).** Forward in training: draw $m_i \sim \mathrm{Bernoulli}(1-p)$ and output $y = m \odot x / (1-p)$, so $\mathbb{E}[y] = x$. Backward: for a fixed mask $y$ is linear in $x$, so $\partial\mathcal{L}/\partial x = m \odot (\partial\mathcal{L}/\partial y) / (1-p)$; the mask must be stored or regenerated from the same seed, and dropped units get zero gradient for that step. Inference: the identity, with no mask and no rescaling, because the $1/(1-p)$ was applied during training. The original formulation left training unscaled and multiplied by $1-p$ at test time instead; the two agree in expectation. Variances do not match between the modes, which can shift the statistics a later BatchNorm collected. Leaving dropout on at test time and averaging several passes (Monte Carlo dropout, Gal and Ghahramani, 2016) gives a cheap uncertainty estimate.
+
+**Max pooling.** Forward: $y_j = \max_{i \in R_j} x_i$, storing the argmax $i^*(j)$ of each window. Backward: $\partial\mathcal{L}/\partial x_i = \sum_{j:\, i^*(j) = i} \partial\mathcal{L}/\partial y_j$, so the winner receives the whole gradient and the rest of the window receives zero (a subgradient; ties go to one index by convention).
+
+**Average pooling.** Forward: $y_j = \frac{1}{|R_j|}\sum_{i \in R_j} x_i$. Backward: every input in window $j$ receives $\frac{1}{|R_j|}\,\partial\mathcal{L}/\partial y_j$; global average pooling gives each of the $HW$ positions $1/(HW)$ of the gradient.
+
+With overlapping windows (for example $3 \times 3$ with stride 2), an input belongs to several windows and the gradients from all of them add up. Pooling behaves the same in training and inference.
+
+```python
+import numpy as np
+
+def dropout_fwd(x, p, rng, train=True):
+    if not train or p == 0:
+        return x, None                                # inference: identity
+    mask = (rng.random(x.shape) >= p) / (1 - p)      # keep w.p. 1-p, pre-scaled
+    return x * mask, mask
+
+def dropout_bwd(dy, mask):
+    return dy if mask is None else dy * mask         # the same mask as forward
+
+def maxpool1d_fwd(x, k, s):
+    starts = np.arange(0, len(x) - k + 1, s)
+    idx = starts + np.array([np.argmax(x[i:i + k]) for i in starts])
+    return x[idx], idx                               # keep argmax indices
+
+def maxpool1d_bwd(dy, idx, n):
+    dx = np.zeros(n)
+    np.add.at(dx, idx, dy)                           # shared argmax: gradients add
+    return dx
+```
+
+Both passes are $O(n)$ in time; dropout stores an $n$-sized mask and max pooling one index per output.
+
+[more](deep-learning-training.html)
+:::
+
+::: {.qa asked="Alibaba, Nowcoder 2022"}
+**What is the difference between empirical and structural risk minimization, why does early stopping work, and what does information theory say about generalization?**
+
+ERM picks the hypothesis with the lowest training loss in a fixed class; SRM also pays for the capacity of the class. Early stopping is a capacity control indexed by training time. Information-theoretic bounds say an algorithm generalizes when its output carries little information about its particular training sample.
+
+**ERM.** Choose $h \in \mathcal{H}$ minimizing $\hat R_n(h) = \frac{1}{n}\sum_i \ell(h(x_i), y_i)$. This works when $\hat R_n$ is uniformly close to the true risk $R$ over $\mathcal{H}$, which needs $\mathcal{H}$ small relative to $n$; in a rich class ERM drives $\hat R_n$ down while $R$ stays high.
+
+**SRM** (Vapnik). Take nested classes $\mathcal{H}_1 \subset \mathcal{H}_2 \subset \cdots$ of growing capacity and minimize training loss plus a capacity penalty. For 0-1 loss and VC dimension $d$, with probability at least $1-\delta$ every $h \in \mathcal{H}$ satisfies
+$$
+R(h) \le \hat R_n(h) + O\Big(\sqrt{\big(d\log(n/d) + \log(1/\delta)\big)/n}\Big),
+$$
+and SRM picks the class minimizing this bound. Regularized ERM, $\hat R_n(h) + \lambda\Omega(h)$, is the practical form, and tuning $\lambda$ or model size on validation data is SRM done empirically. For deep networks such bounds are vacuous, since networks can fit random labels (Zhang et al., 2016).
+
+**Early stopping.** Stop when validation loss stops improving and restore the best checkpoint. The weights reachable within $t$ steps of the initialization form a set that grows with $t$, so $t$ indexes a nested family, as in SRM. For a quadratic loss with Hessian eigenvalues $\lambda_i$, gradient descent from 0 with step $\eta$ has fit the component along eigenvector $i$ by the factor $1 - (1 - \eta\lambda_i)^t$, while L2 with strength $\alpha$ fits it by $\lambda_i/(\lambda_i + \alpha)$; when $\eta\lambda_i \ll 1$ and $\lambda_i \ll \alpha$, both are about linear in $\lambda_i$ and agree for $\alpha \approx 1/(\eta t)$. High-curvature directions, which the data pin down, are fit early; low-curvature ones, where noise lives, late. For deep networks this is an analogy, and epoch-wise double descent can make the first validation minimum misleading.
+
+**Information theory.** Xu and Raginsky (2017) treat the algorithm as a channel from the sample $S$ of $n$ i.i.d. points to the output $W$. If $\ell(w, Z)$ is $\sigma$-sub-Gaussian for every $w$ (a loss in $[a, b]$ qualifies with $\sigma = (b-a)/2$), then $|\mathbb{E}[R(W) - \hat R_S(W)]| \le \sqrt{2\sigma^2 I(S; W)/n}$. With $k$ hypotheses, $I(S; W) \le \log k$ recovers the classical finite-class rate; for deterministic training with continuous outputs $I(S; W)$ is typically infinite, so the bound suits noisy algorithms. The information-bottleneck account (Shwartz-Ziv and Tishby, 2017) proposed that networks fit and then compress their representations, driving generalization; Saxe et al. (2018) found compression depends on the nonlinearity (seen with tanh, not ReLU) and no clear causal link to generalization. Treat it as a lens, not an explanation.
+
+[more](deep-learning-training.html)
+:::
+
+::: {.qa asked="ByteDance, Huawei, SenseTime (Nowcoder 2019–22)"}
+**How do you handle class imbalance?**
+
+Decide first what you are optimizing. A cross-entropy model is tuned for accuracy under the training class frequencies, so imbalance causes trouble mainly when the metric or the deployment distribution weights rare classes more than the training data does, and when rare classes have too few examples to learn from. Then change the data, the loss or the decision rule.
+
+1. **Metrics.** Accuracy is misleading (99% by always predicting the majority class). Use per-class precision and recall, balanced accuracy (mean per-class recall), macro-F1 and PR-AUC, and look at the confusion matrix.
+2. **Resampling.** Oversample rare classes (repeats can overfit; augment them), undersample frequent ones (throws data away), or sample batches class-balanced. Resample only the training split, after splitting; duplicating before the split leaks copies into validation. Keep the test set at the real distribution.
+3. **Loss weighting.** Weight class $c$ in the cross-entropy by about $1/n_c$, or by the inverse of the "effective number" $(1 - \beta^{n_c})/(1 - \beta)$ of Cui et al. (2019), which saturates for large classes. Focal loss down-weights easy examples, which are mostly from the majority class.
+4. **Prior correction.** A cross-entropy model estimates $p_{\text{train}}(y \mid x) \propto p(x \mid y)\,\pi_y$. If the deployment priors are $\pi'_y$ and $p(x \mid y)$ is unchanged (label shift), Bayes' rule gives $p'(y \mid x) \propto p_{\text{train}}(y \mid x)\,\pi'_y / \pi_y$, so subtract $\log\pi_y$ from the logits (and add $\log\pi'_y$). For balanced error this is post-hoc logit adjustment, $\arg\max_y f_y(x) - \tau\log\pi_y$, and Menon et al. (2020) show it is consistent; their training-time version adds $\tau\log\pi_y$ to the logits inside the softmax loss. In binary problems the same idea is threshold moving: choose the threshold on validation data for the target metric or cost.
+5. **Decoupled training.** Kang et al. (2019) found that ordinary instance-balanced sampling learns the best representations; then retrain only the classifier with class-balanced sampling, or rescale the classifier's weight norms.
+6. **More data.** Collect rare examples with active learning or targeted labeling; for extremely rare positives, consider an anomaly-detection framing.
+
+**Pitfalls.** Reweighting and resampling distort the predicted probabilities, so undo them with the prior correction or recalibrate on a validation set drawn from the true distribution; do not tune thresholds on the test set; and report results per class, since an average hides the rare classes.
+:::
+
+::: {.qa asked="NVIDIA 2025, ByteDance MM 2025, Qualcomm"}
+**Compare data, tensor and pipeline parallelism. How do DeepSpeed and Megatron-LM differ?**
+
+Data parallelism splits the batch and replicates the model; tensor parallelism splits each layer's matrices; pipeline parallelism splits the layers into stages. They trade memory, communication volume and idle time differently, so large runs combine them.
+
+**Data parallelism.** Each of $N$ GPUs holds a full replica and runs its own micro-batch; gradients are averaged with an all-reduce (about $2\Psi$ elements per GPU per step for $\Psi$ parameters), overlapped with backward. Per-GPU memory does not shrink. **ZeRO** and **FSDP** remove the redundancy by sharding optimizer states, then gradients, then parameters across the data-parallel ranks; full sharding brings model states to $16\Psi/N$ bytes per GPU for mixed-precision Adam at about $3\Psi$ communication, since weights are all-gathered in both forward and backward. Every GPU still runs whole layers.
+
+**Tensor parallelism** (Megatron-LM, Shoeybi et al., 2019). In the MLP $Y = \mathrm{GeLU}(XA)\,B$, split $A$ by columns, $A = [A_1, A_2]$, so each GPU computes $\mathrm{GeLU}(XA_i)$ without communication (the nonlinearity is elementwise). Split $B$ by rows, so $Y = \mathrm{GeLU}(XA_1)B_1 + \mathrm{GeLU}(XA_2)B_2$ needs one all-reduce. Attention is split by heads the same way, giving two all-reduces forward and two backward per layer. Weights, compute and the activations inside each block are divided across GPUs, but the communication is frequent and blocking.
+
+**Pipeline parallelism.** Contiguous layers go to $K$ stages and the batch to $M$ micro-batches. With GPipe's schedule (all forwards, then all backwards) the idle fraction is $(K-1)/(M+K-1)$ and activations for all $M$ micro-batches are kept. The 1F1B schedule alternates one forward and one backward per stage after a warmup: the same bubble, but at most $K$ micro-batches in flight. Giving each device $v$ interleaved chunks cuts the bubble by $v$ at $v$ times the communication (Narayanan et al., 2021). Only stage-boundary activations cross GPUs, point to point, which is cheap enough to span nodes; keeping the bubble small needs $M \gg K$ and so a large global batch.
+
+**Other axes.** Context parallelism splits long sequences across GPUs (for example ring attention); expert parallelism spreads MoE experts across GPUs with all-to-all token exchange.
+
+**DeepSpeed versus Megatron-LM.** DeepSpeed is a library built around ZeRO: sharding, offload to CPU or NVMe (ZeRO-Offload, ZeRO-Infinity), little change to an existing PyTorch model, plus a pipeline engine. Megatron-LM is a transformer training codebase with hand-written tensor-parallel layers, pipeline schedules, sequence parallelism and fused kernels: high throughput, but the model must be written in its style. They are often combined (Megatron-DeepSpeed) in "3D parallelism": Narayanan et al. found tensor parallelism works best within a node, where NVLink absorbs its all-reduces, and pipeline parallelism across nodes, with data parallelism over the remaining GPUs.
+
+[more](deep-learning-training.html)
+:::
+
 Deeper: [Deep Learning Training](deep-learning-training.html) and [Vision Backbones](vision-backbones.html).
 
 ## Math and probability
@@ -318,6 +726,237 @@ For $f: \mathbb{R}^n \to \mathbb{R}^m$, the Jacobian $J_{ij} = \partial f_i / \p
 **What does it cost to invert a matrix, how should you solve a linear system in practice, and how do you test linear independence?**
 
 Inversion by Gaussian elimination or LU costs $O(n^3)$. You rarely need the inverse: solve $Ax = b$ with an LU factorization, with Cholesky when $A$ is symmetric positive definite (about half the cost and stable), with QR for least squares, or with conjugate gradients for large sparse SPD systems; the Woodbury identity handles low-rank updates. Vectors are linearly independent when the matrix they form has full column rank; numerically, check the smallest singular value relative to the largest (via SVD or pivoted QR) rather than an exact rank.
+:::
+
+::: {.qa asked="Google DeepMind research intern, Glassdoor"}
+**What is the difference between a PDF and a PMF? Derive the mean and variance of the binomial distribution.**
+
+A PMF gives probabilities of a discrete variable directly, $p(x) = P(X = x)$, with values in $[0, 1]$ that sum to 1. A PDF is a density of a continuous variable: probabilities come from integrals, $P(X \in A) = \int_A f(x)\,dx$, so every single point has probability 0, $f$ can exceed 1 (Uniform(0, 0.5) has density 2), $f$ has units of one over $x$, and $f = F'$ for the CDF $F$. Under a change of variables $y = g(x)$, a PMF just relabels outcomes, while a density picks up a Jacobian factor, $f_Y(y) = f_X(x)\,|dx/dy|$.
+
+**Binomial.** $X \sim \mathrm{Bin}(n, p)$ counts successes in $n$ independent trials: $P(X = k) = \binom{n}{k} p^k (1-p)^{n-k}$.
+
+*Indicators.* Write $X = \sum_{i=1}^n I_i$ with $I_i \sim \mathrm{Bernoulli}(p)$. Then $\mathbb{E}[I_i] = p$ and, since $I_i^2 = I_i$, $\mathrm{Var}(I_i) = p - p^2 = p(1-p)$. Linearity gives $\mathbb{E}[X] = np$ (no independence needed), and independence makes all covariances zero, so $\mathrm{Var}(X) = np(1-p)$.
+
+*Direct sums.* Using $k\binom{n}{k} = n\binom{n-1}{k-1}$,
+
+$$
+\mathbb{E}[X] = \sum_{k=1}^{n} n\binom{n-1}{k-1} p^k (1-p)^{n-k} = np \sum_{j=0}^{n-1}\binom{n-1}{j} p^j (1-p)^{n-1-j} = np.
+$$
+
+Using $k(k-1)\binom{n}{k} = n(n-1)\binom{n-2}{k-2}$ the same way gives $\mathbb{E}[X(X-1)] = n(n-1)p^2$, so
+
+$$
+\mathrm{Var}(X) = \mathbb{E}[X(X-1)] + \mathbb{E}[X] - (\mathbb{E}[X])^2 = n(n-1)p^2 + np - n^2p^2 = np(1-p).
+$$
+
+The variance is largest at $p = 1/2$, and the standard deviation of the fraction $X/n$ is $\sqrt{p(1-p)/n}$: the error bar on an accuracy measured on $n$ test examples.
+:::
+
+::: {.qa asked="ByteDance, Nowcoder 2022"}
+**Two players take turns tossing a fair coin, and the first to get heads wins. What is the probability that the first player wins?**
+
+$2/3$. With heads probability $p$ the answer is $1/(2-p)$.
+
+*Series.* The first player wins on toss 1, 3, 5, and so on, that is, after an even number $2k$ of tails followed by a head:
+
+$$
+P = \sum_{k=0}^{\infty} (1-p)^{2k}\,p = \frac{p}{1 - (1-p)^2} = \frac{p}{p(2-p)} = \frac{1}{2-p},
+$$
+
+which is $\tfrac{1/2}{3/4} = \tfrac{2}{3}$ for a fair coin.
+
+*First-step analysis.* Let $P$ be the probability that the player about to toss eventually wins. They win now with probability $p$; otherwise the other player becomes the one about to toss, and our player then wins with probability $1 - P$. So $P = p + (1-p)(1-P)$, which rearranges to $P(2-p) = 1$.
+
+Sanity checks: $P \to 1/2$ as $p \to 0$ (the game lasts many rounds and moving first barely matters), $P \to 1$ as $p \to 1$, and a simulation of $10^6$ games gives about 0.667. Common follow-ups: the expected number of tosses is $1/p = 2$ (geometric), and with three players the first wins with probability $p/(1 - (1-p)^3) = 4/7$.
+:::
+
+::: {.qa asked="SenseTime, Nowcoder 2022"}
+**Without a calculator, how do you decide whether $a^b$ or $b^a$ is larger?**
+
+For $a, b > 0$, take logarithms and divide by $ab$:
+
+$$
+a^b > b^a \iff b\ln a > a\ln b \iff \frac{\ln a}{a} > \frac{\ln b}{b}.
+$$
+
+So compare $f(x) = \ln x / x$ at the two points. Its derivative $f'(x) = (1 - \ln x)/x^2$ is positive for $x < e$ and negative for $x > e$, so $f$ rises to its maximum $1/e$ at $x = e$ and then decreases toward 0; it is negative for $x < 1$.
+
+- **Both at least $e$**: if $e \le a < b$ then $f(a) > f(b)$, so $a^b > b^a$; the smaller base with the larger exponent wins. Examples: $3^4 = 81 > 4^3 = 64$, and $10^{11} > 11^{10}$.
+- **Both at most $e$**: if $0 < a < b \le e$, $f$ is increasing, so $a^b < b^a$.
+- **$e^\pi$ versus $\pi^e$**: $f$ peaks at $e$, so $f(e) > f(\pi)$ and $e^\pi > \pi^e$ (23.14 versus 22.46).
+- **One on each side of $e$**: monotonicity does not decide, so evaluate $f$. $f(4) = 2\ln 2/4 = f(2)$, so $2^4 = 4^2$. Because $f$ decreases past $e$, for $b > e$ we get $2^b > b^2$ exactly when $b > 4$: $2^3 = 8 < 3^2 = 9$ but $2^5 = 32 > 5^2 = 25$. With $\ln 2 \approx 0.693$ and $\ln 3 \approx 1.099$, $f(3) \approx 0.366 > f(2) \approx 0.347$ confirms $3^2 > 2^3$.
+- **$a < 1 < b$**: $a^b < 1 < b^a$ directly.
+
+The same reduction handles large exponents, such as $3^{100}$ versus $100^3$: compare $100\ln 3 \approx 110$ with $3\ln 100 \approx 13.8$.
+:::
+
+::: {.qa asked="SenseTime, Nowcoder 2022"}
+**100 lamps start off; student $k$ toggles every lamp whose number is a multiple of $k$. Which lamps are on at the end?**
+
+With students $k = 1, \dots, 100$, the lamps left on are the perfect squares 1, 4, 9, 16, 25, 36, 49, 64, 81 and 100: ten lamps.
+
+Lamp $n$ is toggled once by each student $k$ that divides $n$, and every divisor of $n \le 100$ is a student, so the lamp ends on exactly when $n$ has an odd number of divisors. Divisors come in pairs $(d, n/d)$, and the two members of a pair differ unless $d = n/d$, that is, $d = \sqrt n$. So the count is odd if and only if $n$ is a perfect square. Equivalently, for $n = \prod_i p_i^{e_i}$ the number of divisors is $\prod_i (e_i + 1)$, which is odd exactly when every $e_i$ is even.
+
+For $N$ lamps the answer is the $\lfloor\sqrt N\rfloor$ perfect squares. Follow-ups: the lamps toggled exactly twice are the primes (25 of them up to 100), since a prime's only divisors are 1 and itself. A simulation in which student $k$ visits only multiples of $k$ costs $\sum_k N/k = O(N \log N)$.
+:::
+
+::: {.qa asked="bigo image/CV, Nowcoder 2019"}
+**What is the expected length of a random chord of a circle?**
+
+It depends on what "random chord" means; different natural sampling schemes give different distributions of chords (Bertrand's paradox). For radius $R$, the three standard schemes give $4R/\pi \approx 1.27R$, $\pi R/2 \approx 1.57R$ and $4R/3 \approx 1.33R$. A chord at distance $r$ from the centre has length $L = 2\sqrt{R^2 - r^2}$; the schemes differ in the distribution they induce on the chord.
+
+1. **Two uniform endpoints on the circle.** Fix one endpoint by symmetry; the central angle $\theta$ to the other is uniform on $[0, \pi]$ after folding, and $L = 2R\sin(\theta/2)$:
+$$
+\mathbb{E}[L] = \frac{1}{\pi}\int_0^\pi 2R\sin\frac{\theta}{2}\,d\theta = \frac{2R}{\pi}\Big[-2\cos\frac{\theta}{2}\Big]_0^\pi = \frac{4R}{\pi}.
+$$
+2. **Uniform distance from the centre.** Pick a random radius, a point uniform along it, and the chord perpendicular to the radius there, so $r \sim U[0, R]$:
+$$
+\mathbb{E}[L] = \frac{1}{R}\int_0^R 2\sqrt{R^2 - r^2}\,dr = \frac{2}{R}\cdot\frac{\pi R^2}{4} = \frac{\pi R}{2},
+$$
+since the integral is the area of a quarter disk.
+3. **Midpoint uniform in the disk.** The midpoint's distance from the centre has density $2r/R^2$:
+$$
+\mathbb{E}[L] = \int_0^R 2\sqrt{R^2 - r^2}\,\frac{2r}{R^2}\,dr = \frac{4}{R^2}\Big[-\tfrac{1}{3}(R^2 - r^2)^{3/2}\Big]_0^R = \frac{4R}{3}.
+$$
+
+A Monte Carlo check with $2 \times 10^6$ chords per scheme gives 1.273, 1.571 and 1.333 for $R = 1$. The classic version of the paradox asks for the probability that a chord is longer than the side $\sqrt3 R$ of the inscribed equilateral triangle: $1/3$, $1/2$ and $1/4$ under the three schemes. In the interview, state your assumption first and then compute; the point being tested is that "uniform" needs a specified measure.
+:::
+
+::: {.qa asked="Alibaba Tongyi Lab intern, Nowcoder 2024"}
+**Compute $\sqrt{x}$ by binary search instead of Newton's method. How do you set the bounds for very large or very small inputs?**
+
+Bisect on $y$ for the root of $y^2 = x$, keeping $\mathit{lo} \le \sqrt x \le \mathit{hi}$. Bounds that always work are $[\min(x, 1), \max(x, 1)]$: for $x \ge 1$, $1 \le \sqrt x \le x$, and for $0 < x < 1$, $x < \sqrt x < 1$. The common bug is $\mathit{hi} = x$, which excludes the answer when $x < 1$.
+
+**Stopping.** Use a relative tolerance, $\mathit{hi} - \mathit{lo} \le \mathrm{tol} \cdot \mathit{lo}$. An absolute tolerance is meaningless for tiny inputs (with tolerance $10^{-9}$, any value below $10^{-9}$ passes for $x = 10^{-20}$, whose root is $10^{-10}$) and unreachable for huge ones (adjacent doubles near $10^{150}$ are about $10^{134}$ apart, so the loop never ends). Each step halves the interval, so it takes about $\log_2\!\big((\max(x,1) - \min(x,1))/(\mathrm{tol}\sqrt x)\big)$ iterations: 40 for $x = 2$ and about 540 for $x = 10^{\pm 300}$ at $\mathrm{tol} = 10^{-12}$. An iteration cap guards against a tolerance below machine precision.
+
+**Shrinking the range.** To make the count independent of magnitude, split off the exponent: write $x = m \cdot 2^e$ with $e$ even and $m \in [0.5, 2)$ (`math.frexp`, moving one factor of 2 into $m$ when $e$ is odd), bisect for $\sqrt m$ in $[0.7, 1.5]$, and return $\sqrt m \cdot 2^{e/2}$ (`math.ldexp`). About 40 iterations then reach $10^{-12}$ for any input.
+
+**Overflow.** Compare `mid > x / mid` rather than `mid * mid > x`; in the integer version this matters in fixed-width languages, where `mid * mid` overflows.
+
+```python
+import math
+
+def sqrt_bisect(x, rel_tol=1e-12, max_iter=2000):
+    if x < 0: raise ValueError("negative input")
+    if x == 0 or math.isinf(x): return x
+    lo, hi = min(x, 1.0), max(x, 1.0)      # sqrt(x) lies between x and 1
+    for _ in range(max_iter):
+        mid = lo + (hi - lo) / 2
+        if mid > x / mid: hi = mid         # mid*mid > x, without overflow
+        else: lo = mid
+        if hi - lo <= rel_tol * lo: break  # relative tolerance
+    return lo + (hi - lo) / 2
+
+def isqrt(n):                              # largest r with r*r <= n
+    lo, hi = 0, n
+    while lo < hi:
+        mid = (lo + hi + 1) // 2           # upper middle, so lo = mid makes progress
+        if mid <= n // mid: lo = mid       # mid*mid <= n, without overflow
+        else: hi = mid - 1
+    return lo
+```
+
+Time is $O(\log(\mathrm{range}/\mathrm{tol}))$ iterations for the float version and $O(\log n)$ for the integer one, with $O(1)$ memory. For comparison, Newton's update $y \leftarrow (y + x/y)/2$ doubles the number of correct digits per step once close, so after the exponent reduction about 5 steps from $y = 1$ reach double precision; bisection gains one bit per step but needs only comparisons and always stays inside its bracket.
+:::
+
+::: {.qa asked="NetEase Games image algorithm, Nowcoder 2021"}
+**How do you test whether a function is convex, and how do Newton and quasi-Newton methods use the Hessian?**
+
+**Convexity tests** for $f$ on a convex domain:
+
+1. Definition: $f(\lambda x + (1-\lambda)y) \le \lambda f(x) + (1-\lambda)f(y)$ for $\lambda \in [0, 1]$; equivalently, $t \mapsto f(x + tv)$ is convex for every $x, v$, which reduces any test to one dimension.
+2. First order: $f(y) \ge f(x) + \nabla f(x)^\top(y - x)$, so tangent planes lie below $f$ and a stationary point is a global minimum.
+3. Second order: $\nabla^2 f(x) \succeq 0$ everywhere, checked with eigenvalues or a Cholesky factorization (leading principal minors certify definiteness; semidefiniteness needs all principal minors nonnegative).
+4. Composition rules: nonnegative sums, affine precomposition, pointwise maxima, and $h(g(x))$ with $h$ convex nondecreasing and $g$ convex preserve convexity, which covers norms, log-sum-exp and softmax cross-entropy in the logits.
+
+Numerically, one point with a negative Hessian eigenvalue disproves convexity; sampling cannot prove it.
+
+**Newton's method.** Minimize the quadratic model $f(x) + g^\top p + \tfrac12 p^\top H p$: its gradient $g + Hp$ vanishes at $p = -H^{-1}g$, so $x_{k+1} = x_k - H_k^{-1}g_k$. With $e_k = x_k - x^*$ and $\nabla f(x^*) = 0$, $g_k = \int_0^1 H(x^* + te_k)\,e_k\,dt$; if $H_k \succeq \mu I$ and $H$ is $M$-Lipschitz,
+
+$$
+\|e_{k+1}\| = \Big\|H_k^{-1}\int_0^1 \big(H_k - H(x^* + te_k)\big)e_k\,dt\Big\| \le \frac{1}{\mu}\int_0^1 M(1-t)\|e_k\|^2\,dt = \frac{M}{2\mu}\|e_k\|^2 ,
+$$
+
+so convergence is quadratic near the minimizer, and affine invariance makes it insensitive to conditioning. The cost is $O(d^2)$ memory and $O(d^3)$ per solve. Far from the minimizer it can fail: with an indefinite $H$ the step may head uphill or toward a saddle, and it can diverge even on a convex function (for $f(x) = \sqrt{1 + x^2}$ the iteration is $x \mapsto -x^3$, divergent for $|x| > 1$). Fixes: a line search (damped Newton), trust regions, or Levenberg-Marquardt damping $(H + \lambda I)^{-1}$.
+
+**Quasi-Newton.** Build curvature from gradients alone. With $s_k = x_{k+1} - x_k$ and $y_k = g_{k+1} - g_k$, impose the secant condition $B_{k+1}s_k = y_k$. BFGS updates the inverse approximation $C_k \approx H^{-1}$ by a rank-two correction,
+
+$$
+C_{k+1} = (I - \rho_k s_k y_k^\top)\,C_k\,(I - \rho_k y_k s_k^\top) + \rho_k s_k s_k^\top, \qquad \rho_k = \frac{1}{y_k^\top s_k},
+$$
+
+which stays positive definite when $y_k^\top s_k > 0$ (a Wolfe line search ensures this), costs $O(d^2)$ per step and converges superlinearly. L-BFGS keeps only the last $m$ pairs (typically 3 to 20) and applies $C_k$ to a gradient with a two-loop recursion in $O(md)$. Minibatch noise corrupts the $(s, y)$ pairs, so in deep learning L-BFGS is used mainly for full-batch problems, and curvature enters through Hessian-vector products or structured approximations.
+:::
+
+::: {.qa asked="NetEase Games image algorithm, Nowcoder 2021"}
+**What do the eigenvectors of a covariance matrix mean, and how does the SVD relate to PCA?**
+
+The eigenvectors are orthogonal directions along which the projected coordinates are uncorrelated, ordered by the variance they carry; the eigenvalues are those variances. PCA keeps the top ones, and the SVD of the centred data matrix computes the same thing more stably.
+
+**Derivation.** Let $X \in \mathbb{R}^{n \times d}$ be centred data (rows are samples) and $\Sigma = X^\top X/(n-1)$. The variance of the projection onto a unit vector $u$ is $\mathrm{Var}(Xu) = u^\top\Sigma u$. Maximizing it subject to $u^\top u = 1$ with the Lagrangian $u^\top\Sigma u - \lambda(u^\top u - 1)$ gives $\Sigma u = \lambda u$, and at such a point the objective equals $u^\top\Sigma u = \lambda$. So the best direction is the top eigenvector and the variance captured is the top eigenvalue; requiring orthogonality to earlier components yields the next eigenvectors in order. Because $\Sigma$ is symmetric positive semidefinite, its eigenvectors are orthogonal and its eigenvalues are nonnegative. $\sum_i \lambda_i = \mathrm{tr}\,\Sigma$ is the total variance, so $\lambda_i / \sum_j \lambda_j$ is the explained-variance ratio. In the eigenbasis the covariance is the diagonal $\Lambda$; for Gaussian data the eigenvectors are the axes of the density's ellipsoids, with semi-axes proportional to $\sqrt{\lambda_i}$.
+
+**SVD.** $X = USV^\top$ gives $X^\top X = VS^2V^\top$, so $\Sigma = V\,\tfrac{S^2}{n-1}\,V^\top$: the right singular vectors are the principal directions, $\lambda_i = s_i^2/(n-1)$, and the projected data (scores) are $XV = US$. Forming $X^\top X$ squares the condition number, so small-variance directions lose about twice as many digits; the SVD works on $X$ directly. For the top $k$ components of large data, use a truncated or randomized SVD; when $d \gg n$, the $n \times n$ Gram matrix $XX^\top$ has the same nonzero eigenvalues and is cheaper.
+
+**Whitening.** $z = \Lambda^{-1/2}V^\top x$ has identity covariance (PCA whitening). $V\Lambda^{-1/2}V^\top x$ (ZCA) also whitens but stays as close as possible to the original coordinates, so whitened images still resemble images. Add a small $\epsilon$ to each $\lambda_i$ so near-zero directions, mostly noise, are not blown up.
+
+**Pitfalls.** Forgetting to centre; mixing units, since PCA is not scale-invariant (standardize first); reading meaning into eigenvector signs, which are arbitrary; and expecting PCA to find nonlinear structure, since it uses only second moments.
+:::
+
+::: {.qa asked="Alibaba, Nowcoder 2022"}
+**Prove that gradient descent converges, and state the rate.**
+
+Assume $f$ is $L$-smooth ($\nabla f$ is $L$-Lipschitz) and use step $\eta = 1/L$. Then: for $f$ bounded below by $f^*$, $\min_{k<K}\|\nabla f(x_k)\|^2 \le 2L(f(x_0) - f^*)/K$; for convex $f$, $f(x_K) - f^* \le L\|x_0 - x^*\|^2/(2K)$; for $\mu$-strongly convex $f$, $f(x_K) - f^* \le (1 - \mu/L)^K(f(x_0) - f^*)$.
+
+**Descent lemma.**
+
+$$
+f(y) - f(x) - \nabla f(x)^\top(y - x) = \int_0^1 \big(\nabla f(x + t(y - x)) - \nabla f(x)\big)^\top(y - x)\,dt \le \int_0^1 Lt\,\|y - x\|^2\,dt = \frac{L}{2}\|y - x\|^2 .
+$$
+
+With $y = x - \eta\nabla f(x)$ this gives $f(y) \le f(x) - \eta(1 - L\eta/2)\|\nabla f(x)\|^2$, so any $\eta < 2/L$ decreases $f$, and $\eta = 1/L$ maximizes the guaranteed decrease: $f(x_{k+1}) \le f(x_k) - \frac{1}{2L}\|g_k\|^2$ with $g_k = \nabla f(x_k)$.
+
+**Nonconvex.** Summing over $k = 0, \dots, K-1$ telescopes: $\frac{1}{2L}\sum_k \|g_k\|^2 \le f(x_0) - f(x_K) \le f(x_0) - f^*$. The minimum is at most the average, which gives the first rate: $\|\nabla f\| \le \epsilon$ within $O(1/\epsilon^2)$ steps, at a stationary point that may be a saddle.
+
+**Convex.** Convexity gives $f(x_k) - f^* \le g_k^\top(x_k - x^*)$. Expanding $\|x_{k+1} - x^*\|^2 = \|x_k - x^*\|^2 - \tfrac{2}{L}g_k^\top(x_k - x^*) + \tfrac{1}{L^2}\|g_k\|^2$ and combining with the descent step,
+
+$$
+f(x_{k+1}) - f^* \le g_k^\top(x_k - x^*) - \frac{1}{2L}\|g_k\|^2 = \frac{L}{2}\Big(\|x_k - x^*\|^2 - \|x_{k+1} - x^*\|^2\Big).
+$$
+
+Summing telescopes to $\sum_{k=1}^{K}(f(x_k) - f^*) \le \frac{L}{2}\|x_0 - x^*\|^2$, and since $f(x_k)$ is nonincreasing, $K(f(x_K) - f^*)$ is at most that sum: the $O(1/K)$ rate.
+
+**Strongly convex.** Minimizing both sides of $f(y) \ge f(x) + g^\top(y - x) + \frac{\mu}{2}\|y - x\|^2$ over $y$ gives $f^* \ge f(x) - \|g\|^2/(2\mu)$, i.e., $\|g\|^2 \ge 2\mu(f(x) - f^*)$ (the Polyak-Łojasiewicz inequality). Substituting into the descent step, $f(x_{k+1}) - f^* \le (1 - \mu/L)(f(x_k) - f^*)$: linear convergence, $O(\kappa\log(1/\epsilon))$ steps with $\kappa = L/\mu$. The proof uses only the PL inequality, so it also covers nonconvex functions that satisfy it.
+
+For context, Nesterov acceleration improves these to $O(1/K^2)$ and a factor $1 - 1/\sqrt\kappa$ per step, while SGD on convex problems is slower, $O(1/\sqrt K)$, because its gradient noise does not vanish at the optimum.
+:::
+
+::: {.qa asked="OpenAI RE (Aced, ~2025)"}
+**Implement all_gather across several nodes. If the links between nodes are noisy, derive a worst-case bound on the number of rounds needed for every node to get every value within a target error, improve the bound, and then use the fact that the values are floating-point numbers to design a better algorithm.**
+
+The report gives no noise model, so state one. The point to reach: sending a real value and averaging copies needs rounds proportional to $1/\varepsilon^2$, while sending a float's bits, decoding each exactly and forwarding it needs rounds proportional to the number of bits.
+
+**Setup.** Node $i$ of $n$ holds $x_i \in [-R, R]$. Per round, each node sends one symbol $|s| \le A$ to a neighbour, which receives $s + z$, $z \sim \mathcal{N}(0, \sigma^2)$ independent. Ring all_gather takes $n - 1$ steps, each node forwarding to its successor the value it received in the previous step (its own first): $n(n-1)$ value transmissions in all.
+
+**Naive bound.** Send $(A/R)\,x$ $k$ times, average, forward the estimate. One hop leaves Gaussian error of variance $(R\sigma/A)^2/k$, and $n - 1$ hops add $n - 1$ such errors. A Gaussian tail and a union bound over the $n(n-1)$ (value, receiver) pairs give
+
+$$
+2n(n-1)\exp\Big(-\frac{k\varepsilon^2}{2(n-1)(R\sigma/A)^2}\Big) \le \delta
+\iff k \ge 2(n-1)\Big(\frac{R\sigma}{A\varepsilon}\Big)^2 \ln\frac{2n(n-1)}{\delta},
+$$
+
+for a total of $(n-1)k = O\big(n^2 (R\sigma/A\varepsilon)^2 \log(n/\delta)\big)$ rounds.
+
+**Improving it.** Chebyshev's inequality would give a factor $1/\delta$; the Gaussian tail makes it $\log(1/\delta)$. Fewer hops per value (direct links, or a tree of depth $\log_2 n$) remove the factor $n - 1$ from $k$. But $1/\varepsilon^2$ remains, because averaging shrinks the error only as $1/\sqrt{k}$: each extra bit of precision costs four times the rounds.
+
+**Using floats.** A float32 is a 32-bit string. Send each bit as $\pm A$, $r$ times, and decode by the sign of the average:
+
+$$
+P(\text{bit wrong}) = Q\big(A\sqrt{r}/\sigma\big) \le \tfrac{1}{2} e^{-rA^2/2\sigma^2}.
+$$
+
+Decoded bits are forwarded clean, so noise no longer accumulates over hops. A union bound over $b$ bits in each of the $n(n-1)$ transmissions needs $r \ge (2\sigma^2/A^2) \ln\big(b\,n(n-1)/2\delta\big)$, a total of $(n-1)\,b\,r = O\big(n b (\sigma/A)^2 \log(nb/\delta)\big)$ rounds, and with probability at least $1 - \delta$ every float arrives exactly. The target error only sets $b$: 32 bits for an exact copy, or about $\log_2(2R/\varepsilon)$ in fixed point. With $n = 8$, $\delta = 10^{-3}$, $A = \sigma$ and $R/\varepsilon = 10^3$, averaging needs about $2.3 \times 10^7$ symbols per value even over one hop; bits with repetition need $11 \times 26 = 286$.
+
+**Further.** Protect bits unequally (a sign or exponent error is catastrophic, the last mantissa bits barely matter), and replace repetition with an error-correcting code, which costs a constant number of channel uses per bit. Nothing does much better: pinning a worst-case value to within $\varepsilon$ means telling apart about $R/\varepsilon$ values, roughly $\log_2(R/\varepsilon)$ bits, and a Gaussian channel with power $A^2$ carries at most $C = \frac{1}{2}\log_2(1 + A^2/\sigma^2)$ bits per use, so any scheme needs about $\log_2(R/\varepsilon)/C$ rounds per hop. If the channel instead flips bits with probability $p$, majority voting over $r$ copies fails with probability at most $e^{-2r(1/2 - p)^2}$ (Hoeffding), and the rest carries over.
 :::
 
 Deeper: [Deep Learning Training](deep-learning-training.html) for losses as likelihoods, and [GANs, VAEs and Autoregressive Models](gans-vaes-autoregressive.html) for divergences in generative training.
@@ -396,6 +1035,39 @@ Treat the box coordinates as the variable that is diffused: corrupt ground-truth
 **How do you fine-tune a diffusion model with reinforcement learning, for example with policy gradients or GRPO?**
 
 Treat the denoising chain as an MDP: the state is $(x_t, t, c)$, the action is $x_{t-1}$, and the policy $p_\theta(x_{t-1} | x_t)$ is Gaussian, so its log-probability is tractable; the reward (aesthetics, text alignment, a human-preference model) arrives only at the final image. DDPO (Black et al., 2023) applies PPO-style updates with per-step importance ratios. GRPO-style methods sample a group of images per prompt and use group-normalized rewards as advantages, which removes the value network that GAE needs; for flow models with deterministic ODE samplers, Flow-GRPO converts the ODE into an SDE with the same marginals to obtain stochastic steps with likelihoods. Main risks are reward hacking and lost diversity, controlled with a KL penalty toward the reference model. Alternatives are backpropagating a differentiable reward through sampling (DRaFT, AlignProp) and Diffusion-DPO on preference pairs.
+:::
+
+::: {.qa asked="Curated diffusion lists (Zhihu, CSDN 2025)"}
+**Why does DDPM add noise in many small steps whose size grows over time, instead of one large step or equal steps?**
+
+Small steps keep each reverse step easy to model. Growing steps spread the information loss evenly, because a fixed amount of added noise destroys far more information while the image is still clean than once it is already noisy.
+
+1. *Why many small steps.* Each reverse conditional $q(x_{t-1} \mid x_t)$ is modeled as a Gaussian, which is accurate only when $\beta_t$ is small: forward and reverse kernels then share a functional form, the argument DDPM takes from Sohl-Dickstein et al. (2015). With a single step, $q(x_0 \mid x_1)$ is essentially the data distribution, and a Gaussian fit to it is a blurry average. VDM (Kingma et al., 2021) also shows that, for a good enough denoiser, doubling the number of steps lowers the diffusion loss.
+2. *Why growing steps.* Write $\lambda_t = \log\frac{\bar\alpha_t}{1-\bar\alpha_t}$ and $\mathrm{SNR}_t = e^{\lambda_t}$. Since $1-\bar\alpha_t = (1-\bar\alpha_{t-1}) + \bar\alpha_{t-1}\beta_t$, the log-SNR drop per step is exactly
+$$\lambda_{t-1} - \lambda_t = \log\big(1 + \beta_t\,\mathrm{SNR}_{t-1}\big) - \log(1 - \beta_t).$$
+At high SNR (early steps) a tiny $\beta_t$ already moves $\lambda$ a lot; at low SNR (late steps) $\beta_t$ must be large to make progress. With DDPM's linear schedule ($T = 1000$, $\beta_t$ from $10^{-4}$ to $0.02$) the drop is about 0.8 at the start and about 0.01 to 0.02 in the middle and at the end.
+3. *Why not equal steps.* A constant $\beta$ forces a bad choice. With $\beta = 10^{-4}$, $\bar\alpha_T \approx 0.90$ after 1000 steps, nowhere near $\mathcal{N}(0, I)$. With $\beta = 0.01$, $\bar\alpha_T \approx 4 \times 10^{-5}$, but the first step already adds noise of standard deviation 0.1 to data in $[-1, 1]$, so the last reverse step must remove that much noise in one jump, where fine texture is decided. The linear schedule starts at standard deviation 0.01 (about one 8-bit grey level) and ends with $\sqrt{\bar\alpha_T} \approx 0.006$; Ho et al. picked it from constant, linear and quadratic candidates, all constrained so the prior term $L_T$ is near zero.
+
+What ultimately matters is how steps are distributed over log-SNR; the linear schedule still spends its last steps near zero SNR, which the cosine schedule corrects (see the noise-schedule question in this section).
+
+[more](diffusion-models.html)
+:::
+
+::: {.qa asked="Kling RL role (Nowcoder snippet)"}
+**What is generalized advantage estimation (GAE), and how does it relate to RL fine-tuning of diffusion models?**
+
+GAE (Schulman et al., 2015) estimates the advantage $A(s_t, a_t)$ as an exponentially weighted sum of one-step TD errors of a learned value function $V$; the weight $\lambda$ trades bias against variance.
+
+1. TD residual: $\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$, an advantage estimate that is unbiased only if $V$ is exact.
+2. Summing $k$ residuals telescopes the intermediate values: $\sum_{l=0}^{k-1}\gamma^l \delta_{t+l} = \sum_{l=0}^{k-1}\gamma^l r_{t+l} + \gamma^k V(s_{t+k}) - V(s_t)$, the $k$-step estimate. Averaging these with weights $(1-\lambda)\lambda^{k-1}$ gives
+$$\hat A_t = \sum_{l \ge 0} (\gamma\lambda)^l\, \delta_{t+l}.$$
+3. $\lambda = 0$ gives $\delta_t$ (TD(0)): low variance, biased when $V$ is wrong. $\lambda = 1$ gives $\sum_l \gamma^l r_{t+l} - V(s_t)$, the Monte Carlo return minus a baseline: unbiased for any $V$ but high variance. The paper notes that $\gamma < 1$ biases the gradient whatever $V$ is, while $\lambda < 1$ does so only when $V$ is inaccurate; its best runs used $\lambda$ between 0.92 and 0.99.
+
+In diffusion fine-tuning, an episode is the denoising chain, intermediate rewards are zero, the only reward $R$ comes from the final image, and $\gamma = 1$. Then $\delta_t = V(s_{t+1}) - V(s_t)$ until the last step, and with $K$ steps left,
+$$\hat A_t = \lambda^{K-1} R + (1-\lambda)\sum_{l=1}^{K-1} \lambda^{l-1} V(s_{t+l}) - V(s_t).$$
+For $\lambda < 1$ the real signal $R$ is down-weighted by $\lambda^{K-1}$ at early steps (about 0.08 for $\lambda = 0.95$ and 50 steps), so the estimate leans on a critic that must predict the final image's reward from a noisy latent, a hard regression. Most methods therefore use $\lambda = 1$, so $\hat A_t = R - b$ is the same for every step of a trajectory, and replace the critic with a cheap baseline $b$: DDPO (Black et al., 2023) normalizes rewards with a running mean and standard deviation tracked per prompt, and GRPO-style methods use the statistics of a group of samples for the same prompt. A critic can still help: DPOK (Fan et al., 2023) learned $V(x_t, c)$ and reported higher final rewards.
+
+[more](text-to-image-multimodal.html)
 :::
 
 Deeper: [Diffusion Models](diffusion-models.html) and [Flow Matching](flow-matching.html).
@@ -487,7 +1159,7 @@ A residual block computes $y = x + F(x)$, so the identity is easy to represent a
 ::: {.qa asked="NIO 2024, Tencent multimodal 2026 (Nowcoder)"}
 **How does SAM work, what prompts does it take, and how do SAM 2 and SAM 3 differ?**
 
-SAM runs a large ViT image encoder once per image, encodes prompts (points, boxes, masks) with a light prompt encoder, and uses a small two-way transformer decoder to output several candidate masks with predicted IoU scores, which handles ambiguous prompts. It generalizes because of its promptable design and its data engine, which produced about 1.1B masks (SA-1B). SAM 2 extends this to video with a streaming memory of past frames that the current frame attends to, so it tracks objects through time. SAM 3 adds concept prompts, a short noun phrase or an exemplar image, and returns every matching instance, which brings open-vocabulary detection into the segmenter.
+SAM runs a large ViT image encoder once per image, encodes prompts (points, boxes, masks) with a light prompt encoder, and uses a small two-way transformer decoder to output several candidate masks with predicted IoU scores, which handles ambiguous prompts. It generalizes because of its promptable design and its data engine, which produced about 1.1B masks (SA-1B). SAM 2 extends this to video with a streaming memory of past frames that the current frame attends to, so it tracks objects through time. SAM 3 adds concept prompts (a short noun phrase, image exemplars given as positive or negative boxes on the image, or both) and returns every matching instance, which brings open-vocabulary detection into the segmenter.
 :::
 
 ::: {.qa asked="Qualcomm 2026, Glassdoor"}
@@ -500,6 +1172,95 @@ YOLO is a one-stage detector: a single forward pass predicts, at each cell of on
 **Compare MAE and DINO as self-supervised pretraining methods.**
 
 MAE masks about 75% of the patches, encodes only the visible ones, and reconstructs pixels with a light decoder; it is cheap to train and fine-tunes well, but its frozen features are weaker under linear probing. DINO trains a student to match an EMA teacher's softmax outputs across different crops, using centring and sharpening of the teacher outputs to avoid collapse without negatives; its frozen features are strong for k-NN retrieval and segmentation. DINOv2 scales the recipe with curated data, and its features are now used for feature-space generative metrics and for representation-alignment losses in diffusion training (REPA).
+:::
+
+::: {.qa asked="CV interview advice thread (Reddit 2025), not a report"}
+**How does DETR detect objects without anchors or non-maximum suppression?**
+
+DETR (Carion et al., 2020) treats detection as direct set prediction: it outputs a fixed-size set of boxes and trains with a one-to-one matching loss, so duplicates are penalized during training instead of removed afterwards.
+
+1. *Architecture.* A CNN backbone (ResNet-50 in the base model) gives a feature map; a 1x1 convolution reduces its channels, the map is flattened into tokens with positional encodings, and a transformer encoder applies global self-attention. The decoder takes $N = 100$ learned object queries that attend to each other and to the image; a shared FFN maps each query to a class distribution, including a "no object" class $\varnothing$, and a normalized box (center, width, height).
+2. *Matching.* Pad the ground truth to $N$ entries with $\varnothing$ and find the permutation with the lowest total cost using the Hungarian algorithm. For a real object the cost is $-\hat p_{\sigma(i)}(c_i) + \mathcal{L}_{\text{box}}$, with $\mathcal{L}_{\text{box}} = \lambda_{\text{iou}}\mathcal{L}_{\text{GIoU}} + \lambda_{L1}\lVert b_i - \hat b_{\sigma(i)}\rVert_1$ (weights 2 and 5); GIoU adds a scale-invariant term, since L1 alone treats small and large boxes differently.
+3. *Loss.* Cross-entropy on all $N$ predictions, with the $\varnothing$ term down-weighted by 10 for class imbalance, plus the box loss on matched pairs, applied after every decoder layer.
+
+Why no NMS: each object is matched to exactly one query, so a second query predicting the same object is trained toward $\varnothing$, and decoder self-attention lets queries coordinate which one claims it. The paper tested NMS on its outputs: it helped after the first decoder layer and slightly lowered AP after the last.
+
+Weaknesses: slow convergence (500 epochs to reach 42.0 AP on COCO, comparable to a Faster R-CNN baseline of the same size) and small objects (5.5 points lower $\text{AP}_S$ than that baseline), because attention over a single low-resolution map is expensive and starts out nearly uniform. Deformable DETR attends to a few learned sampling points around a reference point on multi-scale features and reports better accuracy, especially on small objects, with 10x fewer epochs. DN-DETR attributes slow convergence to unstable bipartite matching and adds noised ground-truth boxes as extra queries to reconstruct; DINO builds on this with contrastive denoising and better query initialization, reaching 49.4 AP in 12 epochs with ResNet-50.
+:::
+
+::: {.qa asked="SenseTime 2019, Momo 2021 (Nowcoder)"}
+**What changed from MobileNet v1 to MobileNet v2, and why?**
+
+V1 replaced standard convolutions with depthwise-separable ones. V2 kept them but rebuilt the block around where nonlinearities lose information, giving inverted residuals with linear bottlenecks.
+
+*MobileNet v1 (Howard et al., 2017).* A plain stack of 3x3 depthwise then 1x1 pointwise convolutions, each followed by BatchNorm and ReLU, with strided depthwise layers for downsampling and no residual connections (28 layers counting both kinds). With $3 \times 3$ kernels this costs 8 to 9 times less than standard convolution. Two global knobs trade accuracy for cost: a width multiplier $\alpha$ thins every layer (cost and parameters scale by about $\alpha^2$) and a resolution multiplier $\rho$ shrinks the input (cost scales by $\rho^2$).
+
+*MobileNet v2 (Sandler et al., 2018).* Each block is
+
+1. a 1x1 expansion from $d'$ to $t\,d'$ channels (expansion factor $t = 6$), then ReLU6;
+2. a 3x3 depthwise convolution in the wide space, then ReLU6;
+3. a 1x1 projection to $d''$ narrow channels with no activation;
+4. a shortcut between the narrow ends when the stride is 1 and $d' = d''$.
+
+The reasons:
+
+- *Linear bottleneck.* The paper argues that useful activations lie on a low-dimensional manifold, and ReLU preserves information about it only when that manifold sits in a low-dimensional subspace of a wider space; in a narrow layer ReLU discards too much. So the nonlinearities act in the expanded space and the projection stays linear. Its ablation found that adding a nonlinearity to the bottleneck lowered accuracy.
+- *Inverted residual.* ResNet bottlenecks are wide-narrow-wide with skips between wide tensors; v2 is narrow-wide-narrow with skips between the narrow tensors, which carry the information while the expansion is an implementation detail. The ablation found shortcuts between bottlenecks better than between expansions, and memory drops because the wide intermediate tensor can be computed in pieces and never fully stored.
+- *ReLU6*, clipped at 6, for robustness in low-precision computation.
+
+The result in the v2 paper's ImageNet table: 72.0% top-1 with 3.4M parameters and 300M multiply-adds, against 70.6% with 4.2M and 575M for v1, and lower latency on a phone CPU core (75 ms against 113 ms).
+
+[more](vision-backbones.html)
+:::
+
+::: {.qa asked="Xiaomi multimodal, Nowcoder 2024"}
+**Which image, video and text encoders do you know, and when would you pick each?**
+
+Choose by what the downstream task needs from the features (language-aligned semantics, dense spatial detail, motion, or reconstruction) and by whether the encoder stays frozen.
+
+*Image encoders.*
+
+- CNNs (ResNet, ConvNeXt): multi-scale feature pyramids and cost linear in pixel count, so they suit detection, segmentation and on-device latency.
+- CLIP and SigLIP: global semantics aligned with text; the usual vision tower of VLMs and the basis of retrieval, zero-shot classification and text-image scores. SigLIP's pairwise sigmoid loss needs no batch-wide softmax normalization, so it scales to larger batches and also does better at small ones.
+- DINOv2: self-supervised features (trained on the curated LVD-142M set) that are strong when frozen, notably for segmentation, depth and correspondence; also used for feature-space metrics and representation alignment in diffusion.
+- MAE: a cheap pretraining recipe that fine-tunes well but gives weaker frozen features; SAM's image encoder is an MAE-pretrained ViT-H.
+
+*Video encoders.*
+
+- I3D inflates 2D ImageNet filters into 3D; SlowFast pairs a low-frame-rate pathway for semantics with a lightweight high-frame-rate pathway for motion.
+- TimeSformer (divided space-time attention) and ViViT (factorized variants) are video transformers; VideoMAE pretrains them by masking 90 to 95% of space-time tubes.
+- Per-frame CLIP embeddings pooled over time are a strong, cheap baseline for retrieval and captioning but ignore motion order.
+- In generation, the video "encoder" is a causal 3D VAE built for reconstruction, not semantics.
+
+*Text encoders.*
+
+- BERT-style bidirectional encoders for classification and retrieval.
+- T5 encoders (T5-XXL; umT5 for multilingual prompts) as frozen conditioning for diffusion; Imagen and SD3 found them better than CLIP alone on complex prompts and written text.
+- The CLIP text encoder: aligned with images, but limited to 77 tokens and weak on word order and attribute binding.
+- Decoder-only LLMs or VLMs used as encoders (hidden states from several layers) for world knowledge and long prompts.
+
+Rules of thumb: image-text matching, CLIP or SigLIP; dense prediction or frozen probing, DINOv2 or a CNN pyramid; motion understanding, a video-native encoder; diffusion conditioning, T5 or an LLM plus a pooled CLIP vector; tight latency, a CNN or a small ViT. Check the input resolution and token count, which set the cost.
+
+[more](vision-backbones.html)
+:::
+
+::: {.qa asked="Tencent multimodal, Nowcoder 2026"}
+**How was SAM 3 trained, and how was its concept-prompt data built?**
+
+SAM 3 (Carion et al., 2025, arXiv 2511.16719) adds an open-vocabulary detector to SAM 2's tracker. Much of its gain comes from a data engine that uses models as annotators and verifiers, so human effort goes to the hard cases.
+
+*Architecture.* A shared Perception Encoder backbone encodes the image and the noun-phrase prompt; image exemplars (a box with a positive or negative label) are encoded from ROI-pooled features and appended to the text tokens. A fusion encoder conditions the image features on these prompt tokens by cross-attention, and a DETR-style decoder with learned queries predicts boxes, scores and masks. The key addition is a *presence token*: one global token predicts whether the concept appears at all, each query only predicts whether it is a match given presence, and the final score is the product, which separates recognition (global context) from localization (local evidence). For video, a tracker inherited from SAM 2 propagates masklets with a memory bank; they are matched to new detections by IoU, and the tracker is periodically re-prompted with confident detections.
+
+*Training* has four stages: Perception Encoder pretraining, detector pretraining, detector fine-tuning, then tracker training with the backbone frozen.
+
+*Data engine.* Media are mined with a curated ontology, a model proposes noun phrases, and SAM 3 (initially SAM 2 prompted by an off-the-shelf detector) proposes masks. Two checks follow: mask verification (accept or reject each mask) and exhaustivity verification (are all instances masked?). Failures go to humans, who correct the masks.
+
+1. Phase 1: human verifiers only.
+2. Phase 2: Llama 3.2 fine-tuned on the phase-1 human labels becomes an AI verifier for both checks, roughly doubling throughput; a Llama-based pipeline proposes phrases, including hard negatives the current SAM 3 wrongly fires on.
+3. Phase 3: 15 domains, and long-tail concepts from a 22.4M-node ontology built on Wikidata.
+4. Phase 4: video.
+
+*What it released.* SA-Co/HQ (5.2M images, 4M unique phrases), a synthetic set labeled without humans (38M phrases, 1.4B masks), SA-Co/VIDEO (52.5K videos) and the SA-Co benchmark (207K concepts, exhaustive masks on 120K images and 1.7K videos), scored by cgF1, the product of localization F1 and image-level presence accuracy (MCC). In ablations, hard negatives raised that presence accuracy from 0.44 to 0.68, and the presence head added 1.5 cgF1.
 :::
 
 Deeper: [Vision Backbones](vision-backbones.html).
@@ -576,6 +1337,131 @@ Choose by the data you have. With paired data, train a conditional diffusion mod
 **Remove unwanted objects from street-view photos realistically. How would you do it?**
 
 Detect and segment the objects to remove (an open-vocabulary detector plus SAM) and dilate the masks to cover shadows and reflections. Fill the holes with an inpainting model: a diffusion inpainting model with the mask as input, or a dual-branch design such as BrushNet that injects masked-image features; LaMa-style models with Fourier convolutions handle large masks on repetitive backgrounds quickly. A common failure is the model inventing a new object in the hole, which you counter with object-removal training data or by re-running the detector on the output. Evaluate with a human study and checks for hallucinated objects, and keep results consistent when several photos show the same place.
+:::
+
+::: {.qa asked="Megvii CV algorithm, Nowcoder 2022"}
+**Implement nearest-neighbour upsampling. How does it differ from bilinear?**
+
+Nearest neighbour copies, for each output pixel, the input pixel whose area contains the output pixel's centre; bilinear blends the four surrounding input pixels. With the pixel-centre convention, output column $j$ maps to $u = (j + 0.5)\,W_{\text{in}}/W_{\text{out}} - 0.5$, and rounding $u$ equals $\lfloor (j + 0.5)\,W_{\text{in}}/W_{\text{out}} \rfloor$:
+
+```python
+import numpy as np
+def nearest_resize(img, out_h, out_w):
+    H, W = img.shape[:2]
+    ys = np.minimum(((np.arange(out_h) + 0.5) * H / out_h).astype(int), H - 1)
+    xs = np.minimum(((np.arange(out_w) + 0.5) * W / out_w).astype(int), W - 1)
+    return img[ys[:, None], xs[None, :]]   # (H, W) or (H, W, C); dtype is kept
+```
+
+This matches PyTorch's `F.interpolate(mode="nearest-exact")`. The legacy `mode="nearest"` uses $\lfloor j\,W_{\text{in}}/W_{\text{out}} \rfloor$, which picks different pixels when downsampling or at non-integer scales. For an integer factor $s$ both reduce to `img.repeat(s, 0).repeat(s, 1)`. Time and memory are $O(H_{\text{out}} W_{\text{out}} C)$: one gather per output value.
+
+How it differs from bilinear:
+
+- *Kernel.* A box (frequency response a sinc) instead of a triangle. The output is piecewise constant, so edges turn into staircases and smooth gradients into blocks; bilinear is continuous but blurrier.
+- *Values.* Nearest creates no new values, which makes it the right choice for label maps, segmentation masks, index or ID images and pixel art, where bilinear would invent invalid in-between labels. Bilinear suits natural images and feature maps.
+- *Downsampling.* Nearest takes one sample per output pixel with no averaging, so it aliases even more than bilinear; prefilter or area-average first.
+- *Gradient.* Backpropagation sums the gradients over each copied block. Nearest upsampling followed by a convolution is a standard way to avoid the checkerboard artifacts of transposed convolutions.
+
+[more](restoration-super-resolution.html)
+:::
+
+::: {.qa asked="Megvii PhD researcher, Nowcoder 2021"}
+**What is deformable convolution, and how would you implement it?**
+
+A deformable convolution samples its kernel taps at learned, input-dependent, fractional positions instead of a fixed grid, so the receptive field can follow object shape or motion. A standard $k \times k$ convolution computes $y(p_0) = \sum_n w_n\, x(p_0 + p_n)$ over the $K = k^2$ grid offsets $p_n$; the deformable version is
+$$y(p_0) = \sum_{n=1}^{K} w_n\, x(p_0 + p_n + \Delta p_n)\, \Delta m_n .$$
+
+1. The offsets $\Delta p_n$ come from a parallel ordinary convolution on the same input with $2K$ output channels, one $(\Delta y, \Delta x)$ pair per tap and output location. It is zero-initialized, so training starts from a regular convolution (Dai et al., 2017).
+2. The positions are fractional, so $x$ is read by bilinear interpolation, which is differentiable with respect to both $x$ and the offsets.
+3. DCNv2 (Zhu et al., 2018) adds the modulation $\Delta m_n \in [0, 1]$ (DCNv1 has $\Delta m_n = 1$): the offset branch outputs $3K$ channels, the last $K$ through a sigmoid, so taps can also be turned down. It also makes all 3x3 convolutions in three stages of the backbone deformable rather than a few.
+
+An im2col-style implementation builds the $K$ sampling grids, gathers $K$ bilinearly shifted copies of the input with `grid_sample`, and contracts them with the weights (stride 1, dilation 1):
+
+```python
+import torch, torch.nn.functional as F
+def deform_conv2d(x, weight, offset, mask=None, pad=1):
+    B, C, H, W = x.shape                      # offset: (B, 2K, Ho, Wo) as (dy, dx) pairs
+    O, _, kh, kw = weight.shape               # mask:   (B, K, Ho, Wo) or None
+    Ho, Wo = offset.shape[-2:]
+    ky, kx = torch.meshgrid(torch.arange(kh), torch.arange(kw), indexing="ij")
+    oy, ox = torch.meshgrid(torch.arange(Ho), torch.arange(Wo), indexing="ij")
+    py = (oy + ky.reshape(-1, 1, 1) - pad).to(x) + offset[:, 0::2]   # (B, K, Ho, Wo)
+    px = (ox + kx.reshape(-1, 1, 1) - pad).to(x) + offset[:, 1::2]
+    grid = torch.stack([2 * px / (W - 1) - 1, 2 * py / (H - 1) - 1], dim=-1)
+    cols = F.grid_sample(x, grid.view(B, -1, Wo, 2), mode="bilinear",
+                         padding_mode="zeros", align_corners=True)
+    cols = cols.view(B, C, kh * kw, Ho, Wo)
+    if mask is not None:
+        cols = cols * mask[:, None]
+    return torch.einsum("bckhw,ock->bohw", cols, weight.flatten(2))
+```
+
+It matches `torchvision.ops.deform_conv2d` (same offset layout, zero outside the image) and reduces to `F.conv2d` when the offsets are zero. Cost: the same $O(B H_o W_o K C O)$ multiply-adds as a convolution, plus the offset convolution and the bilinear gathers; memory $O(B C K H_o W_o)$ for the sampled columns, $K$ times the input. Irregular memory access makes it slower than its FLOP count suggests, so production code uses fused CUDA kernels. In video SR (TDAN, EDVR) the offsets are predicted from the neighbouring and reference frames to align the neighbour's features, which is equivalent to $K$ flow warps followed by a convolution.
+
+[more](restoration-super-resolution.html)
+:::
+
+::: {.qa asked="iQIYI, Nowcoder 2022"}
+**How would you make a super-resolution model fast enough to deploy?**
+
+Start from a latency budget on the target device and a profile, then cut cost where the profile says it goes. FLOPs and parameter counts often disagree with measured latency; the RepVGG paper makes this point, noting that multi-branch blocks slow inference and depthwise convolutions raise memory-access cost.
+
+1. *Measure.* Fix the target (phone NPU, server GPU, real-time video at a given resolution) and a quality floor measured on your own data, then profile per layer: compute-bound convolutions, memory-bound element-wise ops, data movement, pre- and post-processing.
+2. *Architecture.* Keep all computation at low resolution and upsample once at the end with pixel shuffle, which saves a factor $s^2$ over networks that interpolate first; FSRCNN's redesign of SRCNN along these lines reported a speed-up of more than 40x. Use few channels and blocks, plain 3x3 convolutions that the hardware runs well, no attention at high resolution, and a global residual over a cheap interpolation so the network predicts only detail.
+3. *Free at inference.* Structural re-parameterization: train multi-branch blocks (3x3, 1x1, identity) and fold them into a single 3x3 convolution for deployment. Knowledge distillation from a larger teacher.
+4. *Compression.* Channel pruning, then int8 quantization, with quantization-aware training if post-training quantization costs too much quality. SR outputs are dense intensities, so quantization error shows up directly as banding or lost PSNR.
+5. *System.* Run the network on the luma (Y) channel only and upsample chroma bilinearly; tile large images with overlap; fuse operators and compile with a vendor runtime such as TensorRT; use fp16; for video, reuse computation across frames or skip static regions.
+6. *Re-validate on the device:* quality-latency curves, seams between tiles, and behaviour on real degraded inputs, not only bicubic benchmarks.
+
+[more](restoration-super-resolution.html)
+:::
+
+::: {.qa asked="vivo written test, Nowcoder 2022"}
+**How do dual cameras improve image quality, and how does that differ from taking two shots with one camera?**
+
+Two cameras capture two views at the same instant from different positions, often with different optics or sensors; two shots from one camera share viewpoint and optics but are separated in time. Dual cameras therefore exchange motion problems for parallax problems, and each setup buys different gains.
+
+*What a second camera adds.*
+
+- Wide plus telephoto: optical zoom at the tele focal length, and tele detail fused into the centre of the wide image at intermediate zoom levels.
+- Colour plus monochrome: the mono sensor has no colour filter array, so each pixel gathers more light and needs no demosaicing; fusing its luminance with the colour camera's chroma lowers noise and improves detail in low light.
+- Stereo: disparity between the views gives depth, used for synthetic background blur and segmentation.
+- Simultaneous captures with different exposures, giving HDR without motion between them.
+
+*What a burst from one camera adds.* Averaging $N$ aligned frames with independent noise divides the noise standard deviation by $\sqrt N$; exposure bracketing gives HDR; hand tremor shifts the frames by sub-pixel amounts that multi-frame super-resolution can exploit (Wronski et al., 2019). The problems are temporal: hand shake and moving objects require robust alignment and a merge that rejects mismatched pixels, or the result shows ghosting.
+
+*Problems specific to two cameras.* Parallax depends on depth, so alignment is per-pixel disparity estimation, not a global warp. Regions occluded in one view must come from the other camera alone. The cameras differ in focal length, distortion, colour response, noise and focus, so they need calibration and photometric matching, and seams can appear where the tele field of view ends. Depth from a short baseline is coarse, so synthetic blur fails around hair and thin structures. The two approaches are complementary: a system can burst on each camera and then fuse across cameras.
+:::
+
+::: {.qa asked="ByteDance graphics/image, Nowcoder 2021"}
+**Which classical image-enhancement algorithms do you know?**
+
+Group them by what they correct: global contrast, local contrast, tone, illumination, colour cast, sharpness and haze.
+
+1. *Histogram equalization.* Map intensity $r$ through its cumulative distribution, $s = T(r) = (L-1)F_r(r)$. For a continuous density and increasing $T$, $p_s(s) = p_r(r)\,\lvert dr/ds\rvert = p_r(r)/\big((L-1)p_r(r)\big) = 1/(L-1)$, a uniform output. The discrete version $s_k = \mathrm{round}\big((L-1)\sum_{j \le k} n_j / N\big)$ is only approximately flat. Fails: it over-stretches large uniform areas, amplifies noise, and shifts colours if applied per RGB channel, so apply it to luminance.
+2. *CLAHE.* Equalize per tile, clip each tile's histogram at a limit and redistribute the excess (which bounds the slope of the mapping and so the noise gain), and interpolate the tile mappings bilinearly to hide seams. Fails: halos and boosted noise in flat regions at high clip limits.
+3. *Gamma and tone curves.* $s = r^\gamma$ with $\gamma < 1$ brightens shadows; an S-curve adds mid-tone contrast. Cheap and global, so they cannot fix local problems.
+4. *Retinex.* Model $I = R \cdot L$ (reflectance times illumination), estimate $L$ with a large Gaussian blur, and output $\log I - \log(G_\sigma * I)$; multi-scale versions average several $\sigma$. Fails: halos at strong edges where the smooth illumination estimate is wrong, washed-out colours, noise boosted in dark areas.
+5. *Unsharp masking.* $I + k\,(I - G_\sigma * I)$ adds back high frequencies. Fails: overshoot halos at edges and amplified noise.
+6. *White balance.* Gray world scales each channel so the channel means are equal; white patch scales so the brightest pixel becomes white. Fails: scenes dominated by one colour (grass, sunsets) or with clipped highlights.
+7. *Dark-channel dehazing* (He et al., 2009). With the haze model $I = J t + A(1-t)$ and the observation that haze-free outdoor patches outside the sky have some channel close to zero, estimate $t(x) = 1 - \omega \min_c \min_{y \in \Omega(x)} I^c(y)/A^c$ with $\omega = 0.95$ to keep a little haze, take $A$ from the pixels with the brightest dark channel, refine $t$ with soft matting, and recover $J = (I - A)/\max(t, t_0) + A$ with $t_0 = 0.1$. Fails: large white or sky-coloured objects such as snow or white walls.
+
+These methods are fast and interpretable, and remain useful for preprocessing, data augmentation and baselines.
+:::
+
+::: {.qa asked="OPPO 2021, NetEase 2021 (Nowcoder)"}
+**How do you convolve an image with a very large kernel quickly?**
+
+Direct convolution of an $H \times W$ image with a $k \times k$ kernel costs $O(HWk^2)$ per channel. Faster methods exploit structure in the kernel or move to the frequency domain.
+
+1. *Separable and low-rank kernels.* If $K = u v^\top$ has rank 1 (Gaussian, box), filter the rows with $v$ and the columns with $u$: $O(2HWk)$. A general kernel can be approximated by its top $r$ singular components, $K \approx \sum_{i=1}^{r} \sigma_i u_i v_i^\top$, at $O(2rHWk)$.
+2. *FFT.* By the convolution theorem, $x * K = \mathcal{F}^{-1}(\mathcal{F}x \cdot \mathcal{F}K)$, costing $O(N \log N)$ with $N = (H+k-1)(W+k-1)$, independent of $k$ otherwise. The DFT computes circular convolution, so zero-pad both arrays to at least $(H+k-1) \times (W+k-1)$ to avoid wrap-around (reflect-pad the image first if you want mirrored borders), and pick sizes with small prime factors. For very large images use overlap-add or overlap-save in blocks. For small kernels direct or Winograd convolution is faster; the crossover depends on the hardware, so benchmark.
+3. *Box filters with an integral image.* With $S(x, y) = \sum_{x' \le x,\, y' \le y} I(x', y')$, any box sum is $S(x_2, y_2) - S(x_1 - 1, y_2) - S(x_2, y_1 - 1) + S(x_1 - 1, y_1 - 1)$: $O(1)$ per pixel for any box size.
+4. *Gaussians from repeated boxes.* A box of odd width $w$ has variance $(w^2 - 1)/12$; by the central limit theorem, $n$ passes approximate a Gaussian of variance $n(w^2 - 1)/12$, and three passes are usually close enough.
+5. *Recursive (IIR) Gaussian filters.* A few-tap causal and anticausal recursion along each axis: $O(HW)$ independent of $\sigma$.
+6. *Pyramids.* Downsample, filter with a smaller kernel, upsample: a blur of $\sigma$ becomes $\sigma/2^l$ at level $l$ on $4^{-l}$ of the pixels, at some accuracy cost.
+
+In deep networks, large receptive fields come from dilated convolutions ($k$ taps spanning $d(k-1)+1$ pixels), stacks of small kernels, or large depthwise kernels (ConvNeXt's 7x7, RepLKNet's re-parameterized 31x31), which cost $O(HWk^2C)$ instead of $O(HWk^2C^2)$ for $C$ channels.
 :::
 
 Deeper: [Restoration and Super-Resolution](restoration-super-resolution.html).
@@ -660,6 +1546,190 @@ Training-free methods such as InstantStyle inject reference-image features only 
 There are three main routes. Optimization with a 2D prior: score distillation sampling (DreamFusion) optimizes a NeRF or 3D Gaussians so their renders score well under a text-to-image diffusion model; it is slow and suffers from multi-face (Janus) artifacts and oversaturation. Multi-view generation plus reconstruction: a multi-view diffusion model (MVDream, Zero123++) produces consistent views, and a feed-forward reconstruction model (LRM-style) lifts them to 3D in seconds. Native 3D generation: diffusion in a learned 3D latent (triplanes or a 3D VAE), limited by the size of 3D datasets compared with 2D ones. Discuss camera conditioning, view consistency, mesh and texture extraction, and evaluation (CLIP score on renders, user studies); the second route is a reasonable default on speed and quality.
 :::
 
+::: {.qa asked="Image-gen intern 2024, ByteDance MM 2025, Xiaohongshu"}
+**Compare BLIP, BLIP-2, ALBEF, LLaVA and MiniGPT-4.**
+
+They trace a path from vision-language models pretrained end to end for retrieval and VQA (ALBEF, BLIP) to vision encoders attached to a frozen or fine-tuned LLM for open-ended chat (BLIP-2, MiniGPT-4, LLaVA). Compare them on what is trained, where vision and text meet, and the training signal.
+
+| Model | Where vision meets text | What is trained | Objectives and data |
+|---|---|---|---|
+| ALBEF (2021) | ViT-B/16; text encoder (first 6 BERT layers), then a cross-attention fusion encoder (last 6) | everything | contrastive ITC before fusion, ITM with hard negatives, MLM, momentum distillation |
+| BLIP (2022) | unimodal encoders, an image-grounded encoder and an image-grounded decoder sharing all weights except self-attention | everything | ITC, ITM and LM; CapFilt cleans and extends the captions |
+| BLIP-2 (2023) | Q-Former with 32 learned queries between a frozen ViT and a frozen LLM | Q-Former and projection | stage 1 ITC, ITG and ITM; stage 2 LM |
+| MiniGPT-4 (2023) | BLIP-2's frozen ViT and Q-Former, one linear layer into frozen Vicuna | the linear layer | about 5M caption pairs, then 3,500 curated detailed descriptions |
+| LLaVA (2023) | every CLIP ViT-L/14 patch token, linearly projected into Vicuna | projection, then projection and LLM | 595K filtered CC3M pairs, then 158K GPT-4-generated instruction samples |
+
+Points worth making:
+
+- *ALBEF* aligns the unimodal embeddings before the fusion encoder, so cross-attention starts from comparable features; momentum distillation uses an EMA model's soft predictions as extra targets to tolerate noisy web captions.
+- *BLIP* also fixes the data: a captioner (the decoder fine-tuned on COCO) writes captions for web images, using nucleus sampling because diverse captions helped more than beam search, and a filter (the ITM encoder) drops mismatched web and synthetic captions.
+- *MiniGPT-4* showed that one linear layer on BLIP-2's Q-Former already gives fluent chat with a strong LLM, and that a small, clean second stage cures the repetitive, fragmented output of caption-only training.
+- *LLaVA* keeps every patch token and fine-tunes the LLM on synthetic instruction data, the recipe most later open VLMs followed (with an MLP projector from LLaVA-1.5).
+
+The trade-offs: retrieval-style models are small and rank well but do not converse; LLM-based models generate and reason but are larger; and compressing to a few tokens (Q-Former) versus keeping every patch (projector) trades cost against fine detail.
+
+[more](text-to-image-multimodal.html)
+:::
+
+::: {.qa asked="Image-gen intern, company unnamed (Nowcoder 2024)"}
+**How do you caption LoRA training data, and why use a captioner such as BLIP?**
+
+Captions decide what the LoRA attaches to which words. Whatever in the images the caption does not explain must be absorbed by the new weights and becomes tied to the tokens that are always present (the trigger word, or the model's default output). Whatever the caption describes stays attributed to those words and remains controllable from the prompt. The rule: caption what should vary, and leave out what the LoRA should learn.
+
+1. *Subject or character.* Use a rare identifier token plus the class noun (the DreamBooth convention, "a [V] dog"); describe pose, background, lighting, clothing and framing so they stay promptable; do not describe the identity features themselves, or they get attributed to those descriptive words instead of the trigger.
+2. *Style.* Describe the content (objects, layout) so it can change, and leave out style words, so the style becomes the default or attaches to the trigger.
+3. *Why a captioner.* Hand-captioning hundreds of images is slow and inconsistent. BLIP writes short, plain captions such as "a dog sitting on a couch", close to how people write prompts, which keeps training captions and inference prompts in the same distribution. Tag-style captioners suit checkpoints trained on tag prompts, and VLM captioners give dense descriptions that suit models with T5 or LLM text encoders.
+4. *Fit the text encoder.* CLIP encoders read 77 tokens and truncate the rest, so long VLM captions lose their tail on SD 1.x and SDXL; T5-based models (SD3, FLUX) can use long, detailed captions.
+5. *Always review.* Captioners hallucinate, miss the subject's distinctive attributes and repeat phrasings. Check a sample, fix errors, insert the trigger, and delete descriptions of what should be learned.
+
+Test the result with prompts that vary what you captioned (pose, background) and prompts without the trigger, to check that the concept is controllable and has not leaked into the base model's behaviour.
+
+[more](text-to-image-multimodal.html)
+:::
+
+::: {.qa asked="Xiaohongshu CV/multimodal intern (2021, 2024)"}
+**How are vision and language aligned and fused in multimodal models, and does alignment actually help?**
+
+Alignment makes the two modalities' representations comparable, so matched image and text land close together; fusion lets tokens of one modality read the other so the model can reason jointly. Most models use both.
+
+*Alignment.*
+
+- Contrastive dual encoders (CLIP, SigLIP, ALBEF's ITC): separate encoders and a symmetric InfoNCE or sigmoid loss on pooled embeddings. Cheap at retrieval time because embeddings are precomputed, but no token-level interaction.
+- Image-text matching (ITM): a binary head on fused features, sharper with hard negatives.
+- Projector pretraining (LLaVA stage 1): train only the projection, with a captioning loss, so visual features land in the LLM's input space.
+
+*Fusion.*
+
+- Single-stream: concatenate image and text tokens in one transformer, with shared or modality-specific weights.
+- Cross-attention: text tokens attend to image features (ALBEF's and BLIP's fusion encoders). Flamingo inserts cross-attention layers into a frozen LLM with $\tanh(\alpha)$ gates initialized at $\alpha = 0$, so the LLM is unchanged at the start, and a Perceiver Resampler that reduces each image to 64 tokens.
+- Query bottleneck: BLIP-2's Q-Former condenses the image into 32 tokens given to the LLM as soft prompts.
+- Projector into the LLM: a linear or MLP map of every patch token; fusion then happens in the LLM's self-attention.
+
+*Does alignment help?* It does when fusion must start from mismatched spaces or a frozen model. In ALBEF, adding the contrastive loss to MLM and ITM raised VQA from 71.40 to 73.29 and NLVR2 from 77.51 to 79.88. BLIP-2 without its representation-learning stage did much worse on zero-shot VQA, and with OPT it suffered catastrophic forgetting. LLaVA trained on ScienceQA without its alignment pretraining dropped from 90.92% to 85.81%. It is not always needed: Prismatic VLMs (Karamcheti et al., 2024) found that with LLaVA-1.5-style data, skipping the separate projector-alignment stage did not hurt (single-stage training scored slightly higher) and saved 20 to 25% of compute. So alignment matters most when downstream data are small or the LLM is frozen, and less when a large, diverse instruction set trains the LLM end to end. Contrastive alignment alone also does not give token-level grounding; that needs fusion.
+
+[more](text-to-image-multimodal.html)
+:::
+
+::: {.qa asked="Tencent multimodal 2026 (Nowcoder), JD 2026 (repo)"}
+**Describe the Qwen2.5-VL architecture.**
+
+Qwen2.5-VL (Qwen Team, 2025, arXiv 2502.13923) is a ViT, an MLP merger and a Qwen2.5 LLM, released at 3B, 7B and 72B. Its changes from Qwen2-VL target efficiency at native resolution and timing in video.
+
+1. *Vision encoder.* A ViT trained from scratch, with the same configuration in all three sizes (hidden size 1280, 32 layers, 16 heads) and 14x14 patches on images resized to multiples of 28. To keep cost linear in image size, most layers use window attention with windows of at most 112x112 pixels (8x8 patches); only four layers (indices 7, 15, 23 and 31) use full attention. It uses 2D RoPE, and RMSNorm and SwiGLU as in the LLM. For video, two consecutive frames form one 3D patch, halving the token count.
+2. *Merger.* Features of each 2x2 group of neighbouring patches are concatenated and projected by a two-layer MLP to the LLM width (2048, 3584 or 8192), so the LLM receives one token per 28x28 pixels.
+3. *LLM.* Initialized from Qwen2.5 and using M-RoPE with temporal, height and width indices. The temporal index is tied to absolute time, so the spacing between indices encodes real time, and training samples videos at dynamic frame rates.
+4. *Native coordinates.* Boxes and points use the input image's actual pixel coordinates instead of normalized ones, so the model learns scale.
+
+Training: the ViT is first trained alone (CLIP-style pretraining, then alignment with the LLM with only the ViT updated), then all parameters are unfrozen for multimodal pretraining at sequence length 8,192, then a long-context phase at 32,768 with more video and agent data, then SFT and DPO with the ViT frozen.
+
+Points to discuss: window attention gives up some global interaction for linear cost, and the four full-attention layers restore it; the 4x token merge keeps long documents and videos affordable; absolute-time M-RoPE supports temporal grounding without timestamp tokens or extra heads.
+:::
+
+::: {.qa asked="Curated AIGC lists (Nowcoder 2025, AIGC repo)"}
+**What are the ways to inject a control condition into a DiT, including a video DiT, and does a modern DiT still need RoPE?**
+
+Match the mechanism to the shape of the condition: a global vector, a token sequence, or a spatially aligned map.
+
+1. *adaLN(-Zero) modulation* for global signals (timestep, class, pooled text, frame rate, motion score, guidance scale): an MLP regresses per-block scale, shift and gate. Almost free, but one affine map for all tokens cannot carry spatial or word-level information.
+2. *Cross-attention* to a token sequence (text tokens, image-encoder tokens of a reference image): cost $O(NM)$ with $M \ll N$ condition tokens, which stay fixed across layers. PixArt-$\alpha$ and Wan use it for text.
+3. *Joint (in-context) attention* over concatenated tokens: MMDiT's text tokens, CogVideoX's text tokens with expert adaLN, FLUX.1 Kontext's context-image tokens. Two-way interaction and conditions of any size or aspect ratio, at $(N+M)^2$ attention cost; Kontext found it worked better than channel concatenation for editing.
+4. *Channel concatenation* for pixel-aligned inputs (mask and masked image for inpainting, the low-resolution input for SR, the first-frame latent plus a mask for image-to-video): widen the patch embedding with zero-initialized weights. The cheapest option, but only for aligned conditions.
+5. *ControlNet-style branches* for structural maps (depth, pose, edges): a trainable copy of the first blocks whose outputs are added to the frozen model through zero-initialized layers. PixArt-$\delta$ adapted this to a DiT and chose a copy of the first 13 blocks. The base stays frozen and composable, at extra compute per step; lighter adapters add a small encoder's features to the tokens.
+
+In a video DiT, per-frame structural controls (pose or depth sequences) go through channel concatenation or a control branch, and camera control often uses per-pixel Plücker ray embeddings.
+
+*RoPE.* DiT used fixed 2D sine-cosine embeddings, which must be interpolated or extrapolated at other sizes, changing what each position means. RoPE encodes relative offsets inside attention along each axis, so variable resolution, aspect ratio and duration come naturally, and an offset can tag context tokens (Kontext puts context-image tokens at a constant offset on a virtual time axis). CogVideoX uses 3D RoPE (channels split 3:3:2 over $x$, $y$, $t$) and found it converged faster than sinusoidal absolute embeddings; HunyuanVideo and FLUX also use RoPE. A DiT does not strictly need it (SD3 uses 2D sinusoidal embeddings on an extended grid), but it is the common default for mixed-size image and video training.
+
+[more](text-to-image-multimodal.html)
+:::
+
+::: {.qa asked="Curated AIGC list, Nowcoder 2025"}
+**How does ReferenceNet differ from ControlNet, and how do you preserve the input image's features in image-to-image or image-to-video generation?**
+
+ControlNet injects structure that is pixel-aligned with the output; ReferenceNet injects appearance from an image that is related to the output but not aligned with it.
+
+*ControlNet* copies the U-Net encoder, feeds it a control map (edges, depth, pose) and adds its outputs to the frozen U-Net through zero convolutions. The addition is location by location, so it makes sense only when control pixel $(i, j)$ corresponds to output pixel $(i, j)$.
+
+*ReferenceNet* (Animate Anyone, Hu et al., 2023) is a copy of the denoising U-Net without temporal layers, initialized from the same Stable Diffusion weights and trained separately, that encodes the reference image. In each self-attention layer of the denoiser, the reference feature map is concatenated with the denoiser's along the width, self-attention runs over both, and only the denoiser's half is kept. Every output location can pull detail from anywhere in the reference, which handles a character whose pose differs from the reference, and shared architecture and initialization put both feature maps in the same space. The reference features are extracted once per generation, not at every denoising step, so the inference overhead is modest. CLIP image features also enter by cross-attention for semantics, and pose enters through a light convolutional pose guider added to the noisy latent. The authors found ControlNet a poor fit here because the reference is not spatially aligned with the target.
+
+*Tools for preserving the input:*
+
+1. Channel concatenation of the image latent (inpainting, instruction editing, image-to-video with a mask): strong pixel fidelity where the input is aligned.
+2. Reference attention (ReferenceNet, or the denoiser's own keys and values from a pass over the reference): detail without alignment.
+3. Image embeddings in cross-attention (IP-Adapter's decoupled cross-attention; CLIP image features in SVD and Wan): identity and style, but CLIP sees a low-resolution image and encodes semantics, so fine detail is lost.
+4. Inversion (DDIM or null-text) followed by editing, or SDEdit from a chosen noise level: the starting strength trades faithfulness against change.
+5. For image-to-video, first-frame conditioning with mild noise augmentation of the conditioning latent, so the model neither ignores nor merely copies it.
+6. Per-subject fine-tuning (LoRA, DreamBooth) when zero-shot preservation is not enough.
+:::
+
+::: {.qa asked="JD algorithm intern, Nowcoder 2024"}
+**Describe DeepFloyd IF's structure and its advantages.**
+
+DeepFloyd IF is an openly released, pixel-space cascade in the style of Imagen: a frozen T5 text encoder conditions three diffusion U-Nets that generate at 64x64 and then upsample to 256x256 and 1024x1024.
+
+1. *Text encoder:* frozen T5-v1.1-XXL. Per the model card, its per-token outputs pass through a linear projection into hybrid self- and cross-attention in the U-Net, and an attention-pooled summary is added to the timestep embedding.
+2. *Stage I:* 64x64 text-to-image, up to 4.3B parameters (IF-I-XL), trained with 1,000 diffusion steps, a cosine schedule and 10% caption dropout for classifier-free guidance.
+3. *Stage II:* 64 to 256 super-resolution conditioned on the text and the stage-I image, up to 1.2B parameters (IF-II-L).
+4. *Stage III:* 256 to 1024. The release used the Stable Diffusion x4 upscaler here, with its own stage-III model listed as coming later.
+
+The repository reports a zero-shot FID-30K of 6.66 on COCO. Imagen (Saharia et al., 2022) explains the design: scaling the frozen text encoder helped more than scaling the U-Net, raters preferred T5-XXL to CLIP text encoders on hard compositional prompts, and super-resolution stages trained with noise-conditioning augmentation (the low-resolution input is noised and the noise level is passed as a condition) tolerate artifacts from the stage before.
+
+*Advantages.*
+
+- Language understanding from a large T5, which helps compositional prompts and written text; SD3 later measured that T5 matters most for typography.
+- No autoencoder bottleneck: generating in pixels avoids the latent's reconstruction limit on small glyphs and fine detail.
+- Modularity: each stage can be replaced or fine-tuned separately, and stage I is cheap per step at 64x64.
+
+*Costs.* Three models run in sequence, each with its own steps and guidance; the super-resolution U-Nets work at high resolution in pixel space, which is expensive; layout errors made at 64x64 cannot be fixed later; T5-XXL alone is a multi-billion-parameter encoder; and the cascade needs per-stage tuning of noise augmentation and guidance. Later latent transformers with T5 encoders (SD3, FLUX) kept the language-model conditioning and dropped the cascade.
+:::
+
+::: {.qa asked="Xiaomi multimodal, Nowcoder 2024"}
+**Survey current text-to-image and image-to-image methods.**
+
+Organize methods by two axes: what is generated (pixels, continuous latents or discrete tokens) and how (iterative denoising or flow, versus autoregressive or masked token prediction); then by how the condition enters.
+
+*Text-to-image families.*
+
+1. Latent diffusion with a U-Net and cross-attention: Stable Diffusion 1.x and 2.x, SDXL. A mature ecosystem of LoRAs and ControlNets; weaker prompt following than newer models.
+2. Latent transformers trained with diffusion or flow matching: PixArt-$\alpha$ (cross-attention), SD3 (MMDiT, rectified flow), FLUX.1 (double- then single-stream blocks). They scale predictably, follow text better with T5 encoders, and are the current default among open models.
+3. Pixel-space cascades: Imagen, DeepFloyd IF. No autoencoder ceiling, but several expensive stages.
+4. Token models over a VQ tokenizer: Parti (autoregressive) and Muse (masked, parallel decoding). They reuse language-model machinery; quality is limited by the tokenizer, and autoregressive decoding is sequential.
+5. Unified models that both understand and generate: Chameleon (discrete tokens), Transfusion (language-model loss plus diffusion in one transformer), Janus, BAGEL. They add world knowledge and interleaved text-image output.
+
+*Image-to-image methods.*
+
+1. SDEdit: noise the input to an intermediate level and denoise; one knob trades faithfulness for realism, and no training is needed.
+2. Inversion-based editing: DDIM or null-text inversion, then attention control such as Prompt-to-Prompt; good preservation, but slower and sensitive to guidance.
+3. Instruction editing: InstructPix2Pix (synthetic before-and-after pairs, source image concatenated on channels, separate image and text guidance) and successors trained on larger edit datasets.
+4. Structure and reference control: ControlNet and T2I-Adapter for spatial structure, IP-Adapter for appearance from an image.
+5. Inpainting and outpainting with a mask, the mask and masked image concatenated on channels.
+6. In-context editing: the source image becomes context tokens of a DiT (FLUX.1 Kontext) or is read by a VLM alongside the VAE (Qwen-Image's editor).
+
+Compare them on fidelity to the input versus how far an edit can go, whether training per task or subject is needed, step count and latency, and text rendering or multi-image consistency if the product needs them. For evaluation, pair human preference or FID with alignment scores (CLIP or VQA-based) and preservation metrics for edits.
+
+[more](text-to-image-multimodal.html)
+:::
+
+::: {.qa asked="Curated AIGC interview guide, Nowcoder 2024–25"}
+**What is aspect-ratio bucketing, and why is it used?**
+
+Training images come in many shapes, but a batch tensor needs one. Bucketing defines a set of resolutions with different aspect ratios and roughly equal pixel counts, assigns each image to the closest one, and draws every batch from a single bucket, so images keep their framing with little cropping and no padding.
+
+SDXL's version: buckets with pixel counts as close to $1024^2$ as possible and height and width in multiples of 64; each batch comes from one bucket, with the bucket alternating between steps; and the bucket size $(h_{\text{tgt}}, w_{\text{tgt}})$ is given to the model as a Fourier-embedded condition, so the user can request an aspect ratio. SDXL applies this as a fine-tuning stage after pretraining at a fixed resolution and aspect ratio.
+
+A typical implementation:
+
+1. Enumerate buckets: for each width in steps of 64, take the height (also a multiple of 64) whose area is closest to the target, up to a maximum aspect ratio.
+2. Put each image in the bucket with the nearest aspect ratio, resize it to cover the bucket, and crop the small remainder.
+3. Sample batches one bucket at a time, choosing buckets in proportion to their size, and shuffle within buckets.
+
+Sides must be divisible by the model's total downsampling factor: the VAE's 8x times the U-Net's internal downsampling (3 halvings in SD 1.x, giving 64; 2 in SDXL, giving 32) or times the patch size in a DiT. Because the pixel count is about constant, cost per step and the effective noise level stay comparable across buckets.
+
+*Why not center-crop to squares?* Crops cut off heads and feet, and the model learns that framing: SDXL showed earlier Stable Diffusion models generating cut-off subjects. Square training also loses the composition of wide and tall images and leaves the model untrained at non-square sizes. Padding wastes compute and can teach borders. Alternatives: SDXL's crop conditioning (keep random crops but give the model the crop offsets, then request $(0, 0)$ at inference), and in transformers, packing variable-size token sequences (NaViT-style, as in CogVideoX's frame packing). Watch for rare buckets that give small or repetitive batches.
+
+[more](text-to-image-multimodal.html)
+:::
+
 Deeper: [Text-to-Image and Multimodal Models](text-to-image-multimodal.html).
 
 ## Video generation
@@ -704,6 +1774,87 @@ Start with requirements: query types (text, image, clip), latency, corpus size a
 **Track multiple faces through a video that contains shot cuts.**
 
 Detect shot boundaries first (frame-difference or feature-difference statistics, or a learned detector). Within a shot, detect faces per frame and associate them with motion and overlap (a SORT-style Kalman filter with IoU matching) plus appearance embeddings. Across cuts, motion cues are meaningless, so link tracklets by face-recognition embeddings with clustering and a similarity threshold, and smooth over occlusions and profile views. Evaluate with IDF1 or HOTA and the number of identity switches.
+:::
+
+::: {.qa asked="Alibaba Taotian AIGC, Nowcoder 2025"}
+**What is your technical assessment of SD3 and Sora?**
+
+Assess both the same way: what is claimed, what the evidence supports, what is unknown, and what you would test. The contrast is that SD3 is a paper with controlled ablations and released weights, while the Sora report describes the approach qualitatively without model details.
+
+*SD3 (Esser et al., 2024).*
+
+- Claims: rectified flow with logit-normal timestep sampling beats other diffusion formulations; MMDiT (separate weights per modality, joint attention) beats DiT-style, cross-attention and UViT backbones; quality scales predictably.
+- Evidence: 61 training formulations ranked across datasets and metrics, where rectified flow with lognorm(0, 1) ranked consistently well; a scaling study up to 8B parameters and $5 \times 10^{22}$ training FLOPs in which lower validation loss correlated with GenEval and human preference; ablations supporting the 16-channel autoencoder, QK-normalization for stability, a 50/50 mix of synthetic and original captions, and T5 (dropping it at inference left aesthetics unchanged at a 50% win rate but cut typography to 38%).
+- Limits: the formulation study ran at moderate scale, human-preference results depend on the prompt set, and the three text encoders (including a 4.7B-parameter T5) are heavy.
+
+*Sora (technical report, 2024).*
+
+- Claims: a video compression network plus a diffusion transformer on spacetime patches, trained jointly on images and videos at native durations, resolutions and aspect ratios; up to a minute of high-definition video; descriptive re-captioning and GPT prompt expansion; quality improving with training compute; 3D consistency and object permanence that hold "often, though not always".
+- Evidence: qualitative samples, including the same prompt at base, 4x and 16x compute and a square-crop versus native-aspect comparison.
+- Unknown: size, data, objective details and quantitative metrics; the report says model and implementation details are not included.
+- Admitted limits: physics such as glass shattering, state changes such as eating, and incoherence in long samples.
+
+*Comparison and tests.* Both bet on the same ingredients: transformers over patch tokens, synthetic captions and scale. SD3 backs its bet with controlled evidence, while Sora's claims of emergent simulation are demonstrations, and later benchmarks found physical accuracy largely unrelated to visual realism. To test either, I would measure prompt adherence on compositional and text-rendering prompts, compare held-out loss with human preference across scales, and, for video, use controlled physical scenarios and long-duration consistency checks.
+
+[more](video-generation.html)
+:::
+
+::: {.qa asked="Curated AIGC interview guide, Nowcoder 2024–25"}
+**Describe CogVideoX's architecture, and how Sora handled training data and captions.**
+
+*CogVideoX (Yang et al., 2024)* is a text-to-video diffusion transformer released at 2B and 5B parameters, with four main components.
+
+1. *3D causal VAE.* 3D convolutions with all temporal padding on the past side compress 8x8 in space and 4x in time. It is trained with L1, LPIPS and KL losses (plus a 3D GAN loss later), first on 17-frame clips, then on 161 frames split across devices, which causality makes cheap. Their ablation found 16x16x8 compression hard to converge even with more channels.
+2. *Expert transformer.* T5 text embeddings and patchified video latents are concatenated into one sequence. Because the two modalities have different feature statistics, separate vision and text "expert" adaLN modulations, both driven by the timestep, are applied to their tokens; at equal parameter count this beat MMDiT in their ablation.
+3. *3D full attention* over all text and video tokens. They found separate spatial and temporal attention less stable and worse for large motion, because a moving object's tokens in adjacent frames cannot attend to each other directly.
+4. *3D RoPE.* 1D RoPE on $x$, $y$ and $t$ using 3/8, 3/8 and 2/8 of the channels, extended rather than rescaled for new sizes; it converged faster than sinusoidal absolute embeddings.
+
+Training uses v-prediction with zero terminal SNR; mixed-duration batches (multi-resolution frame packing, after NaViT's sequence packing); progressive resolution from 256 to 512 to 768 px; and explicit uniform sampling, which gives each data-parallel rank its own interval of timesteps so the batch covers $[1, T]$ evenly and the loss is more stable. Captions come from a pipeline in which a video model writes a short caption, CogVLM writes dense captions of frames, and GPT-4 summarizes them; a fine-tuned Llama 2 and then an end-to-end CogVLM2-Caption model replaced the expensive steps.
+
+*Sora, per its report,* trains on images and videos at native durations, resolutions and aspect ratios instead of resizing, cropping or trimming them, which the report says improves framing and composition and lets one model sample from widescreen to vertical. It captions all training videos with a highly descriptive captioner (DALL-E 3's re-captioning technique), reported to improve text fidelity and overall quality, and at inference GPT expands short user prompts into the long captions the model was trained on. Data sources, size and filtering are not disclosed.
+
+[more](video-generation.html)
+:::
+
+::: {.qa asked="Curated AIGC interview repo (video section)"}
+**U-Net or DiT for video diffusion: what are the trade-offs?**
+
+U-Nets inflated from image models are cheap to start from and efficient at high resolution; DiTs treat every token the same way, allow full space-time attention and scale more predictably, at a cost quadratic in the token count. Most recent large video models are DiTs.
+
+*Inflated U-Nets* (Video Diffusion Models, Make-A-Video, AnimateDiff, Stable Video Diffusion) add temporal layers (temporal attention, temporal convolutions or both) after the spatial layers of an image U-Net, often initialized as identities or with zeroed outputs.
+
+- Pros: they reuse a strong image prior and, in AnimateDiff's plug-in motion module, its community fine-tunes; the multiscale hierarchy puts attention at low resolution, keeping high-resolution cost manageable; convolutions add locality and translation equivariance, which helps data efficiency.
+- Cons: temporal attention links only tokens at the same spatial position and temporal convolutions are local, so large motion must propagate through many layers; global temporal context and long clips are limited; heterogeneous blocks are harder to scale and parallelize; and text enters only through cross-attention.
+
+*Video DiTs* (CogVideoX, HunyuanVideo, Wan, and Sora as described in its report) cut a compressed spacetime latent (a causal 3D VAE in the open models) into patch tokens and run a uniform transformer.
+
+- Pros: full 3D attention lets any token reach any other, which CogVideoX found better and more stable than factorized attention for large motion; text can join the attention; variable resolution, duration and aspect ratio come from token sequences, packing and 3D RoPE; scaling with compute is predictable (SD3's image scaling study, Sora's samples at base, 4x and 16x compute); and LLM tooling applies (FlashAttention, sequence and context parallelism).
+- Cons: attention cost grows with the square of the token count, so DiTs rely on strong VAE compression (commonly 4x8x8) and 2x2 patches, and long or high-resolution clips need sparse or windowed attention, caching or distillation; with no built-in multiscale prior they typically need more data and compute.
+
+*Choosing.* With a limited budget and an existing image U-Net ecosystem (short clips, stylized animation, image-to-video), inflating is practical. For a new foundation model trained at scale, a DiT with full or sparse 3D attention is the default. Hybrids exist, such as factorized-attention DiTs (Latte compares several variants) and windowed attention in restoration transformers (SeedVR).
+
+[more](video-generation.html)
+:::
+
+::: {.qa asked="Curated AIGC interview repo (video section)"}
+**In image-to-video generation, why doesn't a faithful first frame guarantee consistent later frames?**
+
+The condition constrains only the frame it is attached to. Every later frame is sampled by the model, so the first frame's appearance must be carried forward through the network while the motion prior moves content around, and several things break that chain.
+
+1. *Appearance must travel through attention.* With channel concatenation or first-latent replacement, the image enters at frame 0, and later frames see it only through attention. Under factorized attention, temporal attention links only tokens at the same position, so once an object moves its appearance must hop through other tokens (CogVideoX's argument for full 3D attention). Even with full attention, a logo or a face covers few tokens, so errors there cost little in a loss averaged over the clip.
+2. *New content has no source.* Turning heads, camera motion and disocclusion reveal regions the first frame never showed; the model has to invent them, and its guess need not match the identity.
+3. *Latents are not frame-aligned.* In a causal VAE with 4x temporal compression, the first latent encodes one frame alone and each later latent encodes four frames together, so even a perfect first latent does not determine the others; the model must translate it.
+4. *Train-test mismatch.* In training, the condition is the clip's own first frame, from the same camera and distribution. At inference users bring sharp stills, generated images or unusual styles, and the motion prior pulls later frames back toward the training distribution (generic faces, video-like texture). A high text-guidance scale also pushes frames toward the prompt and away from the image.
+5. *Accumulation.* In long or autoregressive generation, each chunk is conditioned on generated frames, so drift compounds.
+
+Fixes aimed at these causes:
+
+- Give every frame direct access to the condition: repeat the image latent along time (SVD), reference attention from every frame to the condition image's features (ReferenceNet-style), and image embeddings in cross-attention for identity (CLIP features in SVD and Wan).
+- Noise-augment the conditioning latent in training so the model treats it as evidence rather than copying it; too little noise gives static videos, too much loses detail.
+- Separate image and text guidance scales, or stronger guidance for later frames (SVD raises guidance linearly across frames).
+- Training clips with real motion whose first frame matches the rest; keyframe or last-frame conditioning so later frames also have an anchor; identity or consistency rewards in post-training.
+
+[more](video-generation.html)
 :::
 
 Deeper: [Video Generation](video-generation.html).
@@ -752,6 +1903,145 @@ Use several axes: image quality (FID or a DINOv2-based distance against a refere
 FVD computes a Fréchet distance on I3D video features and is more sensitive to per-frame content than to motion. VBench splits quality into dimensions such as subject consistency, motion smoothness, dynamic degree, aesthetics and text alignment. Per-frame metrics (FID, CLIP score) miss temporal artifacts, and static videos can score well on consistency, so pair consistency with a motion measure. Human evaluation remains the reference.
 :::
 
+::: {.qa asked="Meta AI research design round, Blind 2024"}
+**What is the difference between offline and online metrics, and how do you choose them?**
+
+Offline metrics are computed on fixed held-out data before deployment; online metrics measure what users do on live traffic, usually in an A/B test. Offline metrics are cheap, fast and reproducible, so they drive iteration; online metrics are closer to the goal, but slow, noisy and risky, so they decide launches.
+
+They disagree for four main reasons:
+
+1. **Proxy mismatch.** The offline label (a click, a rating) is not the goal (long-term satisfaction, retention).
+2. **Feedback loops.** Logged data come from the current system, so items it never showed have no labels; offline evaluation then favours models that resemble the incumbent. Counterfactual estimators such as inverse propensity scoring correct this partly.
+3. **Distribution shift.** Traffic changes over time, and partly because of the model itself.
+4. **System effects.** Latency, diversity, interactions between items on one page, and novelty effects do not appear in per-item offline scores.
+
+Choose one primary metric tied to the goal, a few guardrails that must not regress (latency, errors, safety, revenue), and diagnostic metrics for debugging. The primary metric must be sensitive enough to move within the test's duration, which a power analysis checks. Then validate the offline metric: across past launches, check whether offline deltas predicted the sign and ranking of the online deltas. If they did not, fix the offline metric before using it as a gate.
+
+Examples. Ranking model: offline NDCG@k and log loss on logged impressions; online click-through, dwell time and retention, with latency as a guardrail. Image generator: offline FID or a DINOv2-based distance on a prompt suite, alignment scores and blind side-by-side ratings; online download and regeneration rates and user reports, with cost per image as a guardrail.
+:::
+
+::: {.qa asked="Curated AIGC list, Nowcoder 2025"}
+**How would you evaluate a diffusion model's generation quality in production?**
+
+In production, evaluation is a release gate plus continuous monitoring, always relative to the model currently serving. It has four layers.
+
+1. **Versioned prompt suites with fixed seeds**: prompts sampled from real (anonymized) traffic and stratified by category; targeted suites for known failures (text rendering, hands, counting, multiple people); and a red-team suite for safety. Keep a hidden held-out suite, because teams overfit to any suite they can see.
+2. **Automatic metrics on each suite**: prompt alignment (VQA-based scores), aesthetic and technical quality predictors, artifact detectors (OCR match for requested text, hand and face checks), safety classifiers (nudity, violence, real-person likeness, logos), and diversity across seeds. Compare per category against production; averages hide regressions.
+3. **Human side-by-side**: blind pairwise ratings against production with confidence intervals. These calibrate the automatic metrics; recheck that calibration whenever the model family changes.
+4. **Online**: an A/B test on acceptance signals (downloads, saves, shares), dissatisfaction signals (regenerations, edits, abandonment, reports) and retention, with guardrails on p95 latency, GPU cost per output and safety-filter trigger rate.
+
+Release through gates: no category regresses beyond a set margin, safety does not get worse, then a canary rollout. After launch, monitor prompt-distribution drift (new trends, languages), filter hit rates and complaint categories, and refresh the suites from new traffic. The main failure mode is optimizing an automatic metric until it stops tracking human judgment.
+
+[more](evaluation-metrics.html)
+:::
+
+::: {.qa asked="Apple I2V research-intern job ad (not an interview)"}
+**What is LPIPS, and how is it computed?**
+
+LPIPS (Zhang et al., 2018) is a full-reference perceptual distance: compare deep features of two aligned images, with channel weights trained so the distance agrees with human similarity judgments.
+
+1. Pass both images $x, x_0$ through a pretrained network (AlexNet, VGG or SqueezeNet) and take activations from $L$ layers, $\hat y^l, \hat y^l_0 \in \mathbb{R}^{H_l \times W_l \times C_l}$.
+2. Unit-normalize the feature vector at each spatial position across channels.
+3. Scale channels by non-negative learned weights $w_l$, take the squared $\ell_2$ difference, average over positions and sum over layers:
+
+$$d(x, x_0) = \sum_l \frac{1}{H_l W_l} \sum_{h,w} \big\lVert w_l \odot (\hat y^l_{hw} - \hat y^l_{0,hw}) \big\rVert_2^2 .$$
+
+With all $w_l = 1$ this is a cosine distance, since $\lVert a - b \rVert^2 = 2 - 2\cos(a, b)$ for unit vectors.
+
+The weights are trained on BAPPS, a dataset of human judgments on $64 \times 64$ patches covering traditional distortions, CNN-based distortions and real algorithm outputs. In the 2AFC task, people see a reference and two distorted versions and pick the closer one. A small network maps the pair of distances $(d_0, d_1)$ to the probability of that choice and is trained with cross-entropy. Three variants: *lin* freezes the backbone and learns only $w$ (1,472 parameters for VGG), *tune* fine-tunes the whole pretrained network, and *scratch* trains from random initialization. The official code expects RGB inputs scaled to $[-1, 1]$.
+
+Limitations: it needs a pixel-aligned reference, so small shifts change the score; it compares pairs, not distributions (unlike FID); scores differ by backbone, so report which you used; and because it is differentiable and often used as a training loss, evaluating with the same LPIPS flatters models trained on it.
+
+[more](evaluation-metrics.html)
+:::
+
+::: {.qa asked="NVIDIA (PracHub 2026)"}
+**What is model calibration, and how do you measure and fix it?**
+
+A classifier is calibrated if, among predictions made with confidence $p$, a fraction $p$ is correct: $P(\hat Y = Y \mid \hat P = p) = p$. Calibration is separate from accuracy; a model can be accurate and still overconfident.
+
+**Measuring it.** A reliability diagram bins predictions by confidence and plots accuracy against mean confidence per bin; perfect calibration is the diagonal. Expected calibration error summarizes it with $M$ bins $B_m$:
+
+$$\mathrm{ECE} = \sum_{m=1}^{M} \frac{|B_m|}{n}\,\big|\mathrm{acc}(B_m) - \mathrm{conf}(B_m)\big| .$$
+
+ECE has known flaws: it depends on the number and type of bins, sparse high-confidence bins are noisy, the usual version looks only at the top-class probability, and it is not a proper scoring rule. A model that predicts the base rate for every input has zero ECE and no skill, so report NLL or the Brier score alongside it. Nixon et al. (2019) found that the ranking of recalibration methods changes with these choices, and recommend adaptive bins and class-conditional variants.
+
+**Why modern networks are overconfident.** Guo et al. (2017) found that greater depth and width, BatchNorm and less weight decay go with worse calibration, and observed that test NLL can overfit while test error keeps falling: the network keeps enlarging logits on examples it already classifies correctly.
+
+**Fixing it.**
+
+- Temperature scaling: $q = \mathrm{softmax}(z/T)$ with one scalar $T > 0$ fit by minimizing NLL on a held-out validation set. The argmax does not change, so accuracy is unchanged; $T > 1$ softens overconfident outputs. It was the most effective post-hoc method on most datasets in Guo et al.
+- Platt scaling, $\sigma(az + b)$ for binary scores, and isotonic regression (a monotone, non-parametric map that needs more validation data).
+- Training-time methods: label smoothing improves calibration (Müller et al., 2019), and deep ensembles give well-calibrated uncertainty (Lakshminarayanan et al., 2017).
+
+Post-hoc calibration fit in-distribution degrades under dataset shift; in Ovadia et al. (2019), methods that average over several models, such as ensembles, held up better.
+:::
+
+::: {.qa asked="NVIDIA (PracHub 2026)"}
+**What is data or model drift, and how do you detect and handle it?**
+
+Drift means the production distribution moves away from the training distribution, so performance decays silently. Factor $p(x, y)$ to name the kinds:
+
+- **Covariate shift**: $p(x)$ changes and $p(y \mid x)$ does not (a new camera, a new region).
+- **Label shift**: $p(y)$ changes and $p(x \mid y)$ does not (a disease becomes more common in winter).
+- **Concept drift**: $p(y \mid x)$ itself changes (fraud patterns adapt, the meaning of a label changes).
+
+**Detecting it.**
+
+1. Inputs: per-feature two-sample tests (Kolmogorov–Smirnov for continuous features, chi-squared for categorical ones) or the population stability index $\sum_b (q_b - p_b)\ln(q_b/p_b)$ over bins. For images or text, embed with a fixed encoder and use MMD with a permutation test, or train a domain classifier to separate reference from current data: an AUC well above 0.5 signals shift, and its most confident examples show what changed. Rabanser et al. (2018) found two-sample tests on representations from a pretrained classifier the best of the detectors they compared. Correct for multiple testing when monitoring many features.
+2. Outputs: track the predicted-class and confidence distributions. To estimate label shift without labels, black-box shift estimation (Lipton et al., 2018) uses the source joint $C_{ij} = P(\hat y = i, y = j)$. Under label shift, $q(\hat y = i) = \sum_j C_{ij} w_j$ with $w_j = q(y = j)/p(y = j)$, so solve $\hat\mu = C w$.
+3. Delayed labels: when labels arrive, track accuracy and calibration per slice. Concept drift is visible only here, or through audited samples.
+
+**Handling it.** Alert on shifts that hurt performance, not on every shift. For covariate shift, reweight training data by $w(x) = q(x)/p(x)$; a domain classifier $c(x) = P(\text{target} \mid x)$ gives $w(x) = \frac{c(x)}{1 - c(x)}\cdot\frac{n_s}{n_t}$. For label shift, rescale outputs, $p_{\text{new}}(y \mid x) \propto w_y\, p(y \mid x)$. Otherwise retrain on a sliding window, on a schedule or when triggered, validate on recent data, deploy in shadow mode or as a canary, and keep a rollback.
+:::
+
+::: {.qa asked="NVIDIA data-science question (PracHub 2025)"}
+**How would you preprocess and cross-validate a medical image classifier?**
+
+The biggest risks are leakage and shift between sites, not the backbone. Split by patient, validate on data from another site, and report metrics at the clinical operating point.
+
+**Preprocessing.**
+
+- CT values are in Hounsfield units: clip to a task window (a lung or a soft-tissue window) and rescale. MRI intensities are not standardized across scanners, so normalize per volume (percentile clipping, z-score within a body mask), optionally after bias-field correction. For X-rays, handle bit depth and inverted DICOM photometric interpretation.
+- Resample 3D volumes to a common voxel spacing and crop to the anatomy.
+- Augment within anatomical limits: small rotations and scaling, contrast and noise jitter, mild elastic deformation. Avoid left-right flips when laterality matters, and crops that can cut out the lesion.
+- Look for shortcuts such as burned-in text, markers or scanner signatures. Zech et al. (2018) found that pneumonia CNNs could identify the hospital system that produced a chest X-ray, and performed significantly worse on outside hospitals in 3 of 5 comparisons.
+
+**Cross-validation.**
+
+- Group by patient: follow-up scans, both eyes or several slices of one patient must stay in the same fold, or near-duplicates leak across folds. Use stratified group k-fold (stratify by label, group by patient).
+- Fit normalization statistics and any feature selection inside each training fold only.
+- Tune hyperparameters with nested CV, or keep a test set you use once.
+- Report the mean and spread across folds; with small datasets folds vary a lot.
+- Hold out whole sites or scanners (leave-one-site-out) for external validation.
+
+**Imbalance and metrics.** Reweight or rebalance during training, but evaluate at the natural prevalence. Report AUROC and AUPRC, sensitivity at a fixed specificity chosen for the use case (screening favours sensitivity), bootstrap confidence intervals over patients, calibration (clinicians read the probabilities), and subgroup results by sex, age and scanner.
+:::
+
+::: {.qa asked="ByteDance multimodal campus, Nowcoder 2025"}
+**For e-commerce image generation, how would you design the prompts and filter bad outputs?**
+
+Let the product photo, not the text, carry the product: the prompt describes the scene and style, conditioning preserves the product, automatic filters remove failures, and human rejections feed back into templates and filters.
+
+**Prompts and conditioning.**
+
+1. Templates built from structured attributes (category, material, colour, audience) plus a scene and style chosen per category, with negative prompts for common defects.
+2. An LLM rewrites templates into detailed captions in the style the model was trained on, with instructions not to add product attributes (no new text, logos or accessories). Generate several variants per product.
+3. Fidelity comes from conditioning: segment the product from the merchant photo and generate the background around it, so product pixels stay exact; or use an image prompt or structural control (edges, depth); or a per-product LoRA for high-value items.
+
+**Filters, cheap to expensive.**
+
+- Product fidelity: embedding similarity (DINO or CLIP) between the product region and the source, masked LPIPS, colour difference, mask IoU for shape.
+- Text and logos: OCR against the brand text; detect garbled text and spurious logos.
+- Quality: artifact detectors (hands, warped geometry), no-reference quality and aesthetic scores.
+- Compliance: safety classifiers and platform rules (no misleading claims, watermarks or other brands' logos).
+- Brief compliance: VQA checks such as "is the product on a kitchen counter?".
+
+Tune each threshold against a labelled set, measuring the filter's precision and recall, and rank the survivors. Have humans spot-check a sample per category, with more review for high-traffic items. Log rejection reasons, cluster them, and fix the template, negative prompt or filter responsible; accepted and rejected pairs can later train a preference-tuned model. Online, compare click-through, conversion and return rate against the original photos. Returns matter: an image that flatters the product too much raises them.
+
+[more](evaluation-metrics.html)
+:::
+
 Deeper: [Evaluation Metrics](evaluation-metrics.html).
 
 ## Research design and project proposals
@@ -798,6 +2088,251 @@ Clarify the objective, inputs, constraints (latency, accuracy, scale) and succes
 Pick one or two team papers you have actually read; say what is new in each, one limitation, and a follow-up you would test. For the direction of the field, give a view with reasons and evidence, in the shape "X scaled, but Y is still unsolved because Z", and state your uncertainty. Opinion questions (one report asked whether CNN distillation still matters in the era of large models) are best answered with conditions: when it matters, when it does not, and what evidence would settle it.
 :::
 
+::: {.qa asked="Runway (Glassdoor 2025–26)"}
+**Design a production system around a generative image or video model.**
+
+**Requirements.** Who calls it (consumer app, API, internal tool), the outputs (resolution, duration), the latency target (seconds for an image preview, minutes may be acceptable for a video), peak throughput, the budget per generation, and safety and legal constraints.
+
+**Data and training loop.** Licensed data with recorded provenance, a curation and captioning pipeline, a base model, then fine-tunes for product styles. Product logs (pairwise choices, regenerations, downloads) become preference data for reward models or preference fine-tuning, and every new checkpoint passes an offline evaluation gate before it ships.
+
+**Request path.** API, then prompt safety check, then optional LLM prompt rewriting, then a job queue, GPU workers, output safety check, and storage behind a CDN.
+
+**Serving levers.**
+
+- Fewer steps: better solvers, step distillation, guidance distillation (which removes the second classifier-free-guidance pass).
+- Cheaper steps: lower-resolution previews followed by an upscaler, cached text-encoder outputs and reuse of features across steps, FP8 or INT8 quantization, fused attention kernels, sequence parallelism across GPUs for long videos.
+- Batching: group requests with the same shape and step count; dynamic batching trades latency for throughput.
+- Queues: asynchronous jobs with progress updates for video, priority tiers, autoscaling on queue depth, warm GPU pools (loading a model takes a long time), cheaper preemptible GPUs for batch work.
+
+Cost per output is about GPU-seconds per output times the GPU price, divided by utilization, so step distillation and higher utilization cut cost directly.
+
+**Safety.** Prompt and output classifiers, likeness and IP checks, provenance metadata or watermarks, rate limits and abuse monitoring.
+
+**Evaluation and monitoring.** Offline gates and A/B tests (see the production-evaluation question above), plus p95 latency, failure and out-of-memory rates, GPU utilization, safety-filter rates and prompt drift. Store the seed, model version and configuration with every output so support can reproduce it.
+
+**Failure modes and iteration.** Traffic spikes at launches, over-blocking filters, preview and final outputs that differ. Mine failure clusters from logs, fix them with targeted data or fine-tuning, and re-run the gates.
+:::
+
+::: {.qa asked="Meta RS full-time, Glassdoor"}
+**Design a system that detects harmful posts.**
+
+**Requirements.** Start from the policy: a taxonomy of harm types (violence, hate, self-harm, nudity, spam, scams) with an action for each (remove, reduce distribution, add a warning, send to review). Posts are multimodal and multilingual. Decide where enforcement happens (before publishing or after) and the error trade-off per class: the most severe classes need very high recall, while borderline speech needs high precision because wrongful removal is costly.
+
+**Data.** Labels come from trained reviewers following written guidelines; measure agreement between reviewers. User reports are plentiful but noisy and biased toward visible content. Prevalence is low, so random samples contain few positives; label with active learning around the decision boundary, and estimate prevalence with score-stratified sampling and importance weights so the estimate stays unbiased.
+
+**Model, as stages.**
+
+1. Cheap matching: perceptual hashes of known violating images and videos, URL and text blocklists.
+2. A multimodal classifier (text and image encoders, fused) with one head per policy class, plus context features: account age, past violations, how the post spreads. Many harmful memes are harmful only through the combination of text and image.
+3. An LLM given the policy text can classify new or rare policy areas zero-shot, and can be distilled into cheaper models once validated.
+4. Per-class thresholds: automatic action above a high threshold, human review in a middle band, with the review queue ordered by expected harm times expected reach.
+
+**Evaluation.** Offline: precision and recall at the operating thresholds, per class and per language. Online: prevalence (the share of views that land on violating content, estimated by sampling), time to action, reviewer and appeal overturn rates, and false-positive rates for different groups and dialects as a fairness guardrail.
+
+**Failure modes and iteration.** Adversarial evasion (misspellings, text inside images), new slang and events, missing cultural context, removal of news or counter-speech, label noise. Retrain often, red-team regularly, and keep a fast path for adding new hashes during a crisis.
+:::
+
+::: {.qa asked="Meta RS full-time, Reddit 2026"}
+**Design a recommender for places to visit.**
+
+**Clarify first.** Tourists planning a trip or locals choosing something now; the surface (map, feed, search); and what success is (a visit, a save, a good rating). Location, time and opening hours constrain this recommender far more than a feed of videos.
+
+**Data.** Places: category, coordinates, hours, price, photos, reviews, popularity. Users: visits inferred from location history (opt-in only), check-ins, saves, searches, ratings. Context: current location, time, weather, at home or travelling, group size. A visit is noisy implicit feedback; dwell time and revisits are stronger signals.
+
+**Candidate generation.** Filter to places reachable in reasonable travel time and open at the relevant time, then union several sources: popular nearby places per category, co-visitation ("people who visited A also visited B"), a two-tower model (user and context tower against a place tower) served from an approximate-nearest-neighbour index, and places similar to past favourites. A few hundred candidates.
+
+**Ranking.** Predict the probability of a visit, or expected satisfaction, from travel time, opening hours, the user's category affinity, place quality (a Bayesian average of ratings, so places with three reviews do not top the list), price fit and time-of-day fit, using gradient-boosted trees or a neural ranker, optionally with several objectives (visit, save, rating).
+
+**Re-ranking.** Diversity (not five cafés), removing closed places, route feasibility for trip itineraries, and a small exploration budget for new places.
+
+**Cold start.** New users: context, popularity and a few onboarding questions. New places: content features (category, photo and text embeddings) plus exploration.
+
+**Evaluation.** Offline: recall@k and NDCG on later visits with a time-based split, keeping in mind that logged data are biased by what was shown and where. Online: visit and save rates, navigation requests, retention, diversity; latency as a guardrail.
+
+**Failure modes.** Popularity bias that floods the same places, stale data (closed businesses), seasonality, sparse data in rural areas, and privacy of location history.
+:::
+
+::: {.qa asked="Microsoft AS intern, PracHub 2026"}
+**Design a retrieval-augmented generation (RAG) system.**
+
+RAG retrieves passages at query time and has an LLM answer conditioned on them (Lewis et al., 2020), so answers can use private or fresh data and cite sources. Many failures start in retrieval, so design and evaluate retrieval and generation separately.
+
+1. **Ingestion and chunking.** Parse PDFs, HTML and tables; keep metadata (source, date, permissions). Split along document structure into chunks of a few hundred tokens with small overlap, and prepend the title and section path. Small chunks lose context; large ones dilute the embedding and waste context.
+2. **Indexing.** Dense embeddings in an approximate-nearest-neighbour index plus a BM25 index: dense retrieval handles paraphrases, BM25 exact names, codes and rare terms. Merge them with reciprocal rank fusion or a weighted score.
+3. **Query processing.** Rewrite conversational turns into standalone queries, split multi-hop questions, and apply metadata filters (permissions, dates).
+4. **Reranking.** A cross-encoder reads query and passage together and cuts the top 50–100 to 5–10; more accurate than the bi-encoder, at a cost per pair.
+5. **Prompting.** Instruct the model to answer only from the context, cite chunk IDs and say when the answer is not there. Keep the context short and put the best passages first: Liu et al. (2023) found models use information at the start or end of a long context better than in the middle.
+6. **Checking.** Verify that each cited passage supports its claim.
+
+**Evaluation.** Retrieval: recall@k and MRR or nDCG on questions from real queries with labelled relevant passages (synthetic questions generated from chunks can bootstrap this). Generation: faithfulness to the retrieved context, answer relevance and correctness, scored by LLM judges calibrated against human labels; reference-free frameworks such as RAGAS (Es et al., 2023) cover the first two. Online: thumbs up or down, follow-up questions, escalations.
+
+**Failure modes.** The fact was never retrieved (chunking split it, vocabulary mismatch); it was retrieved but ignored or overridden by the model's memory; documents conflict or are stale; permissions leak; documents carry hidden instructions (prompt injection). For freshness, index incrementally, propagate deletions, store timestamps, and version the index, since a new embedding model means re-embedding the corpus.
+:::
+
+::: {.qa asked="Netflix ML intern, Jointaro 2025"}
+**How would you combine an LLM with a knowledge graph, for example for named-entity resolution?**
+
+Use each for what it does well. The knowledge graph holds canonical entities, identifiers, typed relations and constraints; the LLM reads messy text and judges whether two descriptions refer to the same thing. For entity resolution, put the LLM inside the classic blocking, matching and clustering pipeline, with the graph supplying candidates, context and constraints.
+
+1. **Blocking.** For each mention (a title or a person's name in a document or a partner feed), generate candidates cheaply: alias tables, fuzzy string matching, nearest neighbours over embeddings of entity names and descriptions. Recall here caps the recall of the whole system.
+2. **Context from the graph.** For each candidate, pull a compact subgraph: type, dates, related entities. This separates entities that share a name.
+3. **Matching.** Prompt the LLM with the mention's context and the serialized candidates, and constrain the output to a candidate ID or "none" (a new entity), so it cannot invent entities. At scale, a fine-tuned cross-encoder handles most cases and the LLM only the uncertain ones. Shuffle candidate order, since LLMs can favour the first option.
+4. **Constraints and clustering.** Reject matches that violate graph constraints (type mismatch, impossible dates). For deduplicating records, make decisions transitive by clustering pairwise match scores rather than accepting pairs independently.
+5. **Review.** Send low-confidence or high-impact merges to people, and keep provenance, because wrong merges are hard to undo.
+
+The integration also runs in the other two directions: retrieve graph facts as context so the LLM answers with fewer hallucinations, and use the LLM to extract candidate triples from text that are validated before entering the graph.
+
+**Evaluation.** Pairwise precision, recall and F1 on labelled pairs; cluster-level metrics such as B-cubed for deduplication; linking accuracy including "none" cases; and cost per resolved entity. Cache results and call the LLM only where cheaper models are unsure.
+:::
+
+::: {.qa asked="Meta Reality Labs-type intern; Ant digital human"}
+**How does visual SLAM work, and where do learned 3D methods fit in?**
+
+Visual SLAM estimates the camera trajectory and a scene map together: poses come from aligning images to the map, and the map from triangulating with the poses.
+
+1. **Tracking.** Estimate each frame's pose against the map. Feature-based methods match keypoint descriptors (such as ORB) to map points, solve PnP inside RANSAC and refine the reprojection error. Direct methods minimize the photometric error of pixels with gradient over pose and depth; DSO (Engel et al., 2016), a direct odometry system, also models exposure and vignetting.
+2. **Mapping and bundle adjustment.** Select keyframes, triangulate new points, and jointly optimize poses $T_i$ and points $X_j$ by minimizing $\sum_{ij} \rho\big(\lVert u_{ij} - \pi(T_i X_j) \rVert^2\big)$, with observed pixel $u_{ij}$, projection $\pi$ and robust loss $\rho$; solve with Levenberg–Marquardt, eliminating the points by a Schur complement.
+3. **Loop closure.** Recognize a revisited place, estimate the relative pose, and optimize the pose graph to spread accumulated drift. ORB-SLAM (Mur-Artal et al., 2015) uses one set of ORB features for tracking, mapping, relocalization and loop closing.
+
+A single camera fixes geometry only up to scale; stereo, depth or an IMU makes it metric. Feature-based methods tolerate lighting changes and wide baselines but give sparse maps; direct methods use more of the image but are sensitive to photometric changes and need small motion between frames.
+
+**Learned methods.**
+
+- Learned features, matchers and depth priors inside classical pipelines.
+- Differentiable SLAM: DROID-SLAM (Teed and Deng, 2021) updates poses and per-pixel depth through a dense bundle adjustment layer.
+- Neural-field maps: iMAP (Sucar et al., 2021) uses one MLP as the whole RGB-D map; NICE-SLAM (Zhu et al., 2021) uses hierarchical feature grids.
+- Gaussian-splatting maps: SplaTAM (Keetha et al., 2023) for RGB-D, and Gaussian Splatting SLAM (Matsuki et al., 2023), monocular, which tracks by optimizing the pose against the Gaussians and runs live at about 3 fps.
+- Reconstruction priors: DUSt3R (Wang et al., 2023) regresses pointmaps from uncalibrated image pairs; MASt3R-SLAM (Murai et al., 2024) builds monocular dense SLAM at about 15 fps on such a prior.
+
+Classical tracking suits tight compute budgets, learned components add robustness, and neural or Gaussian maps matter when the map must be rendered.
+:::
+
+::: {.qa asked="Ant digital human (Nowcoder roundup 2025)"}
+**What are the main error sources in 3D Gaussian splatting?**
+
+3D Gaussian splatting (Kerbl et al., 2023) fits anisotropic Gaussians with opacity and spherical-harmonic colour to posed images, starting from a structure-from-motion (SfM) point cloud and alpha-blending depth-sorted splats. Most errors come from its inputs, its heuristic density control or its rendering approximations.
+
+1. **Poses and initialization.** Pose errors produce blur and doubled edges that the optimizer patches with extra Gaussians, and textureless or shiny regions get few SfM points. Remedies: joint pose refinement or, for video, pose-free methods such as COLMAP-Free 3DGS (Fu et al., 2023).
+2. **Densification heuristics.** Gaussians whose average view-space position gradient exceeds a threshold are cloned if small or split if large, and opacities are reset towards zero every 3,000 iterations to remove floaters near the cameras. These threshold-based rules can miss fine detail, inflate memory and still leave floaters. 3DGS-MCMC (Kheradmand et al., 2024) recasts densification and pruning as MCMC state transitions.
+3. **Aliasing across scales.** Changing focal length or distance from training gives high-frequency artifacts when zooming in and aliasing or dilation artifacts when zooming out. Mip-Splatting (Yu et al., 2023) adds a 3D smoothing filter bounded by the training views' sampling rate and replaces the 2D dilation with a 2D Mip filter.
+4. **Limited view dependence.** Low-order spherical harmonics cannot represent sharp specular highlights or reflections, so optimization fakes them with extra Gaussians, which corrupts geometry.
+5. **Sparse views.** With few images the Gaussians overfit the training views. Depth priors help; FSGS (Zhu et al., 2023) adds monocular depth guidance and grows Gaussians from sparse points.
+6. **Appearance changes.** Exposure, white-balance and lighting differences get baked in as floaters or colour shifts; per-image appearance embeddings or colour corrections absorb them.
+7. **Sorting and popping.** Splats are sorted by one depth per Gaussian rather than per pixel, so blending order can flip as the camera rotates. StopThePop (Radl et al., 2024) re-sorts hierarchically per pixel to remove this.
+
+To diagnose, render depth, opacity and per-view error maps, and test on views off the training trajectory.
+:::
+
+::: {.qa asked="Ant digital human (Nowcoder roundup 2025)"}
+**How do multi-view stereo and NeRF differ in where they sample 3D points?**
+
+MVS samples a fixed grid of depth hypotheses in the reference camera's frustum, scores each by how consistent the warped source views look, and picks one depth per pixel. NeRF samples points along each pixel's ray, at positions that change every iteration, and integrates a learned density and colour with volume-rendering weights.
+
+**MVS (plane sweep).**
+
+1. Choose $D$ depth hypotheses for the reference view, uniform in depth or inverse depth between $d_{\min}$ and $d_{\max}$. MVSNet used $D = 256$ planes at 2 mm spacing on DTU.
+2. Warp each source image or feature map into the reference view with the homography of a fronto-parallel plane at that depth.
+3. Score photometric consistency (NCC, or the variance of warped features across views in MVSNet) to build a cost volume over pixels and depths.
+4. Regularize the volume (semi-global matching or a 3D CNN), take the argmin or a soft-argmin expectation per pixel, then fuse depth maps across views with consistency checks.
+
+The score comes from matching, not rendering.
+
+**NeRF.**
+
+1. For a ray $r(t) = o + t d$, split $[t_n, t_f]$ into $N_c$ bins and draw one uniform sample per bin (stratified sampling).
+2. Query the coarse MLP for $\sigma_i, c_i$ and compute $w_i = T_i\big(1 - e^{-\sigma_i \delta_i}\big)$ with $T_i = \exp\big(-\sum_{j<i}\sigma_j\delta_j\big)$; the pixel colour is $\sum_i w_i c_i$.
+3. Normalize the $w_i$ into a piecewise-constant density along the ray, draw $N_f$ more samples by inverse-transform sampling, and evaluate the fine MLP on all $N_c + N_f$ points (64 and 128 in the original paper).
+
+**Trade-offs.** Learned MVS is feed-forward and outputs depth directly, but needs texture and roughly Lambertian surfaces and handles occlusion through heuristics. NeRF models occlusion through transmittance and handles view-dependent appearance, but needs per-scene optimization and many network queries per ray, and samples in empty space are wasted, hence hierarchical sampling. They combine well: MVS depth can concentrate NeRF samples near surfaces, and cost volumes can condition generalizable radiance fields.
+:::
+
+::: {.qa asked="Ant digital human round 2 (Nowcoder roundup 2025)"}
+**What is your view of digital humans: where is the value, and where is the field going?**
+
+Give a structured opinion with stated uncertainty, in three parts.
+
+**Where the value is**, ordered by how forgiving the use case is: dubbing and lip-sync translation of existing video, training and explainer videos with a presenter, livestream hosts and customer-service avatars that run around the clock, virtual idols and entertainment, avatars for telepresence and VR. The common value is a lower cost per minute of presenter video, and scaling across languages and personalized versions.
+
+**What blocks adoption.** Realism beyond the lips (emotion, gaze, gestures, body motion); identity and stability over long sessions; latency for interactive use, where speech recognition, an LLM, text-to-speech and rendering add up; GPU cost per streamed hour; consent and likeness rights, deepfake misuse and disclosure rules; and audience trust, since viewers may engage less with a host they know is synthetic.
+
+**Where it is going.** End-to-end audio-to-video diffusion models with longer consistency, real-time 3D Gaussian avatars built from short captures, full-duplex conversational agents driving the avatar, and shared evaluation. Name what you would watch to update your view: cost per minute against a human presenter, and engagement and conversion of synthetic hosts relative to human ones.
+
+For the technical pipeline and open problems, use the audio-driven talking-head entry above rather than repeating it here.
+:::
+
+::: {.qa asked="Curated AIGC list, Nowcoder 2025"}
+**Where are diffusion models most useful in products today?**
+
+Answer with criteria first, then examples that meet them. Diffusion models fit best where:
+
+1. **Errors are tolerable**: the output is judged by taste rather than correctness, and a bad sample can be discarded.
+2. **A person stays in the loop**, choosing among samples or editing them, so the model supplies drafts rather than final answers.
+3. **The output is worth more than it costs**: GPU-seconds per sample are cheap next to a designer's or photographer's hour.
+4. **Volume and variation matter**: many variants per audience, language or format.
+5. **Control is available**: a reference image, a mask or a layout makes the output predictable enough to use.
+
+Examples that fit: editing tools (inpainting, outpainting, background replacement, object removal), advertising and e-commerce creatives with variants per audience, concept art and storyboards, stock imagery, short-form video and effects, and restoration such as upscaling, where conditioning on the input keeps outputs close to it. Outside media, diffusion models generate candidate molecules and protein structures and synthetic training data, where downstream tests screen the outputs.
+
+Weaker fits: anything that must be exactly right (dense text, charts, diagrams, medical images used for diagnosis, where hallucinated detail is dangerous), interactive uses with tight latency budgets unless the model is distilled to few steps, and domains with high legal risk (real people's likeness, trademarks).
+:::
+
+::: {.qa asked="Tencent multimodal, Nowcoder 2026"}
+**How could generative AI be used in games, and what do player and payment distributions look like?**
+
+**Uses.** Asset production (concept art, textures, sprites, 3D assets, character animation), dialogue and voice for non-player characters, procedural quests and levels, player-facing creation tools (avatars, skins), localization and voice dubbing, marketing creatives with many variants, and automated play-testing agents. The constraints are consistency with the art direction, runtime latency and on-device compute, IP and licensing, controllability, safety filters for player-facing generation, and player acceptance of AI-made content.
+
+**Distributions.** Payment is heavy-tailed: most players never pay, and a small share of payers brings in a large share of revenue. Playtime is skewed too, and many players leave in the first days. (Quote exact shares only from data you have seen.)
+
+**Modelling implications.**
+
+- **Zero inflation.** Use a hurdle model, $P(\text{pay} > 0)$ times $\mathbb{E}[\text{amount} \mid \text{pay} > 0]$, or a Tweedie loss, which models exact zeros and positive amounts together.
+- **Tail.** Spending among payers is often close to lognormal or heavier. Model $\log(\text{amount})$, check the tail on a log-log plot of the complementary CDF, and expect sample means to be unstable: report medians or trimmed means with bootstrap intervals. A/B tests on revenue need large samples, winsorization or variance reduction.
+- **Lifetime value.** Predict from early behaviour (first-day sessions, progression, first purchase), handle players who are still active as censored, and evaluate by how much revenue the top-ranked players capture rather than by MSE, which the largest spenders dominate.
+- **Imbalance.** Payers are rare, so use class weights or stratified sampling and evaluate with precision-recall curves.
+
+Add a responsibility point: avoid targeting vulnerable heavy spenders, and note that rules on paid random rewards differ by country.
+:::
+
+::: {.qa asked="Alibaba Taotian senior-manager round, Nowcoder 2025"}
+**How could your work connect to our business, for example outfit recommendation in live-stream shopping?**
+
+A manager asking this wants evidence that you can think in terms of their product. Structure:
+
+1. **Understand the business first.** Say, or ask, who the user is (a viewer in a live stream), what decision is being made (which items to show or bundle while the host presents), the metric (click-through to the item, add-to-cart, conversion, return rate) and the constraints (real time, a catalogue that changes per stream).
+2. **Map your technique to one stage of that pipeline.** For example: recognizing the item the host is wearing and retrieving it and compatible items; generating try-on images on different body types; enhancing low-quality stream frames or product crops so recognition works.
+3. **Evidence path.** An offline metric for that stage (retrieval recall@k, try-on fidelity in a user study), then an online A/B test on conversion and returns.
+4. **Cost and risk.** Latency per frame, GPU cost per streamed hour, misrepresentation (a flattering try-on raises returns), privacy of user photos.
+5. **A small first step**: one category, or offline generation before the stream rather than live.
+
+Ask questions back; it is a conversation. Avoid claiming your method transfers unchanged, and avoid research jargon.
+:::
+
+::: {.qa asked="SenseTime leader round, Nowcoder 2019"}
+**What are the challenges of knowledge distillation, especially for video models, and how would you improve it?**
+
+Knowledge distillation trains a small student to match a teacher. The main difficulties are the capacity gap, choosing what to match and, for video, the cost of running the teacher and keeping the student temporally consistent.
+
+**Mechanism.** With student logits $z_s$, teacher logits $z_t$ and temperature $T$:
+
+$$\mathcal{L} = (1-\lambda)\,\mathrm{CE}\big(y, \mathrm{softmax}(z_s)\big) + \lambda\, T^2\, \mathrm{KL}\big(\mathrm{softmax}(z_t/T)\,\big\|\,\mathrm{softmax}(z_s/T)\big).$$
+
+A higher $T$ exposes the teacher's relative probabilities over wrong classes. The gradient of the KL term with respect to $z_{s,i}$ is $(q_i - p_i)/T$, where $q$ and $p$ are the student's and teacher's softened distributions, and for large $T$ the difference $q_i - p_i$ itself shrinks like $1/T$, so the soft gradients scale as $1/T^2$; the $T^2$ factor keeps their weight stable as $T$ changes (Hinton et al., 2015).
+
+**General challenges.**
+
+- **Capacity gap.** A stronger teacher is not always a better one. Mirzadeh et al. (2019) found student accuracy drops when the gap is large and inserted an intermediate-size teacher assistant; Cho and Hariharan (2019) found a chain of distillation steps ineffective in their experiments and instead stopped the teacher's training early. The evidence is mixed, so test both.
+- **What to match.** Logits carry little information for dense prediction or generation. Feature distillation (FitNets, Romero et al., 2014) matches intermediate features through a learned adapter, but needs layer correspondences.
+- **Teacher training choices.** A teacher trained with label smoothing distils much less effectively (Müller et al., 2019).
+
+**Video-specific challenges.**
+
+- **Teacher cost.** Precompute and cache teacher outputs, distil on shorter or lower-resolution clips first, then fine-tune at full size.
+- **Temporal consistency.** Frame-wise losses can make the student flicker. Match the teacher's frame-to-frame feature differences or spatio-temporal attention, add flow-warped consistency losses, and evaluate temporal stability, not only accuracy.
+- **Architecture mismatch.** A factorized or 2D student does not share layers with a full 3D teacher, so feature matching needs adapters.
+
+For video generation, distillation usually reduces sampling steps rather than parameters; progressive distillation, for example, repeatedly halves the step count (Salimans and Ho, 2022).
+:::
+
 Deeper: the design choices worth proposing to vary are laid out in [Video Generation](video-generation.html) and [Text-to-Image and Multimodal Models](text-to-image-multimodal.html).
 
 ## Behavioral and motivation
@@ -836,6 +2371,81 @@ Be concrete: how you choose the next experiment, track runs, read papers and wri
 **What questions do you have for us?**
 
 Use the time. Ask what the team actually works on and with which stack (role titles can mislead), what a successful intern produced last year, the publication policy, how involved the mentor is, compute access, and what the remaining process looks like. Posters also recommend asking what answer the interviewer was looking for on a question you found hard.
+:::
+
+::: {.qa asked="MSR intern, Glassdoor"}
+**Which ML frameworks and tools have you used?**
+
+Group the answer by layer and attach depth to each item, so the interviewer can calibrate.
+
+1. **Core framework you use daily**, with what you have built in it: custom modules and losses, mixed precision, multi-GPU training, custom data pipelines, profiling.
+2. **Libraries relevant to this team**, such as model hubs, diffusion or vision libraries, with a concrete use.
+3. **Infrastructure**: cluster schedulers, experiment tracking, containers, version control, testing and reproducibility habits.
+4. **Lighter experience**, labelled as such: "used JAX for one project; I would need a short ramp-up."
+
+Anchor each line with one thing you built, because follow-up questions or a coding round will test the claim. If the team uses a stack you have not used, say how quickly you learned the last new one, with evidence. Avoid listing every tool you have touched.
+:::
+
+::: {.qa asked="Anthropic (secondary prep guide)"}
+**Why do you want to work on AI safety?**
+
+Give a specific reason grounded in something you have observed or worked on, then show you know what the work involves.
+
+1. **The origin**: a concrete failure mode you have seen in models, such as confident but wrong outputs, a metric the model learned to exploit, or behaviour that changed under distribution shift, and why it worried you.
+2. **The research areas** it connects to (evaluations, interpretability, robustness, alignment training, misuse prevention), and which of them you want to work on.
+3. **What you bring**: relevant skills from your own work, such as careful evaluation, uncertainty and calibration, or experience with generative models.
+4. **What you want to learn** in the role.
+
+Avoid reciting the organization's mission back, apocalyptic or dismissive framing, and expertise you cannot back up. Prepare for the follow-up "which safety problem do you think is underrated, and how would you test it?", with one experiment you could actually run.
+:::
+
+::: {.qa asked="Meta RS FT 2026 (Reddit), HR rounds (Nowcoder 2022)"}
+**Describe your work style. How would colleagues describe you?**
+
+Pick two or three traits that matter for research collaboration and back each with a behaviour and a short example rather than an adjective: how you plan (weekly goals, small experiments that can fail fast), how you communicate (written updates, sharing negative results early), how you take feedback. For "how would colleagues describe you", paraphrase real feedback you have received from an advisor, a co-author or a past manager; it is more credible than self-description and should match what your references would say. Add one genuine growth area and what you are doing about it. Avoid generic lists ("hard-working, team player"), claiming no weaknesses, and weaknesses that are disguised strengths.
+:::
+
+::: {.qa asked="Tencent Youtu, Dewu (Nowcoder 2024)"}
+**You are already interning somewhere. Why are you looking again?**
+
+Answer honestly and keep it forward-looking. Cover the timing (when the current internship ends and when this one would start), what you are gaining from the current role, and what you want next that this team offers: a different problem area, more research or more product exposure, a chance to publish, or this team's specific work. Speak positively about the current employer, disclose nothing confidential, and say how you would handle any overlap (notice period, finishing your project responsibly, a pending return offer). Avoid complaints about the current team, and avoid anything that suggests you would leave this role halfway as well.
+:::
+
+::: {.qa asked="Tencent Youtu CV intern, Nowcoder 2024"}
+**How is your English, and can you work in it every day?**
+
+Answer factually, with evidence: the language of your degree and research group, papers you have written in English, talks or teaching in English, international collaborations, and how much you use it day to day. Be honest about the level, for example "fluent for technical work, less practised in fast informal conversation", and be ready to switch to English on the spot if asked, since that is the real test. Mention a habit that prevents misunderstandings, such as summarizing decisions in writing after meetings. Avoid overclaiming, and avoid answering with a test score alone.
+:::
+
+::: {.qa asked="Meituan 2024, SenseTime 2019, HR rounds (Nowcoder)"}
+**What other offers do you have, why did you turn one down, and how would you choose between us and another company?**
+
+Be truthful and discreet. Structure:
+
+1. **Status**: say which processes or offers you have and their deadlines, without compensation details or confidential information unless you choose to share them.
+2. **Your criteria, ranked**: fit of the research problem, the mentor and team, what past interns produced, publication policy, compute, timing and location, a path to full-time.
+3. **The declined offer**, explained through those criteria ("the role was mostly product engineering"; "the timing did not fit"), never by criticizing the company.
+4. **Choosing between teams**: what would make you pick this one, and what information you still need to decide. Call it your first choice only if it is.
+
+Avoid bluffing about offers (timelines and claims can be checked) and crude bargaining. Raise deadlines early and ask whether the process can accommodate them.
+:::
+
+::: {.qa asked="Meituan 2024, SenseTime 2019 (Nowcoder)"}
+**Do you prefer research or product work?**
+
+Give an honest preference with a reason, then show that you value the other side. Describe the kind of work that motivates you (open problems, or seeing users rely on something you built), the balance you want (for example, research grounded in real data and real constraints), and one example where a product constraint improved your research, or research changed a product decision. Match the answer to the role without misrepresenting yourself: if the team is mostly product work and you want only research, that mismatch matters to both sides, and it is better found now. Avoid treating product work as "just engineering", and avoid "either is fine" with nothing behind it. (How to balance the two under deadlines is a separate question in this section.)
+:::
+
+::: {.qa asked="ByteDance AIGC intern, Nowcoder 2024"}
+**How will you balance the internship with your school work?**
+
+Give specifics rather than reassurance: your remaining obligations (courses, teaching, exams, thesis milestones, paper deadlines) and roughly how many hours they take, whether your advisor has agreed to the internship, the schedule you can commit to (days on site, hours per week, full-time or part-time), and any rules that cap your hours during term, such as work-authorization limits. Name the known conflicts and say how you would handle them: telling the manager weeks in advance, shifting hours, front-loading work. Support it with a time you handled overlapping commitments. Avoid promising hours you cannot sustain, and avoid hiding a conflict you already know about.
+:::
+
+::: {.qa asked="HR rounds, Nowcoder 2022"}
+**Tell me about a time you broke a rule.**
+
+The question tests judgment and honesty, so choose a real, low-stakes case where a rule or process conflicted with its own purpose, for example an outdated procedure that would have blocked a deadline for no benefit, and where you acted openly. Structure it as: the situation; the rule and what it was meant to protect; why following it literally would have hurt the goal; what you did, including whom you told or asked and how you limited the risk; the outcome; and what you would do differently, often "raise it earlier" or "get the rule changed instead". Never use a story involving safety, research integrity, privacy, security or the law, or one where you hid what you did. "I have never broken a rule" sounds evasive, and bragging about it sounds worse.
 :::
 
 Deeper: see [What interviewers look for](#what-interviewers-look-for) above.
@@ -1009,7 +2619,1430 @@ Memory: with mixed-precision Adam, each parameter costs about 16 bytes (2 for BF
 With Euclidean distance, $\arg\min_i \|x - x_i\|^2 = \arg\max_i \big(x_i^\top x - \tfrac{1}{2}\|x_i\|^2\big)$, because $\|x\|^2$ is the same for every $i$. So a linear layer with weight rows $x_i$ and biases $-\tfrac{1}{2}\|x_i\|^2$, followed by an argmax (a winner-take-all layer, or a softmax with temperature near zero for a differentiable version), selects the nearest training point, and a second linear layer whose weights are the one-hot labels outputs its class. This is also attention with the training points as keys and their labels as values, in the zero-temperature limit.
 :::
 
+::: {.qa asked="Qualcomm 2026 (Glassdoor), NVIDIA (PracHub 2026)"}
+**Quantize an FP32 tensor to int8: compute the scale and zero point, and explain which errors quantization introduces.**
+
+Quantization stores a real value as an integer through an affine map, $x \approx s\,(q - z)$, with a float scale $s$ and an integer zero point $z$. You choose $s$ and $z$ from the range you decide to represent. The errors are rounding inside that range, clipping outside it, and what both turn into after integer arithmetic and later layers.
+
+```python
+import numpy as np
+
+def quantize(x, bits=8, symmetric=False):
+    if symmetric:                                  # zero point fixed at 0; codes [-127, 127]
+        qmin, qmax = -(2 ** (bits - 1) - 1), 2 ** (bits - 1) - 1
+        scale, zp = max(np.abs(x).max(), 1e-12) / qmax, 0
+    else:                                          # map [lo, hi] onto [-128, 127]
+        qmin, qmax = -2 ** (bits - 1), 2 ** (bits - 1) - 1
+        lo, hi = min(x.min(), 0.0), max(x.max(), 0.0)   # keep 0 exactly representable
+        scale = max(hi - lo, 1e-12) / (qmax - qmin)
+        zp = int(np.clip(np.round(qmin - lo / scale), qmin, qmax))
+    q = np.clip(np.round(x / scale) + zp, qmin, qmax).astype(np.int8)
+    return q, scale, zp
+
+def dequantize(q, scale, zp):
+    return (q.astype(np.float32) - zp) * scale
+```
+
+**Choosing the map.** Asymmetric: for a range $[\ell, u]$ widened to contain 0, $s = (u - \ell)/255$ and $z = \mathrm{round}(-128 - \ell/s)$; zero stays exact, which matters for padding and one-sided post-ReLU activations. Symmetric: $z = 0$ and $s = \max|x|/127$. A nonzero weight zero point adds cross terms to the integer matmul $\sum_k (q_{x,k} - z_x)(q_{w,k} - z_w)$, so weights are usually symmetric, with one scale per output channel because channel ranges differ.
+
+**The errors.**
+
+1. Rounding: inside the range the error lies in $[-s/2, s/2]$ and is close to uniform when values span many steps, so its variance is $\frac{1}{s}\int_{-s/2}^{s/2} e^2\,de = s^2/12$; each extra bit halves $s$, about 6 dB of signal-to-noise.
+2. Clipping: values outside the range saturate. A wider range clips less but raises $s$ for every value, so calibration data picks the range (min/max, a percentile, minimum MSE, or a KL criterion).
+3. Outliers: one value of 100 among 10,000 unit-Gaussian values raises the symmetric int8 MSE from about $8 \times 10^{-5}$ to $5 \times 10^{-2}$; finer-grained scales, clipping, or higher precision for outlier channels limit the damage.
+4. Accumulation: sums of int8 products need 32-bit accumulators, and requantizing with the combined scale $s_x s_w / s_y$ rounds again.
+5. Propagation: errors compound through layers, and rounded weights shift output means (bias correction re-centres them). Fold BatchNorm into the weights first, and keep sensitive layers (first, last, softmax, normalization) in higher precision if needed.
+
+**PTQ vs QAT.** Post-training quantization only calibrates ranges. Quantization-aware training trains through quantize-dequantize operations with the straight-through estimator, taking $\partial\,\mathrm{round}(u)/\partial u = 1$ inside the clipping range and 0 outside; it costs training time and usually loses less accuracy at low bit widths. Quantizing is $O(N)$ in time and memory.
+:::
+
+::: {.qa asked="Adobe research intern (Glassdoor)"}
+**You have limited time to implement the core function of a paper. How do you approach it?**
+
+Aim for a small, correct, tested version of the key equation first and generalize only after it works, saying your assumptions aloud as you go. A structure that fits most of these rounds:
+
+1. **Pin down the contract.** Inputs and outputs with shapes and dtypes, whether it must be batched or differentiable, and whether a reference output exists.
+2. **Find the defining equation** and write each symbol's shape in a comment. Name the ambiguities papers leave open (sum or mean, the softmax axis, indexing, a missing constant) and state your choice.
+3. **Write the minimal version** close to the equation, so the interviewer can check it line by line; loops are fine.
+4. **Test on a tiny input at once:** a hand-computed case, an invariant (shape, rows summing to 1, an identity case such as zero noise), loop against vectorized, or a gradient check.
+5. **Then extend:** vectorize, batch, add masks and numerical stability, re-running the same tests after each change.
+
+Avoid scaffolding (data loaders, configs, a training loop) before the core function, optimizing before it is correct, and long silences. If time runs out, leave the rest as clear pseudocode and say how you would test it.
+:::
+
+::: {.qa asked="Samsung Research America 2024; AIGC interview repo"}
+**Implement minibatch SGD from scratch, for example for linear regression.**
+
+Each epoch reshuffles the data, walks through it in minibatches, computes the gradient of the batch loss and steps against it. For $L(w) = \frac{1}{2|B|}\|X_B w - y_B\|^2$ the batch gradient is $g = X_B^\top (X_B w - y_B)/|B|$.
+
+```python
+import numpy as np
+
+def sgd_linreg(X, y, lr=0.003, batch=32, epochs=500, beta=0.9, tol=1e-6, patience=10, seed=0):
+    rng = np.random.default_rng(seed)
+    X = np.hstack([X, np.ones((len(X), 1))])        # bias as an extra feature
+    w, v = np.zeros(X.shape[1]), np.zeros(X.shape[1])
+    best, bad = np.inf, 0
+    for epoch in range(epochs):
+        eta = lr / (1 + 0.05 * epoch)                # decay so the gradient noise averages out
+        idx = rng.permutation(len(X))                # reshuffle every epoch
+        for s in range(0, len(X), batch):
+            j = idx[s:s + batch]
+            g = X[j].T @ (X[j] @ w - y[j]) / len(j)  # grad of 0.5 * mean squared error
+            v = beta * v + g                         # heavy-ball momentum
+            w = w - eta * v
+        loss = 0.5 * np.mean((X @ w - y) ** 2)       # use a held-out set in practice
+        best, bad = (loss, 0) if loss < best * (1 - tol) else (best, bad + 1)
+        if bad == patience:                          # no real progress for `patience` epochs
+            break
+    return w
+```
+
+**Learning rate.** The full-batch loss has the constant Hessian $H = X^\top X / n$, and one gradient step gives $w_{t+1} - w^* = (I - \eta H)(w_t - w^*)$. This contracts only if $|1 - \eta\lambda_i| < 1$ for every eigenvalue, that is $\eta < 2/\lambda_{\max}$, and the slowest direction converges at a rate set by $\lambda_{\max}/\lambda_{\min}$, which is why you standardize features first. Heavy-ball momentum widens the stable range to $\eta < 2(1+\beta)/\lambda_{\max}$. With minibatches and a constant step, the iterate settles in a noise ball whose size grows with $\eta$ and shrinks with batch size; a decaying step with $\sum_t \eta_t = \infty$ and $\sum_t \eta_t^2 < \infty$ (such as $\eta_t \propto 1/t$, as above) removes it.
+
+**Convergence check.** Stop when the held-out loss has not improved for a few epochs (comparing consecutive epochs alone stops too early, because SGD noise makes the loss go up and down), and on small problems compare with `np.linalg.lstsq`; on synthetic data the snippet matches it to within the noise level of the data.
+
+**Follow-up: an extremum of a 1D function.** Iterate $x \leftarrow x - \eta f'(x)$ (plus sign for a maximum), with $f'(x) \approx (f(x+h) - f(x-h))/2h$ if no derivative is given, until $|f'(x)|$ is below a tolerance; this finds a local extremum near the start. Newton's method, $x \leftarrow x - f'(x)/f''(x)$, converges quadratically near the extremum but needs $f'' \ne 0$ and can head for a maximum.
+
+Each epoch costs $O(nd)$ time, with $O(d)$ memory beyond the data.
+
+[more](deep-learning-training.html)
+:::
+
+::: {.qa asked="Apple ML intern 2024, Meta MLE 2026"}
+**Implement k-nearest-neighbour search and classification over embeddings.**
+
+Compute all query-to-database squared distances with one matrix multiply, using $\|q - x\|^2 = \|q\|^2 - 2q^\top x + \|x\|^2$, take the $k$ smallest per query with a partial sort, and vote. Process queries in chunks so memory stays bounded.
+
+```python
+import numpy as np
+
+def knn_search(Q, X, k, cosine=False, chunk=1024):
+    # Q: (m, d) queries, X: (n, d) database -> (m, k) indices, nearest first
+    if cosine:                                     # cosine = L2 ranking on unit vectors
+        Q = Q / np.linalg.norm(Q, axis=1, keepdims=True)
+        X = X / np.linalg.norm(X, axis=1, keepdims=True)
+    x2, out = (X ** 2).sum(1), []
+    for s in range(0, len(Q), chunk):              # memory O(chunk * n), not O(m * n)
+        d = x2[None, :] - 2 * Q[s:s + chunk] @ X.T # ||q||^2 is constant per row: dropped
+        part = np.argpartition(d, k - 1, axis=1)[:, :k]          # unordered top-k, O(n) per row
+        order = np.argsort(np.take_along_axis(d, part, 1), axis=1)
+        out.append(np.take_along_axis(part, order, 1))
+    return np.vstack(out)
+
+def knn_classify(Q, X, labels, k):
+    preds = []
+    for row in labels[knn_search(Q, X, k)]:        # neighbour labels, nearest first
+        counts = np.bincount(row)
+        preds.append(next(c for c in row if counts[c] == counts.max()))  # tie: nearest wins
+    return np.array(preds)
+```
+
+Dropping $\|q\|^2$ does not change the ranking for a given query. For unit vectors $\|q - x\|^2 = 2 - 2\cos(q, x)$, so cosine search is L2 search after normalization. The expanded form can give slightly negative values or reorder near-ties through floating-point cancellation; clamp at 0 if you need the distances themselves. Ties in the vote go here to the class of the nearest tied neighbour; distance-weighted votes are an alternative, and $k$ is chosen by cross-validation (odd $k$ avoids ties in binary problems).
+
+Brute force costs $O(mnd)$ time, which is one large matrix multiply and fast on a GPU, plus $O(n)$ per query for the partial sort and $O(k \log k)$ to order the top $k$. For millions of vectors or more, use approximate search: an inverted-file index (cluster the database with k-means and scan only the few nearest clusters), product quantization (compress vectors to short codes and approximate distances with lookup tables), or a graph index such as HNSW (greedy search through a navigable neighbour graph). All trade recall for speed and memory, so measure recall@k against brute force on a sample.
+:::
+
+::: {.qa asked="Meta MLE 2026 (PracHub); AIGC interview repo"}
+**Implement the forward and backward pass of a two-layer MLP in NumPy.**
+
+The forward pass caches its intermediate values; the backward pass applies the chain rule in reverse order. Every gradient has the shape of the quantity it differentiates, which fixes where the transposes go. Forward: $z_1 = XW_1 + b_1$, $h = \max(z_1, 0)$, $z_2 = hW_2 + b_2$, $p = \mathrm{softmax}(z_2)$, $L = -\frac{1}{B}\sum_i \log p_{i, y_i}$. Backward:
+
+1. Softmax with cross-entropy: for one row, $L_i = -z_{y_i} + \log\sum_j e^{z_j}$, so $\partial L_i/\partial z_j = p_j - \mathbf{1}[j = y_i]$. Over the batch, $\delta_2 = (P - Y)/B$ with $Y$ one-hot, shape $(B, C)$.
+2. Second layer: $\partial L/\partial W_2 = h^\top \delta_2$ of shape $(H, C)$, $\partial L/\partial b_2 = \sum_i \delta_{2,i}$, and $\partial L/\partial h = \delta_2 W_2^\top$ of shape $(B, H)$.
+3. ReLU: $\delta_1 = (\delta_2 W_2^\top) \odot \mathbf{1}[z_1 > 0]$.
+4. First layer: $\partial L/\partial W_1 = X^\top \delta_1$ and $\partial L/\partial b_1 = \sum_i \delta_{1,i}$.
+
+```python
+import numpy as np
+
+def mlp_loss_and_grads(X, y, W1, b1, W2, b2):
+    # X: (B, D); y: (B,) int labels; W1: (D, H); W2: (H, C)
+    B = len(X)
+    z1 = X @ W1 + b1                               # (B, H)
+    h = np.maximum(z1, 0)                          # ReLU
+    z2 = h @ W2 + b2                               # (B, C) logits
+    z2 = z2 - z2.max(1, keepdims=True)             # stable softmax
+    p = np.exp(z2); p /= p.sum(1, keepdims=True)
+    loss = -np.log(p[np.arange(B), y]).mean()
+    d2 = p.copy(); d2[np.arange(B), y] -= 1; d2 /= B   # dL/dz2 = (p - onehot) / B
+    dW2, db2 = h.T @ d2, d2.sum(0)
+    dz1 = (d2 @ W2.T) * (z1 > 0)                   # back through W2, then the ReLU mask
+    dW1, db1 = X.T @ dz1, dz1.sum(0)
+    return loss, [dW1, db1, dW2, db2]
+
+def grad_check(f, params, grads, eps=1e-6):       # f(params) -> loss; central differences
+    for P, G in zip(params, grads):
+        i = tuple(np.random.randint(s) for s in P.shape)
+        old = P[i]; P[i] = old + eps; lp = f(params)
+        P[i] = old - eps; lm = f(params); P[i] = old
+        num = (lp - lm) / (2 * eps)
+        print(abs(num - G[i]) / max(1e-12, abs(num) + abs(G[i])))   # ~1e-7 or less in float64
+```
+
+Call the check as `grad_check(lambda ps: mlp_loss_and_grads(X, y, *ps)[0], params, grads)`. The central difference has $O(\epsilon^2)$ truncation error, so use float64; a relative error near $10^{-6}$ or below means the gradient is right, while a perturbation that pushes a pre-activation across 0 can produce a spurious mismatch at the ReLU kink. Forward and backward each cost $O(B(DH + HC))$ multiply-adds, and the cached activations take $O(B(H + C))$ memory.
+
+[more](deep-learning-training.html)
+:::
+
+::: {.qa asked="Runway MLE, PracHub 2025"}
+**Write an n-gram language model class with fit and generate methods. How do you pick n?**
+
+An n-gram model estimates $P(w_t \mid w_{t-n+1}, \dots, w_{t-1})$ from counts of each $(n-1)$-token context followed by each next token. Fitting is counting, generation is repeated sampling from the counts of the current context, and $n$ is chosen by held-out perplexity: a larger $n$ fits the training text better but sees each context fewer times.
+
+```python
+import math, random
+from collections import Counter, defaultdict
+
+class NGramLM:
+    def __init__(self, n, k=0.1):                  # k: add-k smoothing constant
+        self.n, self.k = n, k
+        self.counts, self.vocab = defaultdict(Counter), {"</s>"}
+
+    def grams(self, toks):                         # (context, next token) pairs, padded
+        toks = ["<s>"] * (self.n - 1) + list(toks) + ["</s>"]
+        return [(tuple(toks[i - self.n + 1:i]), toks[i]) for i in range(self.n - 1, len(toks))]
+
+    def fit(self, corpus):                         # corpus: list of token lists
+        for toks in corpus:
+            self.vocab.update(toks)
+            for ctx, w in self.grams(toks):
+                self.counts[ctx][w] += 1
+        return self
+
+    def prob(self, ctx, w):
+        c = self.counts.get(ctx, Counter())
+        return (c[w] + self.k) / (sum(c.values()) + self.k * len(self.vocab))
+
+    def perplexity(self, corpus):
+        pairs = [g for toks in corpus for g in self.grams(toks)]
+        return math.exp(-sum(math.log(self.prob(c, w)) for c, w in pairs) / len(pairs))
+
+    def generate(self, max_len=30, rng=random):
+        out = ["<s>"] * (self.n - 1)
+        for _ in range(max_len):
+            c = self.counts.get(tuple(out[len(out) - self.n + 1:]))
+            if not c:
+                break
+            w = rng.choices(list(c), weights=list(c.values()))[0]
+            if w == "</s>":
+                break
+            out.append(w)
+        return out[self.n - 1:]
+```
+
+The $n-1$ start tokens give the first words a full context, and the end token lets the model learn when to stop. The maximum-likelihood estimate $c(\text{ctx}, w)/c(\text{ctx})$ gives probability zero, and infinite perplexity, to any n-gram missing from training, so evaluation needs smoothing. Add-$k$ (shown) is the simplest and spreads too much mass over unseen words; interpolation mixes orders, $\lambda_1 P_1 + \dots + \lambda_n P_n$ with the weights tuned on held-out data; backoff uses the longest context that has counts and discounts so the distribution still sums to 1; Kneser-Ney smoothing is usually the strongest of the classic methods.
+
+**Choosing n.** Fit $n = 1, \dots, 5$ on the training split and pick the lowest validation perplexity $\exp\big(-\frac{1}{N}\sum_t \log P(w_t \mid \text{ctx}_t)\big)$. Training perplexity keeps falling as $n$ grows, while validation perplexity turns back up once most contexts are seen only once or never, because the number of possible contexts grows like $V^{n-1}$ while the data stays fixed.
+
+Fitting costs $O(Nn)$ time for $N$ tokens and memory proportional to the number of distinct n-grams. Cache each context's total count to make `prob` $O(1)$ (the snippet recomputes it); a generation step costs time proportional to the number of continuations of the context.
+:::
+
+::: {.qa asked="Meta RS full-time, Blind 2024"}
+**Compute the dot product of two sparse vectors efficiently.**
+
+Store only the nonzeros and touch only them. With hash maps, iterate over the shorter vector and look indices up in the other, $O(\min(m, n))$ expected time. With sorted index arrays, walk both with two pointers in $O(m + n)$, which needs no hashing and is cache-friendly. When one vector is much shorter, binary-search its indices in the longer one, $O(m \log n)$.
+
+```python
+from bisect import bisect_left
+
+def dot_dict(a, b):                        # a, b: {index: value}; expected O(min(m, n))
+    if len(a) > len(b):
+        a, b = b, a                        # iterate over the shorter one
+    return sum(v * b[i] for i, v in a.items() if i in b)
+
+def dot_two_pointer(ia, va, ib, vb):       # sorted index arrays with parallel values; O(m + n)
+    i = j = 0
+    s = 0.0
+    while i < len(ia) and j < len(ib):
+        if ia[i] == ib[j]:
+            s += va[i] * vb[j]; i += 1; j += 1
+        elif ia[i] < ib[j]:
+            i += 1
+        else:
+            j += 1
+    return s
+
+def dot_skewed(ia, va, ib, vb):            # len(ia) = m << len(ib) = n; O(m log n)
+    s, lo = 0.0, 0
+    for k, v in zip(ia, va):
+        lo = bisect_left(ib, k, lo)        # search only to the right of the previous match
+        if lo < len(ib) and ib[lo] == k:
+            s += v * vb[lo]
+    return s
+```
+
+Follow-ups usually probe the representation and the skew:
+
+- **Very different lengths.** Two pointers cost $O(n)$ even when $m = 3$. Binary search costs $O(m \log n)$; galloping (exponential) search from the previous match costs $O(m \log(n/m))$, which is asymptotically no worse than either.
+- **One vector dense.** Iterate over the sparse one and index the dense array: $O(m)$.
+- **One vector against many.** Convert it once to a hash map or dense array. For many sparse vectors against many queries, build an inverted index from coordinate to (vector id, value), the same structure that sparse retrieval uses.
+- **Storage.** Coordinate lists (index, value) for vectors; CSR (row pointers, column indices, values) for matrices, where a sparse matrix-vector product is a loop of sparse dot products. Hash maps cost more memory and have poor locality; sorted arrays are compact.
+- **Scale.** Shard by index range, compute partial sums per shard and add them; accumulate in float64 when there are many terms.
+:::
+
+::: {.qa asked="NVIDIA (PracHub 2026); Luma RE"}
+**Work out the tensor shapes through an MLP and explain PyTorch broadcasting.**
+
+`nn.Linear(d_in, d_out)` stores a weight of shape `(d_out, d_in)` and a bias of shape `(d_out,)`, and computes $y = xW^\top + b$ over the last dimension only, so leading batch and sequence dimensions pass through unchanged. Broadcasting aligns shapes from the right and stretches size-1 dimensions; it is convenient and a common source of silent bugs.
+
+**Shapes.** For $x$ of shape $(B, T, d)$, a transformer MLP is `Linear(d, 4d)` with weight $(4d, d)$, giving $(B, T, 4d)$, then an activation, then `Linear(4d, d)` with weight $(d, 4d)$, back to $(B, T, d)$. It has $8d^2 + 5d$ parameters and costs $8BTd^2$ multiply-adds; the backward pass needs the $(B, T, 4d)$ pre-activations. The weight gradient of the first layer is $\delta^\top x$ after flattening $B \cdot T$ into one axis: a sum of outer products over all tokens.
+
+**Broadcasting rules.** Compare shapes from the last dimension backwards; two sizes are compatible when they are equal or one of them is 1, and missing leading dimensions count as 1. The result takes the larger size in each position, and size-1 dimensions are expanded as views with stride 0, without copying.
+
+```python
+import torch, torch.nn as nn
+
+B, T, d = 8, 16, 64
+x = torch.randn(B, T, d)
+fc1, fc2 = nn.Linear(d, 4 * d), nn.Linear(4 * d, d)
+print(fc1.weight.shape, fc1.bias.shape)         # (256, 64), (256,): weight is (out, in)
+h = torch.relu(fc1(x))                          # x @ W.T + b on the last dim -> (8, 16, 256)
+print(fc2(h).shape)                             # (8, 16, 64)
+print(torch.allclose(torch.einsum("btd,od->bto", x, fc1.weight) + fc1.bias, fc1(x), atol=1e-5))
+
+pred, target = torch.randn(B, 1), torch.randn(B)
+print((pred - target).shape)                    # (8, 8): silent broadcasting bug
+print((pred.squeeze(-1) - target).shape)        # (8,)
+
+p = torch.rand(B, 10)
+p = p / p.sum(dim=1, keepdim=True)              # (8, 10) / (8, 1): rows sum to 1
+scale = torch.rand(B)
+img = torch.randn(B, 3, 32, 32) * scale.view(B, 1, 1, 1)   # one scale per sample
+```
+
+**Classic bugs.** A $(B, 1)$ prediction minus a $(B,)$ target becomes $(B, B)$, and its mean is a plausible-looking but wrong loss. Normalizing without `keepdim` divides a $(B, C)$ tensor by a $(B,)$ one: an error when $B \ne C$, and a silent division by the wrong row's sum when $B = C$. A per-sample scalar needs `view(B, 1, 1, 1)` before multiplying an image batch. In-place operations cannot grow their left operand, so `a += b` fails when the broadcast shape differs from `a`'s. Batched matmul broadcasts the leading dimensions, $(B, h, N, d)$ @ $(B, h, d, M) \to (B, h, N, M)$, and `einsum` makes a contraction explicit. `expand` returns a view, while `repeat` copies memory. Assert shapes at module boundaries and name the dimensions in comments.
+:::
+
+::: {.qa asked="NVIDIA ML intern, Jointaro 2024"}
+**Decide whether a point lies inside a convex hull, and code it.**
+
+In 2D, build the hull with the monotone-chain algorithm in $O(n \log n)$ and test the point with cross-product signs: a point is inside a counter-clockwise convex polygon exactly when it is on the left of, or on, every edge. A binary search over the fan of triangles around one vertex does this in $O(\log h)$ for a hull of $h$ vertices. In $d$ dimensions, skip the hull and solve a linear-programming feasibility problem.
+
+```python
+def cross(o, a, b):                            # > 0 if o -> a -> b turns left
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+def convex_hull(pts):                          # Andrew's monotone chain: CCW, O(n log n)
+    pts = sorted(set(map(tuple, pts)))
+    if len(pts) <= 2:
+        return pts
+    def chain(seq):
+        h = []
+        for p in seq:
+            while len(h) >= 2 and cross(h[-2], h[-1], p) <= 0:
+                h.pop()                        # drop right turns and collinear points
+            h.append(p)
+        return h[:-1]
+    return chain(pts) + chain(pts[::-1])       # lower hull + upper hull
+
+def in_convex_polygon(hull, p):                # CCW hull with >= 3 vertices; O(log h)
+    h0, n = hull[0], len(hull)
+    if cross(h0, hull[1], p) < 0 or cross(h0, hull[-1], p) > 0:
+        return False                           # outside the fan of wedges around h0
+    lo, hi = 1, n - 1                          # find the wedge (h0, hull[lo], hull[lo + 1])
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if cross(h0, hull[mid], p) >= 0:
+            lo = mid
+        else:
+            hi = mid
+    return cross(hull[lo], hull[lo + 1], p) >= 0   # boundary counts as inside
+```
+
+The first check confines $p$ to the angle at `hull[0]` spanned by the polygon; the binary search finds the triangle `(hull[0], hull[lo], hull[lo+1])` whose angular sector contains $p$; then $p$ is inside if it lies on the inner side of that triangle's outer edge. The `>= 0` comparisons count the boundary as inside; use `> 0` for strict interior. Integer coordinates make the test exact, while floats need a tolerance or exact predicates. If all points are collinear, the hull has fewer than three vertices, and the test becomes whether $p$ lies on the segment. For a single query, the $O(h)$ check against every edge is enough.
+
+In $d$ dimensions, $p$ lies in the hull of $x_1, \dots, x_n$ exactly when some $\lambda \ge 0$ satisfies $\sum_i \lambda_i = 1$ and $\sum_i \lambda_i x_i = p$, which is a feasibility LP with $n$ variables and $d + 1$ equality constraints:
+
+```python
+import numpy as np
+from scipy.optimize import linprog
+
+def in_hull_lp(X, p):                          # X: (n, d) points, p: (d,)
+    A = np.vstack([X.T, np.ones(len(X))])      # sum_i lam_i x_i = p and sum_i lam_i = 1
+    return linprog(np.zeros(len(X)), A_eq=A, b_eq=np.append(p, 1.0), bounds=(0, None)).status == 0
+```
+
+Building the hull is impractical in high dimensions, because a polytope with $n$ vertices can have on the order of $n^{\lfloor d/2 \rfloor}$ facets. For many queries in low dimensions, precompute the facet inequalities $Ax \le b$ or a Delaunay triangulation and locate the containing simplex.
+:::
+
+::: {.qa asked="Megvii PhD researcher, Nowcoder 2021"}
+**How does PyTorch autograd work? How do you take second derivatives, why call a module instead of its forward method, and what are ReLU's backward caveats?**
+
+Autograd records the graph while the forward pass runs. Each differentiable operation on a tensor that requires gradients creates a node, the tensor's `grad_fn`, which links to the nodes of its inputs and saves whatever its backward needs (a multiplication saves both operands, ReLU its output). `loss.backward()` walks this graph in reverse topological order, computes vector-Jacobian products, and adds the results into `.grad` of the leaf tensors, usually the parameters.
+
+Gradients accumulate, hence `zero_grad()` between steps (and gradient accumulation over micro-batches for free). Non-leaf tensors keep no `.grad` unless you call `retain_grad()`; the graph is freed after `backward()` unless `retain_graph=True`; a non-scalar output needs an explicit `grad_outputs` vector. Saved tensors carry version counters, so modifying one in place before the backward pass raises an error.
+
+**Second derivatives.** With `create_graph=True`, autograd also records the backward computation, so the returned gradient is itself differentiable:
+
+```python
+import torch
+
+x = torch.tensor(2.0, requires_grad=True)
+(g,) = torch.autograd.grad(x ** 3, x, create_graph=True)   # 3x^2 = 12, itself differentiable
+(h,) = torch.autograd.grad(g, x)                             # 6x = 12
+
+w, v = torch.randn(5, requires_grad=True), torch.randn(5)
+(gw,) = torch.autograd.grad((w ** 4).sum(), w, create_graph=True)
+(hvp,) = torch.autograd.grad(gw @ v, w)                      # Hessian-vector product, no Hessian built
+print(torch.allclose(hvp, 12 * w.detach() ** 2 * v))         # True
+```
+
+Gradient penalties (WGAN-GP, R1), curvature estimates and MAML-style meta-learning use this; each extra order costs roughly another backward pass plus the memory of the larger graph.
+
+**Module call versus `forward`.** `module(x)` goes through `nn.Module.__call__`, which runs the forward pre-hooks, `forward`, the forward hooks, and sets up backward hooks. Calling `module.forward(x)` silently skips them: feature-extraction hooks do not fire, and the older `torch.nn.utils.spectral_norm`, which recomputes the normalized weight in a pre-hook, uses a stale weight.
+
+**ReLU caveats.**
+
+1. The derivative at exactly 0 is undefined; any value in $[0, 1]$ is a valid subgradient, and PyTorch uses 0. It matters only with exact zeros (padding, clamped or quantized inputs), where it decides whether gradient flows.
+2. In-place ReLU saves memory and is safe after a linear or convolution layer, since ReLU's backward needs only its own output. After an operation that saved its output for its backward (sigmoid, tanh, exp), overwriting that output raises the in-place modification error.
+3. Dead units: a unit whose pre-activation is negative for every input gets zero gradient and does not recover. Large learning rates and negative biases cause it; smaller steps, careful initialization, LeakyReLU or GELU avoid it.
+:::
+
+::: {.qa asked="Company unnamed (via AIGC interview repo)"}
+**Implement 1D rotary position embedding (RoPE).**
+
+RoPE splits the channels of each query and key into pairs and rotates pair $i$ by the angle $m\theta_i$, where $m$ is the token's position and $\theta_i = 10000^{-2i/d}$. Rotations compose, so for each pair $(R(m\theta_i)q^{(i)})^\top R(n\theta_i)k^{(i)} = q^{(i)\top} R((n - m)\theta_i)\,k^{(i)}$, because $R(\alpha)^\top R(\beta) = R(\beta - \alpha)$. Summing over pairs, the attention score depends on the positions only through the offset $n - m$.
+
+```python
+import torch
+
+def rope(x, pos, base=10000.0):
+    # x: (..., T, d), d even; pos: (T,) integer positions (offset them when using a KV cache)
+    # Half-split pairing: dimension i rotates with dimension i + d/2.
+    d = x.shape[-1]
+    theta = base ** (-torch.arange(0, d, 2, dtype=torch.float32) / d)   # (d/2,) frequencies
+    ang = pos.float()[:, None] * theta[None, :]                         # (T, d/2)
+    cos, sin = ang.cos(), ang.sin()
+    x1, x2 = x[..., : d // 2], x[..., d // 2 :]
+    return torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
+
+# check: the score depends only on the offset n - m
+q, k = torch.randn(64), torch.randn(64)
+def score(m, n):
+    return rope(q[None], torch.tensor([m])) @ rope(k[None], torch.tensor([n])).T
+print(torch.allclose(score(3, 10), score(103, 110), atol=1e-4))   # True
+print(torch.allclose(score(3, 10), score(3, 11), atol=1e-4))      # False
+```
+
+**Pairing convention.** The RoFormer paper (Su et al., 2021) pairs adjacent channels $(2i, 2i+1)$; the half-split form above, pairing $i$ with $i + d/2$, is common in open-source LLM code. The two differ by a fixed permutation of channels, so either works when training from scratch, but a pretrained checkpoint only works with its own convention unless its query and key projection rows are permuted to match.
+
+**Practical points.** Apply RoPE per head after the q and k projections, and not to v. With a KV cache, pass absolute positions offset by the cache length and cache the keys after rotation. Precompute the cos and sin tables, and compute the angles in float32, since large positions lose precision in half precision. Rotation preserves norms, and position 0 is the identity, which are two more cheap tests. The cost is $O(Td)$ elementwise work per head.
+:::
+
+::: {.qa asked="ByteDance/OPPO/Momo image roles, Nowcoder 2021"}
+**Implement a ResNet basic block as a reusable module.**
+
+A basic block computes $y = \mathrm{ReLU}(F(x) + S(x))$, where $F$ is conv3x3, BN, ReLU, conv3x3, BN, and the shortcut $S$ is the identity when the shapes match, or a strided 1x1 convolution followed by BN (a projection) when the stride or channel count changes.
+
+```python
+import torch, torch.nn as nn, torch.nn.functional as F
+
+class BasicBlock(nn.Module):
+    def __init__(self, c_in, c_out, stride=1, zero_init=True):
+        super().__init__()
+        self.conv1 = nn.Conv2d(c_in, c_out, 3, stride, 1, bias=False)  # BN follows: no bias
+        self.bn1 = nn.BatchNorm2d(c_out)
+        self.conv2 = nn.Conv2d(c_out, c_out, 3, 1, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(c_out)
+        if zero_init:
+            nn.init.zeros_(self.bn2.weight)           # residual branch starts at zero
+        self.shortcut = nn.Identity()
+        if stride != 1 or c_in != c_out:              # projection when the shape changes
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(c_in, c_out, 1, stride, bias=False), nn.BatchNorm2d(c_out))
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        return F.relu(out + self.shortcut(x))         # ReLU after the addition
+
+def make_stage(c_in, c_out, n_blocks, stride):
+    blocks = [BasicBlock(c_in, c_out, stride)] + [BasicBlock(c_out, c_out) for _ in range(n_blocks - 1)]
+    return nn.Sequential(*blocks)
+```
+
+The convolutions have no bias because the following BN's shift makes it redundant. The stride sits on the first convolution, so only the first block of a stage downsamples. Setting the last BN's scale $\gamma$ to zero (Goyal et al., 2017) makes every residual branch output zero at initialization, so the block starts as the identity followed by a ReLU, which eases early training of deep networks; torchvision exposes this as `zero_init_residual`. The pre-activation variant (He et al., 2016) orders each branch as BN, ReLU, conv and drops the ReLU after the addition, so the shortcut path stays a pure identity.
+
+The bottleneck block used in ResNet-50 and deeper replaces the two 3x3 convolutions with a 1x1 reduction to width $w$, a 3x3 convolution at width $w$, and a 1x1 expansion to $4w$, which is far cheaper than two 3x3 convolutions at width $4w$. A basic block has $9c_{\text{in}}c_{\text{out}} + 9c_{\text{out}}^2$ convolution weights, plus $c_{\text{in}}c_{\text{out}}$ for a projection, and costs that many multiply-adds per output pixel. A quick test: `make_stage(64, 128, 2, 2)` has the same parameter count as torchvision's `resnet18().layer2` (525,568), and a zero-initialized block in eval mode returns `relu(x)`.
+
+[more](vision-backbones.html)
+:::
+
+::: {.qa asked="ByteDance, OPPO, Momo image roles (Nowcoder 2021)"}
+**Implement mean, median and Gaussian filters and a mosaic effect, and make the Gaussian filter fast.**
+
+Compute the mean (box) filter from an integral image, at $O(1)$ per pixel for any radius; the Gaussian filter as two 1D passes, at $O(k)$ instead of $O(k^2)$ per pixel for a $k \times k$ kernel; the median by sorting each window, or with a sliding histogram for 8-bit images; and the mosaic by replacing blocks with their means.
+
+```python
+import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view as windows
+
+def box_filter(img, r):                        # mean over a (2r+1)^2 window; O(1) per pixel
+    k, (H, W) = 2 * r + 1, img.shape
+    p = np.pad(img, r, mode="reflect").astype(np.float64)
+    S = np.pad(p.cumsum(0).cumsum(1), ((1, 0), (1, 0)))   # integral image, zero first row/col
+    return (S[k:k + H, k:k + W] - S[:H, k:k + W] - S[k:k + H, :W] + S[:H, :W]) / k ** 2
+
+def gaussian_filter(img, sigma):               # separable: two 1D passes, O(k) per pixel
+    r = int(np.ceil(3 * sigma))
+    g = np.exp(-np.arange(-r, r + 1) ** 2 / (2 * sigma ** 2)); g /= g.sum()
+    p = np.pad(img, r, mode="reflect").astype(np.float64)
+    p = windows(p, 2 * r + 1, axis=0) @ g      # vertical pass   -> (H, W + 2r)
+    return windows(p, 2 * r + 1, axis=1) @ g   # horizontal pass -> (H, W)
+
+def median_filter(img, r):                     # sorts every window: O(k^2 log k) per pixel
+    p = np.pad(img, r, mode="reflect")
+    return np.median(windows(p, (2 * r + 1, 2 * r + 1)), axis=(-2, -1))
+
+def mosaic(img, b):                            # replace each b x b block by its mean
+    out = img.astype(np.float64).copy()
+    for i in range(0, img.shape[0], b):
+        for j in range(0, img.shape[1], b):
+            out[i:i + b, j:j + b] = out[i:i + b, j:j + b].mean(axis=(0, 1))
+    return out
+```
+
+**Mean filter.** With the integral image $S$ (each entry the sum of everything above and to the left), any window sum takes four lookups, so the cost does not depend on the radius. Accumulate in float64 or int64 to avoid overflow and precision loss on large images.
+
+**Fast Gaussian.** The kernel factorizes, $e^{-(x^2 + y^2)/2\sigma^2} = e^{-x^2/2\sigma^2} e^{-y^2/2\sigma^2}$, so filtering columns and then rows with the 1D kernel equals the 2D convolution. Truncate at about $3\sigma$ and renormalize. For large $\sigma$, three successive box filters approximate a Gaussian closely (repeated convolution of boxes tends to a Gaussian) at $O(1)$ per pixel each; recursive (IIR) Gaussian approximations, FFT convolution for very large kernels, and blurring a downsampled image are other options, and production code adds fixed-point arithmetic and SIMD or GPU kernels.
+
+**Median.** It is non-linear and not separable. For 8-bit images, keep a 256-bin histogram of the window and update it as the window slides by removing the column that leaves and adding the one that enters, $O(k)$ per pixel; keeping one histogram per column brings this to $O(1)$. The window view in the snippet uses $O(HWk^2)$ memory, so tile large images.
+
+**Borders and colour.** Reflect padding avoids seams; zero padding darkens the borders of a blur. Apply the filters per channel for colour images (the mosaic already handles an extra channel axis). The three filters match `scipy.ndimage` (`uniform_filter`, `gaussian_filter` with the same truncation radius, `median_filter`) with `mode="mirror"` to floating-point precision, which is a convenient test.
+
+[more](restoration-super-resolution.html)
+:::
+
+::: {.qa asked="Ant digital human (Nowcoder roundup 2025)"}
+**Write pseudocode for quadrilinear interpolation in PyTorch or CUDA.**
+
+Quadrilinear interpolation is linear interpolation along each of four axes. Find the grid cell that contains the point, compute the fractional offset along each axis, and take a weighted sum of the cell's $2^4 = 16$ corners, where each corner's weight is the product of four 1D weights. For a point $x$ in index coordinates, let $i_a = \lfloor x_a \rfloor$, clamped so that $i_a + 1$ is still on the grid, and $f_a = x_a - i_a$. Then
+
+$$
+v(x) = \sum_{c \in \{0, 1\}^4} \Big( \prod_{a=1}^{4} f_a^{c_a} (1 - f_a)^{1 - c_a} \Big)\, G[i_1 + c_1, \dots, i_4 + c_4].
+$$
+
+The weights are non-negative and sum to 1, since their sum is $\prod_a (f_a + 1 - f_a)$. Equivalently, perform 15 linear interpolations: 8 along the first axis, then 4, 2 and 1.
+
+```python
+import itertools, torch
+
+def quadrilinear(grid, pts):
+    # grid: (C, D0, D1, D2, D3), each D_a >= 2; pts: (N, 4) continuous index coordinates
+    C, *D = grid.shape
+    hi = torch.tensor(D, device=pts.device) - 1
+    pts = torch.minimum(pts.clamp(min=0), hi)                 # clamp to the grid (border mode)
+    i0 = torch.minimum(pts.floor().long(), hi - 1)            # lower corner; i0 + 1 stays valid
+    f = pts - i0                                              # (N, 4) fractions in [0, 1]
+    strides = torch.tensor([D[1] * D[2] * D[3], D[2] * D[3], D[3], 1], device=pts.device)
+    flat, out = grid.reshape(C, -1), 0
+    for corner in itertools.product((0, 1), repeat=4):        # the 16 cell corners
+        c = torch.tensor(corner, device=pts.device)
+        w = torch.where(c.bool(), f, 1 - f).prod(dim=1)       # product of 1D weights, (N,)
+        out = out + flat[:, ((i0 + c) * strides).sum(1)] * w  # gather (C, N), weight, add
+    return out.T                                              # (N, C)
+```
+
+Autograd gives gradients with respect to both the grid (for a learned lookup table) and the coordinates. To test it, check that a multilinear function such as $x_1 x_2 x_3 x_4 + x_1$ is reproduced exactly, that grid nodes return their stored values, and that fixing the fourth coordinate to an integer matches `F.grid_sample` trilinear sampling with `align_corners=True`.
+
+**CUDA.** Launch one thread per output point, or per (point, channel) pair for coalesced reads when channels are stored last:
+
+```text
+n = blockIdx.x * blockDim.x + threadIdx.x;  if n >= N: return
+for a in 0..3:  x = clamp(pts[n][a], 0, D[a] - 1);  i[a] = min(floor(x), D[a] - 2);  f[a] = x - i[a]
+for ch in 0..C-1:
+    acc = 0
+    for corner in 0..15:                       # bit a of corner chooses i[a] or i[a] + 1
+        w = 1;  off = 0
+        for a in 0..3:
+            b = (corner >> a) & 1
+            w *= b ? f[a] : 1 - f[a];  off += (i[a] + b) * stride[a]
+        acc += w * grid[ch][off]
+    out[n][ch] = acc
+```
+
+The backward kernel scatters $w \cdot \partial L/\partial v$ into the 16 corners with `atomicAdd`, because many points can fall in the same cell. Hardware texture filtering covers at most three dimensions and uses low-precision weights, so a 4D lookup either does all 16 reads by hand or combines two trilinear texture fetches with a manual interpolation along the fourth axis. Uses include 4D lookup tables for colour enhancement (RGB plus a context channel), space-time feature grids, and two-plane light fields $(u, v, s, t)$. The cost is $O(16NC)$ and is dominated by memory reads.
+:::
+
+::: {.qa asked="Alibaba Taotian round 2, Nowcoder 2025"}
+**Count node popularity over a high-volume stream of events.**
+
+Clarify the query first: exact counts or only the top $k$, all-time or a sliding window, event rate and number of distinct nodes, latency, and how much error is acceptable. For exact counts, shard a hash map by node id and merge per-shard top-$k$ lists. When the number of distinct nodes makes that too large, use mergeable sketches (Count-Min for counts, Misra-Gries or Space-Saving for heavy hitters) kept per time bucket.
+
+**Exact design.** Ingest through a durable log partitioned by a hash of the node id, so each node's count lives on exactly one worker, and pre-aggregate per micro-batch to cut traffic. Each worker keeps a hash map from node to count ($O(1)$ per event) and a periodically refreshed local top $k$ ($O(U \log k)$ with a heap over $U$ local nodes). Merging the per-shard lists gives the exact global top $k$, because no node is split across shards; very hot nodes can be split over sub-keys and summed at query time. Checkpoint state with the log offsets so a failed worker can replay.
+
+**Approximate counts.** A Count-Min sketch keeps $d$ rows of $w$ counters, one hash function per row; an event increments one counter per row, and a query returns the minimum over rows, which cannot be below the true count. In one row the overcount is the total $X$ of other nodes that hash to the same counter, and with pairwise-independent hashes $\mathbb{E}[X] \le N/w$ for $N$ events. With $w = \lceil e/\varepsilon \rceil$, Markov's inequality gives $P(X > \varepsilon N) \le 1/e$; rows are independent, so all $d$ rows exceed $\varepsilon N$ with probability at most $e^{-d} \le \delta$ for $d = \lceil \ln(1/\delta) \rceil$. Memory is $O(\varepsilon^{-1} \log(1/\delta))$ whatever the number of nodes, and shard sketches add elementwise.
+
+```python
+import math, random
+
+P = (1 << 61) - 1                                    # prime for the hash family
+
+class CountMin:
+    def __init__(self, eps=1e-3, delta=1e-4, seed=0):
+        self.w, self.d = math.ceil(math.e / eps), math.ceil(math.log(1 / delta))
+        rng = random.Random(seed)                    # same seed on every shard -> mergeable
+        self.ab = [(rng.randrange(1, P), rng.randrange(P)) for _ in range(self.d)]
+        self.table = [[0] * self.w for _ in range(self.d)]
+
+    def _cols(self, key):                            # key: integer node id
+        return [((a * key + b) % P) % self.w for a, b in self.ab]
+
+    def add(self, key, count=1):
+        for row, col in zip(self.table, self._cols(key)):
+            row[col] += count
+
+    def query(self, key):                            # never below the true count
+        return min(row[col] for row, col in zip(self.table, self._cols(key)))
+
+    def merge(self, other):                          # sketches of two shards add elementwise
+        for r1, r2 in zip(self.table, other.table):
+            for j, v in enumerate(r2):
+                r1[j] += v
+```
+
+**Heavy hitters.** Misra-Gries keeps $k - 1$ counters: increment a tracked node, insert a new one if a slot is free, otherwise decrement all. Each decrement round cancels $k$ distinct events, so it happens at most $N/k$ times: counts are low by at most $N/k$, and every node above frequency $N/k$ survives. Space-Saving instead replaces the smallest of $k$ counters and inherits its count plus one, overestimating by at most $N/k$.
+
+**Windows and trade-offs.** For a sliding window, keep per-minute buckets (maps or sketches) in a ring buffer and sum the last $W$; decayed scores are the alternative. Exact counting needs memory proportional to the number of distinct nodes; sketches use fixed memory, with an additive error up to $\varepsilon N$ that swamps rare nodes but does not matter for the top $k$.
+:::
+
+::: {.qa asked="OpenAI RE (Aced, ~2025)"}
+**Given a Python package, find the latest Python version that supports it, using far fewer calls to the expensive compatibility check than there are versions. Then make the solution work in the general case.**
+
+Binary search needs a monotone predicate, so first agree with the interviewer on what is monotone. Parse versions into integer tuples, since string comparison puts "3.10" before "3.9". If support is one contiguous range, keep the releases at or above a version known to work; `works(v)` is then True up to the answer and False after it, and a last-True binary search needs $\lceil \log_2(N+1) \rceil$ checks. The report does not spell out the general case. One version that needs a hierarchical search: support is not monotone over the flat list (a patch release breaks the package) but is monotone level by level.
+
+Assume that at every level a group (a major, or a minor within a major) contains a supported release only if its first release is supported, and that groups whose first release works come before those whose first release fails; later releases inside a group may still be broken. Binary-search the majors by their first releases, recurse into the last major that passes, and repeat for minors and patches. No later group contains a supported release, so the answer lies in the last passing group, where the same assumption holds one level down.
+
+```python
+def last_true(keys, pred):                     # pred is True on a prefix of keys, then False
+    lo, hi = 0, len(keys)                      # invariant: True on keys[:lo], False on keys[hi:]
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if pred(keys[mid]):
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo - 1                              # -1 if no key satisfies pred
+
+def first_release(tree, prefix):               # oldest version under a node of the tree
+    while tree:
+        k = min(tree)
+        prefix, tree = prefix + (k,), tree[k]
+    return prefix
+
+def latest_supported(tree, works, prefix=()):
+    # tree: nested dict major -> minor -> patch -> {} holding releases at or above a version
+    # known to work; works(version_tuple) -> bool is the expensive check.
+    if not tree:
+        return prefix
+    keys = sorted(tree)                        # numeric order, so 3.10 sorts after 3.9
+    i = last_true(keys, lambda k: works(first_release(tree[k], prefix + (k,))))
+    return None if i < 0 else latest_supported(tree[keys[i]], works, prefix + (keys[i],))
+```
+
+On releases 3.6.0 to 3.13.2 with support up to 3.11.4 and a broken 3.9.3, the flat search stops at 3.9.2 and the hierarchical one returns 3.11.4. It uses $O(\log M + \log m + \log p)$ checks for $M$ majors, $m$ minors and $p$ patches, which is $O(\log N)$, and fetches only the version lists along its path. For the earliest supporting version, mirror it: represent each group by its latest release and search for the first True. With no structure at all, the worst case needs every version checked, since the one supported version could be anywhere, so stating the assumption is part of the answer.
+:::
+
+::: {.qa asked="OpenAI RS, PracHub 2026"}
+**Implement a card game whose rules arrive in stages: rank hands (three of a kind beats a pair, which beats a high card), then add a flush between three of a kind and pair, then add a rule that discards some hands before comparison. Return a log of the game, and keep the design open to new rules.**
+
+The round tests whether the first part's design absorbs the later parts without a rewrite; the reporter warned that changing the design afterwards was very painful. Separate the card model, hand evaluation, comparison, discard policy, game flow and logging, and make the hand categories data: an ordered list of rules, each a function that returns a tie-break key when the hand matches and `None` otherwise.
+
+```python
+from collections import Counter
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Card:
+    rank: int                                     # 2..13 with J, Q, K = 11, 12, 13
+    suit: str
+
+def ranks(hand):
+    return tuple(sorted((c.rank for c in hand), reverse=True))
+
+def of_a_kind(n):                                 # one factory gives pair and three of a kind
+    def match(hand):
+        hits = [r for r, k in Counter(c.rank for c in hand).items() if k >= n]
+        return (max(hits),) + ranks(hand) if hits else None
+    return match
+
+def flush(hand):
+    return ranks(hand) if len({c.suit for c in hand}) == 1 else None
+
+class Game:
+    def __init__(self, rules, keep=lambda hand: True):
+        self.rules, self.keep = rules, keep       # rules: [(name, match)], strongest first
+
+    def evaluate(self, hand):                     # -> (strength, tiebreak), category name
+        for i, (name, match) in enumerate(self.rules):
+            if (tb := match(hand)) is not None:
+                return (len(self.rules) - i, tb), name
+
+    def play(self, hands):                        # hands: {player: [Card]} -> winners, log
+        log, scores = [], {}
+        for p, hand in hands.items():
+            if not self.keep(hand):
+                log.append(f"{p} discards {ranks(hand)}")
+                continue
+            scores[p], name = self.evaluate(hand)
+            log.append(f"{p}: {name}")
+        best = max(scores.values(), default=None)
+        winners = sorted(p for p, s in scores.items() if s == best)
+        return winners, log + [f"winners: {winners}"]
+
+V1 = [("three of a kind", of_a_kind(3)), ("pair", of_a_kind(2)), ("high card", ranks)]
+V2 = V1[:1] + [("flush", flush)] + V1[1:]         # part 2: one new entry, nothing else changes
+keep_pairs = lambda hand: of_a_kind(2)(hand) is not None   # part 3: a swappable discard policy
+```
+
+A hand's score is the tuple (category strength, tie-break), and Python compares tuples lexicographically, so comparing two hands needs no category-specific code; part 2 is one new list entry and part 3 one new function passed to `Game`. The log is returned rather than printed, so tests can assert on it. Ask about what the reports leave open: the hand size (three cards is the smallest that allows three of a kind), aces, whether three of a kind counts as a pair for the discard rule (here it does), tie-breaking within a category, and what happens when every hand is discarded (here, no winner).
+
+Test each category boundary (pair against high card, flush against pair, three of a kind against flush), ties, and the all-discarded case, plus a regression test that adding the flush leaves comparisons between non-flush hands unchanged. A single `compare` function with nested cases for each pair of categories grows quadratically and must be edited for every new rule; a subclass per category fits poorly because a hand's category is computed from its cards, not declared. Natural follow-ups, such as a straight or a different discard rule chosen at runtime, then stay small, local changes.
+:::
+
+::: {.qa asked="Anthropic CodeSignal (Glassdoor, guides)"}
+**In a timed CodeSignal assessment, implement a simplified banking system whose requirements arrive in levels. How do you design and test it?**
+
+The reports describe building bank-account functionality in Python, with requirements that arrive in stages. That matches CodeSignal's published format for project-based tasks: one task in four progressive levels, at most 90 minutes, partial credit per passing test, and method signatures fixed by earlier levels, so later levels force you to refactor your own code. Unofficial reconstructions on practice sites (not confirmed) list accounts and deposits, then transfers and a top-spenders ranking, then payments with delayed cashback, then account merges. Design so those later levels are cheap:
+
+- Take a timestamp in every operation from level 1, and settle pending timed events (a min-heap by due time, with a sequence number for ties) at the start of every public method.
+- Route every balance change through one internal method that also records history and updates aggregates such as outgoing totals.
+- Validate in helpers (missing account, self-transfer, insufficient funds) and return exactly what the specification says; `None`, `False` and `""` are different answers to the tests.
+- Give every ranking an explicit secondary key, such as amount descending then id ascending.
+
+```python
+import heapq
+from collections import defaultdict
+
+class Bank:                                       # names and return values are illustrative
+    def __init__(self):
+        self.balance, self.outgoing = {}, defaultdict(int)
+        self.history = defaultdict(list)          # account -> [(timestamp, balance)]
+        self.pending, self.seq = [], 0            # heap of (due, seq, account, amount)
+
+    def _settle(self, ts):                        # first line of every public method
+        while self.pending and self.pending[0][0] <= ts:
+            due, _, acc, amount = heapq.heappop(self.pending)
+            if acc in self.balance:
+                self._change(due, acc, amount)
+
+    def _change(self, ts, acc, amount):
+        self.balance[acc] += amount
+        self.history[acc].append((ts, self.balance[acc]))
+
+    def schedule(self, due, acc, amount):         # e.g. a delayed credit
+        heapq.heappush(self.pending, (due, self.seq, acc, amount))
+        self.seq += 1
+
+    def transfer(self, ts, src, dst, amount):
+        self._settle(ts)
+        if src == dst or {src, dst} - self.balance.keys() or self.balance[src] < amount:
+            return None
+        self._change(ts, src, -amount)
+        self._change(ts, dst, amount)
+        self.outgoing[src] += amount
+        return self.balance[src]
+
+    def top_spenders(self, ts, n):
+        self._settle(ts)
+        return sorted(self.balance, key=lambda a: (-self.outgoing[a], a))[:n]   # explicit tie-break
+```
+
+**Process.** Read the whole prompt, including any overview of later levels, then implement one level at a time, running the tests after each method and submitting often. Add your own quick checks for missing or duplicate accounts, self-transfers, insufficient funds, ranking ties, and an event due exactly at an operation's timestamp; typos and wrong return types cost more here than algorithmic choices. A scheduled event costs $O(\log P)$ and a ranking $O(A \log A)$ for $A$ accounts.
+:::
+
 Deeper: [Vision Backbones](vision-backbones.html) for attention and convolution arithmetic, and [Diffusion Models](diffusion-models.html) for the sampler.
+
+### Algorithm problems from the reports
+
+These are the specific algorithm problems named in the reports. Problems of this kind were standard in the Chinese reports, even for research-flavoured roles, and also appeared in some Meta, Microsoft, Apple and Adobe loops. Each answer gives the standard approach, its complexity and the likely follow-up.
+
+::: {.qa asked="Kuaishou Kling multimodal intern, Nowcoder 2025"}
+**Find the longest palindromic substring.**
+
+Every palindrome is symmetric about a centre, which is either a character (odd length) or the gap between two characters (even length). There are $2n - 1$ centres, so expand outward from each one and keep the longest match.
+
+1. Index the centres by $c = 0, \dots, 2n-2$: start with `lo = c // 2`, `hi = (c + 1) // 2`; these are equal for a character centre and adjacent for a gap.
+2. While both ends are inside the string and `s[lo] == s[hi]`, move them outward.
+3. The palindrome is then `s[lo+1:hi]`; compare its length with the best so far.
+
+This is correct because the expansion from a centre stops exactly at the longest palindrome with that centre, and every palindrome has some centre.
+
+```python
+def longest_palindrome(s):
+    best_lo, best_hi = 0, 0                    # half-open interval [lo, hi)
+    for c in range(2 * len(s) - 1):            # n character centres and n - 1 gaps
+        lo, hi = c // 2, (c + 1) // 2
+        while lo >= 0 and hi < len(s) and s[lo] == s[hi]:
+            lo, hi = lo - 1, hi + 1
+        if hi - lo - 1 > best_hi - best_lo:
+            best_lo, best_hi = lo + 1, hi
+    return s[best_lo:best_hi]
+```
+
+Time $O(n^2)$ in the worst case (a string of one repeated letter), space $O(1)$. Manacher's algorithm gets $O(n)$: it reuses the radius of the mirror-image centre inside the rightmost palindrome found so far, so the right boundary only moves forward. Common follow-ups: count all palindromic substrings (the same expansion, adding one per successful step), or the longest palindromic subsequence, which needs an $O(n^2)$ interval DP instead.
+:::
+
+::: {.qa asked="Tencent Youtu 2024, JD 2026 (Nowcoder)"}
+**Find the maximum subarray sum, then return the subarray itself.**
+
+Kadane's algorithm: let `cur` be the best sum of a subarray that ends at index $i$. Either that subarray is `a[i]` alone or it extends the best one ending at $i-1$, so `cur = a[i] + max(cur, 0)`. The answer is the largest `cur` seen. To return the subarray, remember where the current run started and copy the run's start and end whenever it beats the best.
+
+1. When `cur < 0`, a negative prefix can only hurt, so restart at $i$ (record `l = i`).
+2. Otherwise extend.
+3. Update the best sum and its `(l, i)` when `cur` is larger.
+
+Starting from `a[0]` rather than 0 handles the all-negative case: the answer is then the largest single element, not an empty subarray.
+
+```python
+def max_subarray(a):
+    best, best_l, best_r = a[0], 0, 0
+    cur, l = a[0], 0
+    for i in range(1, len(a)):
+        if cur < 0:
+            cur, l = a[i], i                  # start a new run at i
+        else:
+            cur += a[i]
+        if cur > best:
+            best, best_l, best_r = cur, l, i
+    return best, a[best_l:best_r + 1]
+```
+
+Time $O(n)$, space $O(1)$ besides the returned slice. Ask whether an empty subarray is allowed (then the answer is `max(best, 0)`). Follow-ups: the circular version is the larger of the ordinary answer and `total - (minimum subarray sum)`, except when every element is negative; the 2D maximum-sum rectangle fixes a pair of rows, collapses the columns into a 1D array and runs Kadane, in $O(m^2 n)$.
+:::
+
+::: {.qa asked="Meituan CV intern, Nowcoder 2024"}
+**Generate all permutations of a list.**
+
+Backtracking: build the permutation one position at a time, choosing any element not yet used, recurse, then undo the choice. Every permutation corresponds to exactly one root-to-leaf path in this search tree, so each is produced once.
+
+For the variant with duplicate values, sort first and add one rule: skip `nums[i]` if it equals `nums[i-1]` and `nums[i-1]` is not currently used. That forces equal values to be placed in their left-to-right order, so each distinct arrangement appears exactly once. The snippet below already includes this rule; on distinct input it never fires.
+
+```python
+def permutations(nums):
+    nums, out, path = sorted(nums), [], []
+    used = [False] * len(nums)
+    def backtrack():
+        if len(path) == len(nums):
+            out.append(path[:])
+            return
+        for i, x in enumerate(nums):
+            if used[i] or (i > 0 and x == nums[i - 1] and not used[i - 1]):
+                continue
+            used[i] = True; path.append(x)
+            backtrack()
+            path.pop(); used[i] = False
+    backtrack()
+    return out
+```
+
+Time $O(n \cdot n!)$ (there are $n!$ leaves and copying each costs $O(n)$), extra space $O(n)$ for the recursion and `path`, plus the output. An empty list gives `[[]]`. An alternative is to swap elements into position in place, which avoids the `used` array; with duplicates it needs a per-level set of values already tried. Follow-ups: the next permutation in lexicographic order (find the rightmost ascent, swap with the smallest larger element to its right, reverse the suffix), or the $k$-th permutation directly via the factorial number system.
+:::
+
+::: {.qa asked="Alibaba Taotian, Nowcoder 2024"}
+**Count the paths from the top-left to the bottom-right of a grid moving only right or down.**
+
+A cell can only be entered from the cell above or the cell to its left, so the number of paths into it is the sum of those two counts:
+
+$$
+P(i, j) = P(i-1, j) + P(i, j-1), \qquad P(0, 0) = 1 .
+$$
+
+Without obstacles there is a closed form. Every path from the corner of an $m \times n$ grid consists of exactly $m - 1$ down moves and $n - 1$ right moves in some order, and a path is determined by which of the $m + n - 2$ steps are the down moves, giving $\binom{m+n-2}{m-1}$ (`math.comb(m + n - 2, m - 1)`).
+
+The obstacles variant needs the DP: set $P = 0$ on blocked cells. Keep a single row, since `dp[j]` already holds the value from the row above and `dp[j-1]` the value to the left.
+
+```python
+def unique_paths(grid):                  # grid[i][j] == 1 marks an obstacle
+    n = len(grid[0])
+    dp = [1] + [0] * (n - 1)
+    for row in grid:
+        for j in range(n):
+            if row[j]:
+                dp[j] = 0
+            elif j > 0:
+                dp[j] += dp[j - 1]       # above (old dp[j]) + left (dp[j-1])
+    return dp[-1]
+```
+
+Time $O(mn)$, space $O(n)$. A blocked start or end gives 0. Python integers do not overflow, but in C++ or Java the counts exceed 64 bits for moderately large grids, so interviewers often ask for the answer modulo a prime. Follow-ups: the minimum-cost path (replace the sum with `cost + min(...)`), or allowing all four directions, which makes path counting ill-posed (cycles) and turns the task into BFS shortest paths.
+:::
+
+::: {.qa asked="Dewu AIGC intern, Nowcoder 2024"}
+**Find the k-th largest element of an array.**
+
+Two standard answers. A size-$k$ min-heap keeps the $k$ largest values seen so far; its root is the $k$-th largest. Quickselect partitions around a pivot and recurses into only the side that contains the answer.
+
+Heap: push the first $k$ elements, then for each later element larger than the root, replace the root. Time $O(n \log k)$, space $O(k)$, and it works on a stream.
+
+Quickselect: pick a random pivot $p$ and split into `greater`, `equal` and `less`. If $k \le$ `len(greater)`, the answer is in `greater`; if $k \le$ `len(greater) + len(equal)`, it is $p$; otherwise search `less` for rank $k - $ `len(greater) - len(equal)`. The three-way split keeps it fast when many values are equal.
+
+```python
+import heapq, random
+
+def kth_largest_heap(a, k):
+    h = a[:k]
+    heapq.heapify(h)
+    for x in a[k:]:
+        if x > h[0]:
+            heapq.heapreplace(h, x)
+    return h[0]
+
+def kth_largest(a, k):                      # quickselect, 1 <= k <= len(a)
+    while True:
+        p = random.choice(a)
+        greater = [x for x in a if x > p]
+        n_eq = sum(x == p for x in a)
+        if k <= len(greater):
+            a = greater
+        elif k <= len(greater) + n_eq:
+            return p
+        else:
+            k -= len(greater) + n_eq
+            a = [x for x in a if x < p]
+```
+
+A random pivot discards a constant fraction of the array in expectation, so the expected work is a geometric series, $O(n)$; the worst case is $O(n^2)$. This version copies the array ($O(n)$ space); an in-place Lomuto or Hoare partition gives $O(1)$ extra space. Median of medians guarantees worst-case $O(n)$ but has a large constant. Follow-up: top-$k$ from a stream or across machines uses the heap, merging per-shard top-$k$ lists.
+:::
+
+::: {.qa asked="Alibaba Tongyi 2024, ByteDance AIGC 2024 (Nowcoder)"}
+**Find the shortest path in a grid with obstacles, and return the path.**
+
+With unit-cost moves, breadth-first search finds shortest paths: it removes cells from the queue in non-decreasing order of distance, so the first time it reaches the goal is along a shortest path. To return the path rather than its length, store each cell's parent when it is first discovered and walk back from the goal.
+
+1. Put the start in the queue with parent `None`. The `parent` dict doubles as the visited set.
+2. Pop a cell; if it is the goal, follow parents back to the start and reverse.
+3. Otherwise push each in-bounds, free, unvisited neighbour and record its parent.
+4. If the queue empties, the goal is unreachable.
+
+```python
+from collections import deque
+
+def shortest_path(grid, start, goal):          # grid[r][c] == 1 is a wall
+    R, C = len(grid), len(grid[0])
+    if grid[start[0]][start[1]] or grid[goal[0]][goal[1]]:
+        return None
+    parent, q = {start: None}, deque([start])
+    while q:
+        cell = q.popleft()
+        if cell == goal:
+            path = []
+            while cell is not None:
+                path.append(cell)
+                cell = parent[cell]
+            return path[::-1]
+        r, c = cell
+        for nb in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):
+            if 0 <= nb[0] < R and 0 <= nb[1] < C and not grid[nb[0]][nb[1]] and nb not in parent:
+                parent[nb] = cell
+                q.append(nb)
+    return None
+```
+
+Time and space $O(RC)$. Mark cells visited when they are pushed, not when popped, or a cell can enter the queue many times. Follow-ups: weighted cells need Dijkstra ($O(V \log V)$ with a heap on a grid); A\* adds an admissible heuristic such as the Manhattan distance for 4-connected unit moves and usually expands far fewer cells; 8-connected moves with diagonal cost $\sqrt 2$ use the octile distance as heuristic; bidirectional BFS searches from both ends and pays off most when the branching factor is high (on an open grid it only about halves the explored area); "may remove up to $k$ walls" adds $k$ to the BFS state.
+:::
+
+::: {.qa asked="Alibaba Tongyi Lab intern, Nowcoder 2024"}
+**3Sum: find all unique triplets that sum to zero.**
+
+Sort, fix the smallest element `nums[i]`, and solve two-sum on the suffix with two pointers. Sorting also makes deduplication easy, because equal values become adjacent.
+
+1. For each `i`, skip it if `nums[i] == nums[i-1]` (that first value was already handled); stop once `nums[i] > 0`.
+2. Set `lo = i + 1`, `hi = n - 1`. If the sum is too small, `nums[lo]` cannot reach zero with any remaining partner (all are at most `nums[hi]`), so drop it with `lo += 1`; if too large, drop `nums[hi]` symmetrically.
+3. On a hit, record it, then move `lo` past all copies of its value and step `hi` down.
+
+```python
+def three_sum(nums):
+    nums, out = sorted(nums), []
+    for i in range(len(nums) - 2):
+        if nums[i] > 0:
+            break
+        if i > 0 and nums[i] == nums[i - 1]:
+            continue
+        lo, hi = i + 1, len(nums) - 1
+        while lo < hi:
+            s = nums[i] + nums[lo] + nums[hi]
+            if s < 0:
+                lo += 1
+            elif s > 0:
+                hi -= 1
+            else:
+                out.append([nums[i], nums[lo], nums[hi]])
+                lo += 1
+                while lo < hi and nums[lo] == nums[lo - 1]:
+                    lo += 1
+                hi -= 1
+    return out
+```
+
+Time $O(n^2)$, extra space $O(1)$ apart from the sort and the output. After a hit, the new `lo` value is strictly larger, so no duplicate triplet is produced for this `i`. A hash-set two-sum is also $O(n^2)$ but makes deduplication messier. Follow-ups: 3Sum closest (track the best $|s - \text{target}|$ with the same pointers), and $k$-Sum by recursing down to two-sum, in $O(n^{k-1})$.
+:::
+
+::: {.qa asked="G-bits 2024, ByteDance 2020, Baidu 2022 (Nowcoder)"}
+**Search for a target in a rotated sorted array.**
+
+Binary search still works because, for any `mid`, at least one of the halves `[lo, mid]` and `[mid, hi]` is sorted. Compare `a[lo]` with `a[mid]` to find which half is sorted, check whether the target lies within that half's range, and discard the other half accordingly.
+
+1. If `a[mid]` is the target, return `mid`.
+2. If `a[lo] <= a[mid]`, the left half is sorted: go left exactly when `a[lo] <= target < a[mid]`.
+3. Otherwise the right half is sorted: go right exactly when `a[mid] < target <= a[hi]`.
+
+```python
+def search_rotated(a, target, allow_dups=False):
+    lo, hi = 0, len(a) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if a[mid] == target:
+            return mid
+        if allow_dups and a[lo] == a[mid] == a[hi]:
+            lo, hi = lo + 1, hi - 1           # cannot tell which half is sorted
+        elif a[lo] <= a[mid]:                 # left half sorted
+            if a[lo] <= target < a[mid]:
+                hi = mid - 1
+            else:
+                lo = mid + 1
+        else:                                 # right half sorted
+            if a[mid] < target <= a[hi]:
+                lo = mid + 1
+            else:
+                hi = mid - 1
+    return -1
+```
+
+Time $O(\log n)$ for distinct values, space $O(1)$. With duplicates, `a[lo] == a[mid] == a[hi]` gives no information (in `[1, 1, 1, 0, 1]` the dip could be on either side), so the code shrinks both ends by one; the worst case becomes $O(n)$, and no algorithm can avoid that on inputs that are all equal except for one element. Follow-up: find the rotation point (the minimum) by comparing `a[mid]` with `a[hi]`, then binary search the correct sorted piece.
+:::
+
+::: {.qa asked="Xiaohongshu CV intern, Nowcoder 2024"}
+**Generate all subsets of a set.**
+
+Each element is either in or out, so there are $2^n$ subsets. Two standard ways to list them: a bitmask from 0 to $2^n - 1$, where bit $j$ says whether `nums[j]` is included, or backtracking that records the current path at every node of the search tree and only extends it with elements to the right of the last one chosen (which avoids producing the same set in two orders).
+
+```python
+def subsets_bitmask(nums):
+    n = len(nums)
+    return [[nums[j] for j in range(n) if m >> j & 1] for m in range(1 << n)]
+
+def subsets(nums):                          # also handles duplicate values
+    nums, out, path = sorted(nums), [], []
+    def backtrack(start):
+        out.append(path[:])
+        for i in range(start, len(nums)):
+            if i > start and nums[i] == nums[i - 1]:
+                continue                    # same value already tried at this depth
+            path.append(nums[i])
+            backtrack(i + 1)
+            path.pop()
+    backtrack(0)
+    return out
+```
+
+Time $O(n \cdot 2^n)$ (each of the $2^n$ subsets is copied in $O(n)$), extra space $O(n)$ for the recursion besides the output. For input with duplicates (the usual follow-up), sort and skip a value that equals its left neighbour at the same depth: at that depth the earlier copy already started every subset that this one would. The bitmask version cannot dedupe this way; it would need a set of tuples. Other follow-ups: subsets of size exactly $k$ (stop recursing at depth $k$), or subsets summing to a target (prune once the sum exceeds it, if all values are positive).
+:::
+
+::: {.qa asked="Xiaohongshu CV intern, Nowcoder 2024"}
+**Search a 2D sorted matrix.**
+
+Clarify which kind of sorted matrix it is; the two common versions need different algorithms.
+
+1. Each row is sorted and each row starts after the previous row ends. Reading the matrix row by row then gives one sorted array of length $mn$, so binary search over an index $k$ and read element `M[k // n][k % n]`. Time $O(\log mn)$.
+2. Rows and columns are sorted separately (the first element of a row can be smaller than the last element of the row above). Start at the top-right corner. It is the largest value in its row and the smallest in its column, so if it is larger than the target, the whole column can be dropped, and if smaller, the whole row can. Each step removes a row or a column. Time $O(m + n)$.
+
+```python
+def search_flat(M, target):                 # version 1
+    if not M or not M[0]:
+        return False
+    m, n = len(M), len(M[0])
+    lo, hi = 0, m * n - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        v = M[mid // n][mid % n]
+        if v == target:
+            return True
+        lo, hi = (mid + 1, hi) if v < target else (lo, mid - 1)
+    return False
+
+def search_staircase(M, target):            # version 2
+    r, c = 0, (len(M[0]) - 1 if M else -1)
+    while r < len(M) and c >= 0:
+        if M[r][c] == target:
+            return True
+        if M[r][c] > target:
+            c -= 1
+        else:
+            r += 1
+    return False
+```
+
+Both use $O(1)$ space. For version 2, binary searching every row costs $O(m \log n)$, which beats the staircase only when $m$ is much smaller than $n$. The staircase walk also counts the elements $\le$ a value in $O(m + n)$, which is the building block for "the $k$-th smallest element of a sorted matrix" (binary search on the value).
+:::
+
+::: {.qa asked="SenseTime multimodal intern, Nowcoder 2026"}
+**Reverse a linked list, reading the input and printing the output yourself.**
+
+In an ACM-style round you get no function signature: read stdin, build the list, solve, print exactly the expected format. Ask for the input format; here the first token is $n$ and the next $n$ tokens are the values. Reading all of stdin at once with `split()` tolerates any mix of spaces and newlines.
+
+The reversal walks the list once and turns each `next` pointer around, keeping three references: `prev` (the already reversed part), `head` (the current node) and `nxt` (the rest, saved before the pointer is overwritten).
+
+```python
+import sys
+
+class Node:
+    def __init__(self, val, nxt=None):
+        self.val, self.next = val, nxt
+
+def reverse(head):
+    prev = None
+    while head:
+        nxt = head.next
+        head.next = prev
+        prev, head = head, nxt
+    return prev
+
+def main():
+    data = sys.stdin.read().split()
+    n = int(data[0]) if data else 0
+    head = None
+    for v in reversed(data[1:n + 1]):       # build front to back
+        head = Node(int(v), head)
+    head, out = reverse(head), []
+    while head:
+        out.append(str(head.val))
+        head = head.next
+    print(" ".join(out))
+
+if __name__ == "__main__":
+    main()
+```
+
+Time $O(n)$, extra space $O(1)$ for the reversal. The recursive version (reverse the tail, then set `head.next.next = head` and `head.next = None`) uses $O(n)$ stack, and CPython's default recursion limit of 1000 makes it fail on long lists. Test the empty list and a single node. Follow-ups: reverse only positions $m$ to $n$, or reverse in groups of $k$; both reuse the same three-pointer loop with careful reconnection at the boundaries.
+:::
+
+::: {.qa asked="Baidu 2024, ByteDance 2020 (Nowcoder)"}
+**Count the islands in a grid, then count connected regions in an image where neighbours join if their pixel values differ by at most a threshold.**
+
+Both are counts of connected components in a grid graph. Scan every cell; each time an unvisited cell that can start a region is found, increment the count and flood-fill everything reachable from it. Only the edge test differs: for islands, two 4-neighbours are connected when both are land; for the image, when $|I(p) - I(q)| \le t$ (every pixel then belongs to some region).
+
+```python
+from collections import deque
+
+def count_regions(img, thr=None):
+    # thr is None: islands, img holds 0/1. Otherwise: 4-neighbours join if |diff| <= thr.
+    R, C = len(img), (len(img[0]) if len(img) else 0)
+    seen = [[False] * C for _ in range(R)]
+    count = 0
+    for r in range(R):
+        for c in range(C):
+            if seen[r][c] or (thr is None and not img[r][c]):
+                continue
+            count += 1
+            seen[r][c] = True
+            q = deque([(r, c)])
+            while q:
+                y, x = q.popleft()
+                for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+                    if 0 <= ny < R and 0 <= nx < C and not seen[ny][nx]:
+                        if (img[ny][nx] if thr is None
+                                else abs(int(img[ny][nx]) - int(img[y][x])) <= thr):
+                            seen[ny][nx] = True
+                            q.append((ny, nx))
+    return count
+```
+
+Time and space $O(RC)$. Practical points: recursive DFS on a large image can recurse once per pixel and overflow the stack, hence the explicit queue; `int(...)` matters for `uint8` NumPy arrays, where `a - b` wraps around; the threshold relation is not transitive, so one region can contain pixels whose values differ by much more than $t$ through a chain of small steps. Union-find is the alternative: union each pixel with its right and lower neighbours when they pass the test and count roots; it suits the follow-up where land cells arrive one at a time and the count is needed after each.
+:::
+
+::: {.qa asked="Megvii PhD researcher, Nowcoder 2021"}
+**Compute the median of every sliding window.**
+
+Keep the current window's values in a sorted structure that supports insert, delete and access to the middle. The window changes by one insertion and one deletion per step, so recomputing from scratch ($O(k \log k)$ per window) is wasteful.
+
+The shortest correct version keeps a sorted Python list and uses binary search to insert the incoming value and delete the outgoing one:
+
+```python
+from bisect import bisect_left, insort
+
+def window_medians(a, k):
+    win = sorted(a[:k])
+    out = []
+    for i in range(k, len(a) + 1):
+        mid = k // 2
+        out.append(win[mid] if k % 2 else (win[mid - 1] + win[mid]) / 2)
+        if i == len(a):
+            break
+        del win[bisect_left(win, a[i - k])]  # remove the value leaving the window
+        insort(win, a[i])
+    return out
+```
+
+The searches are $O(\log k)$ but list insertion and deletion shift elements, so the worst case is $O(nk)$ time (fast in practice because the shift is a memory move), with $O(k)$ space.
+
+For guaranteed $O(n \log k)$, use two heaps: a max-heap for the lower half and a min-heap for the upper half, balanced so the lower one has the same size or one more. The median is the top of the lower heap (or the mean of both tops). Heaps cannot delete an arbitrary element, so deletion is lazy: record the outgoing value in a hash map of pending removals, adjust a balance counter for the side it was on, and pop such values only when they reach a heap's top.
+
+For median filtering of 8-bit images, use a 256-bin histogram of the window instead. Sliding the window one pixel updates only the entering and leaving column or row, and the median is found by accumulating bin counts up to half the window size, so the cost no longer grows as $k^2 \log k$ with the window size.
+:::
+
+::: {.qa asked="Megvii PhD researcher, Nowcoder 2021"}
+**In one pass, find the maximum difference a[j] - a[i] with i < j.**
+
+For each $j$, the best $i$ is the position of the smallest element before $j$. So scan left to right while keeping the running minimum of the prefix: at each $j$, the candidate is `a[j] - min(a[:j])`, then update the minimum. This is the "best time to buy and sell a stock once" problem.
+
+```python
+def max_diff(a):                            # requires len(a) >= 2
+    lo, best = a[0], float("-inf")
+    for x in a[1:]:
+        best = max(best, x - lo)            # sell at x, bought at the cheapest earlier price
+        lo = min(lo, x)
+    return best
+```
+
+Time $O(n)$, space $O(1)$. Order matters: compute the candidate before updating the minimum, or $i = j$ would be allowed. For a strictly decreasing array the answer is negative; the stock version takes `max(0, best)` because you may choose not to trade. To return the indices, also store the index of the running minimum and the pair at each improvement.
+
+Follow-ups: unlimited transactions (the profit is the sum of all positive day-to-day increases); at most $k$ transactions (a DP over day, transactions used and whether you hold a share, $O(nk)$); a cooldown or a fee per transaction (the same hold/not-hold state machine with one extra term).
+:::
+
+::: {.qa asked="Kuaishou AIGC (CSDN snippet)"}
+**Find the first missing positive integer in O(n) time and O(1) extra space.**
+
+The answer lies in $1, \dots, n+1$ for an array of length $n$, because $n$ slots can hold at most the values $1, \dots, n$. So use the array itself as the hash table: put each value $v$ with $1 \le v \le n$ at index $v - 1$, then the first index $i$ with `a[i] != i + 1` gives the answer $i + 1$; if none, the answer is $n + 1$.
+
+1. For each $i$, while `a[i]` is in range and its target slot does not already hold the same value, swap it into its slot.
+2. Scan for the first mismatch.
+
+```python
+def first_missing_positive(a):              # modifies a in place
+    n = len(a)
+    for i in range(n):
+        while 1 <= a[i] <= n and a[a[i] - 1] != a[i]:
+            j = a[i] - 1
+            a[i], a[j] = a[j], a[i]
+    for i in range(n):
+        if a[i] != i + 1:
+            return i + 1
+    return n + 1
+```
+
+Each swap puts one value into its final slot, where it stays, so there are at most $n$ swaps in total and the nested loop is $O(n)$ overall. The condition `a[a[i] - 1] != a[i]` stops infinite swapping on duplicates. Assign through the saved index `j`: `a[i], a[a[i] - 1] = ...` in Python reassigns `a[i]` before computing the second target. The alternative is index marking: replace out-of-range values with $n + 1$, then for each value $v \le n$ make `a[v-1]` negative; the first positive slot gives the answer. Both modify the input, which "O(1) extra space" allows; if the input must be kept, say so and copy it.
+:::
+
+::: {.qa asked="Kuaishou AIGC (CSDN snippet)"}
+**Merge overlapping intervals.**
+
+Sort by start. Then any interval that overlaps the current merged block must come right after it in this order, so a single sweep suffices: if the next interval starts at or before the end of the last merged block, extend that block's end; otherwise start a new block.
+
+Correctness: after sorting, the starts are non-decreasing, so once an interval starts after the current block's end, no later interval can reach back into that block, and the block is final.
+
+```python
+def merge(intervals):
+    out = []
+    for s, e in sorted(intervals):
+        if out and s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)  # max: the new interval may lie inside
+        else:
+            out.append([s, e])
+    return out
+```
+
+Time $O(n \log n)$ for the sort, $O(n)$ for the output. Two details: take the `max` of the ends, since an interval can be contained in the block; and ask whether touching intervals such as `[1, 2]` and `[2, 3]` should merge (closed intervals: yes, `<=`; half-open: use `<`). Follow-ups: insert one interval into an already sorted, disjoint list in $O(n)$ without re-sorting; the minimum number of meeting rooms (sort start and end events, sweep with $+1/-1$, take the maximum running count, or keep a min-heap of end times); the intersection of two sorted interval lists with two pointers.
+:::
+
+::: {.qa asked="ByteDance CV search, Nowcoder 2023"}
+**Word break: return every way to split a string into dictionary words.**
+
+Define `go(i)` as the list of all sentences that split the suffix `s[i:]`. It tries every dictionary word that starts at $i$ and prefixes it to every sentence of the remaining suffix. Memoizing on $i$ means each suffix is solved once, which matters on inputs like `"aaaa...ab"`, where plain DFS re-explores the same failing suffixes exponentially often.
+
+1. Optionally first run the boolean DP: `ok[i]` is true if `s[i:]` can be split. If `ok[0]` is false, return `[]` before building anything.
+2. `go(len(s)) = [""]`; otherwise loop over end positions `j` up to the longest word length and recurse when `s[i:j]` is a word.
+
+```python
+from functools import lru_cache
+
+def word_break_all(s, words):
+    words = set(words)
+    L = max(map(len, words), default=0)
+    @lru_cache(maxsize=None)
+    def go(i):                              # all sentences for s[i:]
+        if i == len(s):
+            return [""]
+        res = []
+        for j in range(i + 1, min(len(s), i + L) + 1):
+            if s[i:j] in words:
+                res += [s[i:j] + (" " + rest if rest else "") for rest in go(j)]
+        return res
+    return go(0)
+```
+
+The output itself can be exponential: for `"a" * n` with words `{"a", "aa"}` the number of sentences is a Fibonacci number, so no algorithm is polynomial in $n$ alone. The cost is $O(nL)$ substring checks (each costing up to $O(L)$ to hash) plus time proportional to the total length of all sentences built. The memo stores sentence lists for every suffix, which is where the memory goes; the feasibility pass keeps that from being wasted when there is no answer at all. Recursion depth is up to $n$. The common follow-up is just the yes/no or count version, which is the $O(nL)$ DP without building strings.
+:::
+
+::: {.qa asked="Baidu, Nowcoder 2022"}
+**Edit distance where insertion, deletion and substitution have different costs.**
+
+Let $D(i, j)$ be the cheapest way to turn the first $i$ characters of $a$ into the first $j$ characters of $b$. The last operation of an optimal edit script either deletes $a_i$, inserts $b_j$, or aligns $a_i$ with $b_j$ (free if equal, a substitution otherwise), so
+
+$$
+D(i, j) = \min\big(D(i-1, j) + c_{\text{del}},\; D(i, j-1) + c_{\text{ins}},\; D(i-1, j-1) + c_{\text{sub}}\,[a_i \ne b_j]\big),
+$$
+
+with $D(i, 0) = i\,c_{\text{del}}$ and $D(0, j) = j\,c_{\text{ins}}$. Different costs change nothing structurally; if $c_{\text{sub}} > c_{\text{ins}} + c_{\text{del}}$, the DP simply never uses substitutions. To list the operations, walk back from $(m, n)$, at each cell choosing a predecessor whose value plus step cost equals the current value.
+
+```python
+def edit_distance(a, b, ins=1, dele=1, sub=1):
+    m, n = len(a), len(b)
+    D = [[i * dele] + [0] * n for i in range(m + 1)]
+    D[0] = [j * ins for j in range(n + 1)]
+    cost = lambda i, j: 0 if a[i - 1] == b[j - 1] else sub
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            D[i][j] = min(D[i-1][j] + dele, D[i][j-1] + ins, D[i-1][j-1] + cost(i, j))
+    ops, i, j = [], m, n
+    while i or j:
+        if i and j and D[i][j] == D[i-1][j-1] + cost(i, j):
+            if a[i-1] != b[j-1]:
+                ops.append(f"sub {a[i-1]}->{b[j-1]}")
+            i, j = i - 1, j - 1
+        elif i and D[i][j] == D[i-1][j] + dele:
+            ops.append(f"del {a[i-1]}"); i -= 1
+        else:
+            ops.append(f"ins {b[j-1]}"); j -= 1
+    return D[m][n], ops[::-1]
+```
+
+Time $O(mn)$. The distance alone needs only two rows, $O(\min(m, n))$ space after swapping so the shorter string indexes the columns (and swapping the insertion and deletion costs with it). Recovering the operations in linear space needs Hirschberg's divide and conquer. With floating-point costs, store back-pointers instead of testing equality.
+:::
+
+::: {.qa asked="Meta RS full-time, Reddit 2026"}
+**Find the diameter of a binary tree, counted in nodes rather than edges.**
+
+The longest path in a tree bends at exactly one highest node. At that node it goes down the deepest path of the left subtree and the deepest path of the right subtree. So one post-order DFS that returns each subtree's height (in nodes) and updates a global best with `left + right + 1` at every node finds it.
+
+The trap in the report: the common LeetCode version counts edges. A path with $k$ nodes has $k - 1$ edges, so the node count is `left + right + 1` with heights measured in nodes, while the edge count is `left + right`. Fix the convention before coding and check it on a single node (1 node, 0 edges) and an empty tree (0 nodes).
+
+```python
+class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val, self.left, self.right = val, left, right
+
+def diameter_nodes(root):
+    best = 0
+    def height(node):                       # nodes on the longest downward path
+        nonlocal best
+        if node is None:
+            return 0
+        l, r = height(node.left), height(node.right)
+        best = max(best, l + r + 1)         # longest path that bends at node
+        return 1 + max(l, r)
+    height(root)
+    return best
+```
+
+Time $O(n)$, space $O(h)$ for the recursion, where $h$ is the height; a degenerate (linked-list-shaped) tree with many thousands of nodes exceeds Python's recursion limit, so the follow-up is an iterative post-order traversal with an explicit stack. For an $n$-ary tree, keep the two largest child heights. For a general tree given as an edge list, run BFS from any node to the farthest node $u$, then BFS from $u$; the farthest distance is the diameter.
+:::
+
+::: {.qa asked="Meta RS full-time, Reddit 2026"}
+**Find the length of the longest valid parentheses substring.**
+
+Stack approach: push indices of `'('`. Keep, at the bottom of the stack, the index of the last position that cannot be part of any valid substring, starting with the sentinel $-1$. On `')'`, pop: if the stack becomes empty, this `')'` is unmatched and becomes the new bottom; otherwise the valid substring ending here starts right after the index now on top, so its length is `i - stack[-1]`.
+
+Two-pass counters with $O(1)$ space: scan left to right counting `open` and `close`. When they are equal, the scanned stretch since the last reset is balanced, giving length `2 * close`; when `close > open`, reset both to 0. This misses cases like `"(()"` where opens never get matched down to equality, so repeat the scan right to left with the roles swapped.
+
+```python
+def longest_valid(s):
+    stack, best = [-1], 0
+    for i, ch in enumerate(s):
+        if ch == "(":
+            stack.append(i)
+        else:
+            stack.pop()
+            if not stack:
+                stack.append(i)             # unmatched ')' is the new barrier
+            else:
+                best = max(best, i - stack[-1])
+    return best
+
+def longest_valid_O1(s):
+    best = 0
+    for seq, op in ((s, "("), (s[::-1], ")")):
+        o = c = 0
+        for ch in seq:
+            o, c = (o + 1, c) if ch == op else (o, c + 1)
+            if o == c:
+                best = max(best, 2 * c)
+            elif c > o:
+                o = c = 0
+    return best
+```
+
+Both run in $O(n)$ time; the stack uses $O(n)$ space and the counters $O(1)$. A third option is the DP where `dp[i]` is the length of the longest valid substring ending at $i$. Edge cases: the empty string, `")("`, and `"()(())"` (adjacent valid blocks must join).
+:::
+
+::: {.qa asked="Microsoft AS intern, PracHub 2026"}
+**Find all pairs of elements with the minimum absolute difference.**
+
+Sort the array. The closest pair must then be adjacent: if $x < z < y$ in sorted order, then $y - x = (y - z) + (z - x)$ exceeds both $y - z$ and $z - x$, so a non-adjacent pair can never be strictly closest. One pass computes the minimum gap between neighbours and a second collects every neighbouring pair with that gap.
+
+```python
+def min_diff_pairs(a):
+    a = sorted(a)
+    gaps = [y - x for x, y in zip(a, a[1:])]
+    if not gaps:
+        return []
+    best = min(gaps)
+    return [[x, y] for x, y in zip(a, a[1:]) if y - x == best]
+```
+
+Time $O(n \log n)$ for the sort, $O(n)$ extra space. The pairs come out in ascending order, which is the usual required format. Clarify duplicates: with distinct values (the common statement) the above is complete; if values repeat and the minimum gap is 0, a value occurring $c$ times forms $\binom{c}{2}$ pairs by index, of which adjacency lists only $c - 1$, so ask whether pairs are by value or by index. If the values are bounded integers, counting sort or radix sort makes it $O(n + \text{range})$. Follow-ups: the minimum difference between elements of two arrays (sort both and advance two pointers), and the $k$-th smallest pair distance (binary search on the distance, counting pairs within it with a sliding window, $O(n \log n + n \log D)$ for value range $D$).
+:::
+
+::: {.qa asked="Adobe research intern (Glassdoor)"}
+**Find the second-smallest element of an array.**
+
+One pass with two variables, `first` (smallest so far) and `second`. For each `x`: if `x < first`, the old minimum becomes the runner-up; otherwise if `x` beats `second`, it becomes the runner-up. First clarify duplicates: for `[1, 1, 2]`, is the answer 1 (second in sorted order) or 2 (second-smallest distinct value)? The flag below handles both, and the function returns `None` when no second element exists.
+
+```python
+def second_smallest(a, distinct=True):
+    first = second = float("inf")
+    for x in a:
+        if x < first:
+            first, second = x, first
+        elif x < second and (x != first or not distinct):
+            second = x
+    return None if second == float("inf") else second
+```
+
+Time $O(n)$, space $O(1)$; about $2n$ comparisons in the worst case. The follow-up is the minimum number of comparisons. Run a knockout tournament: $n - 1$ comparisons find the minimum, since every other element must lose once. The second smallest lost only to the minimum, so it is among the at most $\lceil \log_2 n \rceil$ elements the minimum beat directly, and $\lceil \log_2 n \rceil - 1$ more comparisons find the smallest of them. Total: $n + \lceil \log_2 n \rceil - 2$, and this is known to be optimal in the worst case. Implementing it needs the list of opponents each winner beat, $O(n)$ extra space. Generalization: the $k$-th smallest via quickselect (expected $O(n)$) or a size-$k$ max-heap ($O(n \log k)$).
+:::
+
+::: {.qa asked="Adobe research intern (Glassdoor)"}
+**Solve the 0/1 knapsack problem.**
+
+Let $dp_i(c)$ be the best value using the first $i$ items with total weight at most $c$. Item $i$ is either skipped or taken once:
+
+$$
+dp_i(c) = \max\big(dp_{i-1}(c),\; dp_{i-1}(c - w_i) + v_i\big) \quad \text{if } c \ge w_i .
+$$
+
+Only the previous row is needed, so keep one array and iterate the capacity downward: when `dp[c]` is updated, `dp[c - w]` still holds the previous row's value, which means item $i$ is not used twice. Iterating upward would give the unbounded knapsack instead. To return the chosen items, record whether item $i$ was taken at capacity $c$, then walk back from the last item at capacity $W$.
+
+```python
+def knapsack(weights, values, W):
+    dp = [0] * (W + 1)
+    took = [[False] * (W + 1) for _ in weights]
+    for i, (w, v) in enumerate(zip(weights, values)):
+        for c in range(W, w - 1, -1):       # downward: each item at most once
+            if dp[c - w] + v > dp[c]:
+                dp[c] = dp[c - w] + v
+                took[i][c] = True
+    items, c = [], W
+    for i in range(len(weights) - 1, -1, -1):
+        if took[i][c]:
+            items.append(i)
+            c -= weights[i]
+    return dp[W], items[::-1]
+```
+
+Time $O(nW)$; space $O(W)$ for the value and $O(nW)$ bits for reconstruction. This is pseudo-polynomial: $W$ takes only $\log W$ bits to write down, so the running time is exponential in the input size, consistent with knapsack being NP-hard. Follow-ups: when $W$ is huge but values are small, run the DP over value (minimum weight for each total value); for $n$ around 40, meet in the middle ($2^{n/2}$ subsets per half, sort one side and binary search); the fractional version is solved greedily by value per unit weight.
+:::
 
 ## Sources
 
