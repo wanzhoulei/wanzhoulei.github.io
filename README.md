@@ -39,6 +39,24 @@ The script resizes the photo (2000 px long edge plus an 800 px thumbnail), conve
 
 The layout is gap-free when each section's featured count leaves the rest a multiple of 4 (for example 13 photos with 1 featured, 15 with 3).
 
+## Notes
+
+The Notes section (`notes/`, linked from the "Notes" button in the header) is generated from Markdown sources in `notes/src/`. Edit a source file, then rebuild:
+
+```bash
+python3 tools/build_notes.py   # needs pandoc (brew install pandoc)
+```
+
+This writes `notes/<name>.html` for every `notes/src/<name>.md` and regenerates `notes/index.html`. Commit both the sources and the generated pages. Each source file starts with front matter (`title`, `subtitle`, `order`, `updated`); math uses `$...$` and `$$...$$` (rendered by KaTeX in the browser). Special blocks:
+
+| Markdown | Renders as |
+|----------|-----------|
+| `::: qa` with the question as the first paragraph | a collapsible practice question with its answer |
+| `::: {.qa asked="Company, source, year"}` | the same, with a badge marking a question reported in a real interview |
+| `::: key` / `::: pitfall` | a blue "Key idea" or orange "Common pitfall" box |
+
+Styles are in `notes/notes.css`; the page template is `tools/notes/note.template.html`; the block rules are in `tools/notes/notes.lua`.
+
 ## Publish
 
 ```bash

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Evaluating Generative and Restoration Models · Notes · Wanzhou Lei</title>
+  <meta name="description" content="What FID and its alternatives, precision/recall, alignment and preference scores, PSNR/SSIM/LPIPS, no-reference IQA and human studies actually measure, and the perception–distortion trade-off that makes them disagree.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Evaluating Generative and Restoration Models</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#a-map-of-what-metrics-measure" id="toc-a-map-of-what-metrics-measure">A map of what metrics measure</a></li>
+      <li><a href="#inception-score" id="toc-inception-score">Inception Score</a></li>
+      <li><a href="#fréchet-inception-distance" id="toc-fréchet-inception-distance">Fréchet Inception Distance</a></li>
+      <li><a href="#alternatives-kid-fd_textdinov2-cmmd" id="toc-alternatives-kid-fd_textdinov2-cmmd">Alternatives: KID, FD<span class="math inline">_\text{DINOv2}</span>, CMMD</a></li>
+      <li><a href="#precision-recall-density-and-coverage" id="toc-precision-recall-density-and-coverage">Precision, recall, density and coverage</a></li>
+      <li><a href="#textimage-alignment-and-human-preference" id="toc-textimage-alignment-and-human-preference">Text–image alignment and human preference</a></li>
+      <li><a href="#video-fvd-and-vbench" id="toc-video-fvd-and-vbench">Video: FVD and VBench</a></li>
+      <li><a href="#full-reference-metrics-for-restoration" id="toc-full-reference-metrics-for-restoration">Full-reference metrics for restoration</a></li>
+      <li><a href="#no-reference-image-quality-assessment" id="toc-no-reference-image-quality-assessment">No-reference image quality assessment</a></li>
+      <li><a href="#the-perceptiondistortion-trade-off" id="toc-the-perceptiondistortion-trade-off">The perception–distortion trade-off</a></li>
+      <li><a href="#human-evaluation" id="toc-human-evaluation">Human evaluation</a></li>
+      <li><a href="#reporting-checklist" id="toc-reporting-checklist">Reporting checklist</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Evaluating Generative and Restoration Models</h1>
+        <p class="page-lede">What FID and its alternatives, precision/recall, alignment and preference scores, PSNR/SSIM/LPIPS, no-reference IQA and human studies actually measure, and the perception–distortion trade-off that makes them disagree.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>33 practice questions</span><span>31 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#a-map-of-what-metrics-measure">A map of what metrics measure</a></li>
+<li><a href="#inception-score">Inception Score</a></li>
+<li><a href="#fréchet-inception-distance">Fréchet Inception Distance</a></li>
+<li><a href="#alternatives-kid-fd_textdinov2-cmmd">Alternatives: KID, FD<span class="math inline">_\text{DINOv2}</span>, CMMD</a></li>
+<li><a href="#precision-recall-density-and-coverage">Precision, recall, density and coverage</a></li>
+<li><a href="#textimage-alignment-and-human-preference">Text–image alignment and human preference</a></li>
+<li><a href="#video-fvd-and-vbench">Video: FVD and VBench</a></li>
+<li><a href="#full-reference-metrics-for-restoration">Full-reference metrics for restoration</a></li>
+<li><a href="#no-reference-image-quality-assessment">No-reference image quality assessment</a></li>
+<li><a href="#the-perceptiondistortion-trade-off">The perception–distortion trade-off</a></li>
+<li><a href="#human-evaluation">Human evaluation</a></li>
+<li><a href="#reporting-checklist">Reporting checklist</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>A learned evaluation metric has three parts: a feature extractor, a statistic computed in that feature space, and a protocol (sample count, reference set, resizing, seeds). Changing any one of them can reorder models. Interviewers ask about metrics because your answers show whether you know what your model is being rewarded for, and whether you can tell a real gain from a measurement artifact. This page covers distribution metrics, text–image and video metrics, full-reference and no-reference image quality, the perception–distortion trade-off, and human studies. Model details are on the other pages (<a href="diffusion-models.html">diffusion models</a>, <a href="restoration-super-resolution.html">restoration and super-resolution</a>, <a href="text-to-image-multimodal.html">text-to-image</a>, <a href="video-generation.html">video generation</a>).</p>
+<h2 id="a-map-of-what-metrics-measure">A map of what metrics measure</h2>
+<p>Every metric answers some mix of three questions. <strong>Fidelity:</strong> does each sample look real? <strong>Coverage:</strong> does the set of samples span the variety of the data? <strong>Consistency with the input:</strong> does the output match the prompt (alignment) or the measured signal (distortion)?</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Family</th>
+<th>Compares</th>
+<th>Mainly answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IS</td>
+<td>samples vs. an ImageNet classifier</td>
+<td>fidelity plus class diversity</td>
+</tr>
+<tr>
+<td>FID, KID, FD<span class="math inline">_\text{DINOv2}</span>, CMMD</td>
+<td>sample set vs. reference set</td>
+<td>fidelity and coverage, mixed</td>
+</tr>
+<tr>
+<td>Precision/recall, density/coverage</td>
+<td>sample set vs. reference set</td>
+<td>fidelity and coverage, separately</td>
+</tr>
+<tr>
+<td>CLIPScore, VQAScore, GenEval, DPG-Bench</td>
+<td>image vs. prompt</td>
+<td>alignment</td>
+</tr>
+<tr>
+<td>ImageReward, PickScore, HPSv2, arenas</td>
+<td>images and prompt, learned from votes</td>
+<td>overall preference</td>
+</tr>
+<tr>
+<td>FVD, VBench</td>
+<td>videos vs. references or prompts</td>
+<td>video quality and consistency</td>
+</tr>
+<tr>
+<td>PSNR, SSIM, LPIPS, DISTS</td>
+<td>output vs. ground truth</td>
+<td>distortion</td>
+</tr>
+<tr>
+<td>NIQE, MUSIQ, MANIQA, CLIP-IQA, Q-Align</td>
+<td>single image</td>
+<td>perceived quality</td>
+</tr>
+</tbody>
+</table>
+<p>Theis et al. (2016) showed that log-likelihood, sample quality and Parzen estimates can be largely independent in high dimensions, so a model should be evaluated for the use it was built for.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>Most surprises come from the feature extractor (what it can and cannot see) and the protocol (sample size, resizing, reference statistics), not from the distance formula. When two metrics disagree, first ask what each one’s features are sensitive to.</p>
+</aside>
+<h2 id="inception-score">Inception Score</h2>
+<p>With <span class="math inline">p(y\mid x)</span> the Inception-v3 class posterior and <span class="math inline">p(y)=\mathbb{E}_{x\sim p_g}[p(y\mid x)]</span>, Salimans et al. (2016) define <span class="math inline">\mathrm{IS}=\exp\big(\mathbb{E}_{x}\,\mathrm{KL}(p(y\mid x)\,\|\,p(y))\big)</span>. Expanding the KL:</p>
+<p><span class="math display">\mathbb{E}_x\,\mathrm{KL}\big(p(y\mid x)\,\|\,p(y)\big)=\mathbb{E}_x\sum_y p(y\mid x)\log p(y\mid x)-\sum_y p(y)\log p(y)=H(y)-H(y\mid x)=I(x;y).</span></p>
+<p>IS is the exponentiated mutual information between an image and its predicted label. It is high when each image is classified confidently and all classes are used, and since <span class="math inline">I\le H(y)\le\log 1000</span>, IS is at most 1000. It never looks at real data, it cannot see diversity within a class, it only makes sense for ImageNet-like content, and Barratt and Sharma (2018) showed it depends on implementation details and can be raised by adversarial examples when optimized directly.</p>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Why can a mode-collapsed generator still get a high Inception Score?</span>
+</summary><div class="qa-body">
+<p>IS equals <span class="math inline">\exp(H(y)-H(y\mid x))</span>, so it depends only on the distribution of predicted labels. A generator that outputs one sharp, confidently classified image per class makes <span class="math inline">H(y\mid x)\approx 0</span> and <span class="math inline">H(y)=\log 1000</span>, which is the maximum score, even though it has collapsed to 1000 points. Diversity within a class, and any mismatch with real images, are invisible because IS never uses real data. Reference-based metrics (FID, recall) catch this.</p>
+</div></details>
+<h2 id="fréchet-inception-distance">Fréchet Inception Distance</h2>
+<h3 id="from-wasserstein-2-to-the-formula">From Wasserstein-2 to the formula</h3>
+<p>Heusel et al. (2017) embed images with Inception-v3 (2048-d pool3), fit Gaussians to real and generated features, and compute their Fréchet distance, which for Gaussians equals the squared Wasserstein-2 distance:</p>
+<p><span class="math display">\mathrm{FID}=\lVert\mu_r-\mu_g\rVert_2^2+\mathrm{Tr}\Big(\Sigma_r+\Sigma_g-2\big(\Sigma_r^{1/2}\Sigma_g\Sigma_r^{1/2}\big)^{1/2}\Big).</span></p>
+<p><strong>Derivation.</strong> <span class="math inline">W_2^2</span> minimizes <span class="math inline">\mathbb{E}\lVert X-Y\rVert^2</span> over couplings, and for any coupling</p>
+<p><span class="math display">\mathbb{E}\lVert X-Y\rVert^2=\lVert\mu_r-\mu_g\rVert^2+\mathrm{Tr}\,\Sigma_r+\mathrm{Tr}\,\Sigma_g-2\,\mathrm{Tr}\,\mathrm{Cov}(X,Y).</span></p>
+<p>So the task is to maximize the trace of the cross-covariance. In 1-D, Cauchy–Schwarz gives <span class="math inline">\mathrm{Cov}\le\sigma_r\sigma_g</span>, attained by the monotone coupling <span class="math inline">Y=\mu_g+\frac{\sigma_g}{\sigma_r}(X-\mu_r)</span>, so <span class="math inline">W_2^2=(\mu_r-\mu_g)^2+(\sigma_r-\sigma_g)^2</span>. If the covariances commute (eigenvalues <span class="math inline">\lambda_i,\gamma_i</span>), each eigen-direction is a 1-D problem, and the sum <span class="math inline">\sum_i(\sqrt{\lambda_i}-\sqrt{\gamma_i})^2</span> equals the trace term above. In general the maximal trace is <span class="math inline">\mathrm{Tr}\big((\Sigma_r^{1/2}\Sigma_g\Sigma_r^{1/2})^{1/2}\big)</span>. Code computes <code>sqrtm(Sigma_r @ Sigma_g)</code>, which has the same trace because the two matrices are similar, and discards small imaginary parts from numerical error.</p>
+<p>Two consequences follow. FID sees only first and second moments: very different feature distributions with equal mean and covariance get FID 0, and Inception features fail normality tests (Jayasumana et al., 2024). The covariance term also penalizes both too little spread (mode dropping) and too much (junk samples), so fidelity and coverage are mixed into one number.</p>
+<h3 id="estimation-bias-and-sample-size">Estimation: bias and sample size</h3>
+<p>The finite-sample estimate is biased, and the bias depends on the model. The mean term alone has</p>
+<p><span class="math display">\mathbb{E}\,\lVert\hat\mu_r-\hat\mu_g\rVert^2=\lVert\mu_r-\mu_g\rVert^2+\frac{\mathrm{Tr}\,\Sigma_r}{N_r}+\frac{\mathrm{Tr}\,\Sigma_g}{N_g},</span></p>
+<p>so a generator with more spread-out features pays more at the same <span class="math inline">N</span>. The square-root term is a nonlinear function of noisy covariances and is biased too. The sample covariance is singular unless <span class="math inline">N&gt;2048</span>, and the TTUR reference code recommends at least 10k. Bińkowski et al. (2018) note that no unbiased FID estimator exists, and they construct cases where the bias reverses the order of two models even at 50k samples. Chong and Forsyth (2020) found <span class="math inline">\mathrm{FID}_N</span> close to linear in <span class="math inline">1/N</span> with a model-dependent slope, and extrapolate a line fitted over <span class="math inline">N\in[5\text{k},50\text{k}]</span> to <span class="math inline">1/N\to 0</span>. In practice, use the same <span class="math inline">N</span> and reference statistics for all models and state them: 50k against ImageNet training statistics, or 30k COCO captions for zero-shot text-to-image.</p>
+<h3 id="preprocessing-sensitivity">Preprocessing sensitivity</h3>
+<p>Inception sees 299×299 inputs, so finer detail is invisible, and the resize itself matters. Parmar et al. (clean-fid) showed that common resize routines (OpenCV, PyTorch and TensorFlow defaults) use a fixed-width filter whatever the downsampling factor, which aliases. Resizing the same FFHQ images from 1024 to 299 with the bilinear resizers of the PyTorch and TensorFlow FID code, instead of antialiased PIL bicubic, gives an FID of about 4.3 between two copies of one image set. When the reference and generated sets were resized differently, a StyleGAN2 FID rose from 3.0 to 7.5. Compression matters too: on LSUN Church, whose training images were stored as JPEG (quality 75), the best FID came from JPEG-compressing the samples at quality 87. FIDs from different pipelines are not comparable.</p>
+<h3 id="what-fid-rewards-and-misses">What FID rewards and misses</h3>
+<ul>
+<li><strong>ImageNet class information.</strong> Kynkäänniemi et al. (2023) resampled generated sets to match the real set’s top-N ImageNet class histogram and cut FID substantially without changing any image. An ImageNet-pretrained FastGAN matched StyleGAN2’s FID but lost in human evaluation.</li>
+<li><strong>Diffusion models.</strong> In a large human study, Stein et al. (2023) found people rated diffusion models most realistic while FID did not, and no tested metric correlated strongly with human realism. They recommend DINOv2 ViT-L/14 features.</li>
+<li><strong>Guidance.</strong> In the Pick-a-Pic study, nine generators (three Stable Diffusion variants at guidance 3, 6 and 9) were compared on 100 MS-COCO captions, and FID-based win rates correlated at −0.90 with human ones. The authors link this to guidance: stronger guidance looks better but is less diverse. Report FID against CLIPScore over a guidance sweep.</li>
+<li><strong>Blind spots.</strong> FID does not see local failures (hands, text), per-sample prompt adherence, or memorization: copying the training set scores very well.</li>
+</ul>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“Lower FID means better images” is not a safe reading. FID can improve by matching ImageNet class frequencies, compressing like the reference set, or memorizing, and it can get worse when guidance makes each image look better but the set less diverse.</p>
+</aside>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">Derive the FID formula. Why does a matrix square root appear?</span>
+</summary><div class="qa-body">
+<p>FID is the squared <span class="math inline">W_2</span> distance between Gaussians fitted to features: the minimum of <span class="math inline">\mathbb{E}\lVert X-Y\rVert^2</span> over couplings. Expanding gives <span class="math inline">\lVert\mu_r-\mu_g\rVert^2+\mathrm{Tr}\Sigma_r+\mathrm{Tr}\Sigma_g-2\,\mathrm{Tr}\,\mathrm{Cov}(X,Y)</span>, so we maximize the cross-covariance trace. In 1-D the maximum is <span class="math inline">\sigma_r\sigma_g</span>, from perfect correlation, giving <span class="math inline">(\sigma_r-\sigma_g)^2</span>. For commuting covariances each eigen-direction contributes <span class="math inline">(\sqrt{\lambda_i}-\sqrt{\gamma_i})^2</span>. In general <span class="math inline">\sigma_r\sigma_g</span> becomes <span class="math inline">\mathrm{Tr}\big((\Sigma_r^{1/2}\Sigma_g\Sigma_r^{1/2})^{1/2}\big)</span>, the cross term of the Bures–Wasserstein distance between covariances, which reduces to <span class="math inline">\mathrm{Tr}(\Sigma_r^{1/2}\Sigma_g^{1/2})</span> when they commute.</p>
+</div></details>
+<details class="qa" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">Why is FID biased, and why does that matter for comparing models?</span>
+</summary><div class="qa-body">
+<p>Even the mean term has expectation <span class="math inline">\lVert\mu_r-\mu_g\rVert^2+\mathrm{Tr}\Sigma_r/N_r+\mathrm{Tr}\Sigma_g/N_g</span>, and the square-root term is nonlinear in noisy covariance estimates. The bias depends on the generator’s own covariance, so two models at the same <span class="math inline">N</span> carry different biases, and rankings can change with <span class="math inline">N</span>. Fixes: compare at the same <span class="math inline">N</span> against the same statistics, use enough samples, extrapolate in <span class="math inline">1/N</span>, or use an unbiased statistic such as KID.</p>
+</div></details>
+<details class="qa" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">Two papers report FID 2.1 and 2.3 on ImageNet 256, or your change moves FID from 3.10 to 2.85. What do you check before believing the gap?</span>
+</summary><div class="qa-body">
+<p>First check that the protocol is identical: sample count, reference statistics, resizing and file format (clean vs. legacy), class sampling, Inception weights. Then check the sampler budget (NFE, guidance and whether it was tuned for FID) and run several sampling seeds. Near FID 2–3, seed variance and pipeline differences can be a meaningful share of a 0.2–0.3 gap. Next look at precision/recall and a second feature space (FD<span class="math inline">_\text{DINOv2}</span> or CMMD). If the ranking flips between feature spaces, the gain is fragile, and a 2AFC human study should decide.</p>
+</div></details>
+<details class="qa qa-asked" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">Walk through the metrics you would use for a generation or editing model: CLIP-I, CLIP-T, LPIPS, FID. What does each measure?</span><span class="qa-badge" title="Reported in a real interview">Asked · Tencent Youtu CV intern, 2nd round (Nowcoder)</span>
+</summary><div class="qa-body">
+<p>CLIP-T is the image–prompt cosine similarity in CLIP space, a coarse alignment score that is weak on counting and attribute binding. CLIP-I is the cosine similarity between CLIP image embeddings of the output and a reference, so it measures semantic identity preservation, not pixels. LPIPS is a per-pair perceptual distance, useful for checking that an edit leaves the rest of the image intact. FID compares feature distributions over thousands of images, so it measures set-level realism and diversity and says nothing about any single sample. Use them together, because each can be gamed alone: copying the input maximizes CLIP-I and minimizes LPIPS while ignoring the edit.</p>
+</div></details>
+<h2 id="alternatives-kid-fd_textdinov2-cmmd">Alternatives: KID, FD<span class="math inline">_\text{DINOv2}</span>, CMMD</h2>
+<p>For a kernel <span class="math inline">k</span> with feature map <span class="math inline">\phi</span>, <span class="math inline">\mathrm{MMD}^2(P,Q)=\lVert\mathbb{E}_P\phi-\mathbb{E}_Q\phi\rVert_{\mathcal{H}}^2=\mathbb{E}\,k(x,x&#39;)+\mathbb{E}\,k(y,y&#39;)-2\,\mathbb{E}\,k(x,y)</span>. The unbiased U-statistic drops the diagonal terms <span class="math inline">k(x_i,x_i)</span>, which are the source of the plug-in estimator’s upward bias:</p>
+<p><span class="math display">\widehat{\mathrm{MMD}}^2_u=\frac{1}{m(m-1)}\sum_{i\ne j}k(x_i,x_j)+\frac{1}{n(n-1)}\sum_{i\ne j}k(y_i,y_j)-\frac{2}{mn}\sum_{i,j}k(x_i,y_j).</span></p>
+<ul>
+<li><strong>KID</strong> (Bińkowski et al., 2018) applies this to Inception features with <span class="math inline">k(x,y)=(x^\top y/d+1)^3</span>, which compares feature moments up to third order without bandwidth tuning. It has no Gaussian assumption and is comparable across sample sizes. Estimates can be slightly negative, and people report the mean ± std over subsets.</li>
+<li><strong>FD<span class="math inline">_\text{DINOv2}</span></strong> keeps the Fréchet formula with DINOv2 ViT-L/14 features (Stein et al., 2023). EDM2 (Karras et al., 2024) reports it next to FID and ships separate configurations whose EMA length and guidance were tuned for each metric. The best settings differ, so “best model” depends on the metric.</li>
+<li><strong>CMMD</strong> (Jayasumana et al., 2024) is the unbiased MMD over CLIP ViT-L/14@336px embeddings with a Gaussian kernel (<span class="math inline">\sigma=10</span>), scaled by 1000. In their Stable Diffusion test, FID needed more than 20k images for a reliable estimate, while CMMD was stable on small sets. In a human study, raters preferred the full Muse sampler (24 base and 8 super-resolution refinement iterations) to one stopped early (20 and 3) in 92.5% vs. 6.9% of comparisons; COCO-30K FID favoured the early-stopped version, and CMMD agreed with the raters. CMMD inherits CLIP’s biases, and CLIP features are likely less sensitive to low-level texture.</li>
+</ul>
+<details class="qa" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">KID vs. FID: what does “unbiased” buy you, what does it not fix, and when do Inception- and DINOv2-based rankings disagree?</span>
+</summary><div class="qa-body">
+<p>KID’s estimate has expectation equal to the population <span class="math inline">\mathrm{MMD}^2</span> at any <span class="math inline">N</span>, so small-sample and cross-paper comparisons are meaningful, and there is no model-dependent bias term to reorder rankings. It does not fix the feature space: KID still uses Inception, so ImageNet-class leakage and blindness to fine detail remain. Inception- and DINOv2-based rankings tend to disagree for models with ImageNet-pretrained components, for diffusion vs. GAN comparisons, and at high guidance. Stein et al.’s human data favour DINOv2 features, and a disagreement is a signal to run a human study.</p>
+</div></details>
+<h2 id="precision-recall-density-and-coverage">Precision, recall, density and coverage</h2>
+<p>FID cannot say whether a bad score comes from bad samples or from missing modes. Sajjadi et al. (2018) separated the two, and Kynkäänniemi et al. (2019) gave the standard k-NN version. Let <span class="math inline">\{x_i\}_{i=1}^N</span> be real features and <span class="math inline">\{y_j\}_{j=1}^M</span> generated features (VGG-16 fc2), and let <span class="math inline">\mathrm{NND}_k(x_i)</span> be the distance from <span class="math inline">x_i</span> to its <span class="math inline">k</span>-th nearest neighbour in its own set:</p>
+<p><span class="math display">\begin{aligned}
+\mathrm{precision}&amp;=\frac{1}{M}\sum_{j=1}^{M}\mathbf{1}\Big[y_j\in\textstyle\bigcup_i B\big(x_i,\mathrm{NND}_k(x_i)\big)\Big],\\
+\mathrm{recall}&amp;=\frac{1}{N}\sum_{i=1}^{N}\mathbf{1}\Big[x_i\in\textstyle\bigcup_j B\big(y_j,\mathrm{NND}_k(y_j)\big)\Big],
+\end{aligned}</span></p>
+<p>with <span class="math inline">k=3</span> and 50k samples per set. Stronger truncation raises precision and lowers recall. Naeem et al. (2020) noted that a union of balls is inflated by outliers, and that neither metric equals 1 when the distributions are identical. They proposed</p>
+<p><span class="math display">\begin{aligned}
+\mathrm{density}&amp;=\frac{1}{kM}\sum_{j=1}^{M}\sum_{i=1}^{N}\mathbf{1}\big[y_j\in B(x_i,\mathrm{NND}_k(x_i))\big],\\
+\mathrm{coverage}&amp;=\frac{1}{N}\sum_{i=1}^{N}\mathbf{1}\big[\exists\,j:\ y_j\in B(x_i,\mathrm{NND}_k(x_i))\big].
+\end{aligned}</span></p>
+<p>When the distributions are identical, <span class="math inline">\mathbb{E}[\text{density}]=1</span> and <span class="math inline">\mathbb{E}[\text{coverage}]=1-\prod_{l=1}^{k}\frac{N-l}{M+N-l}</span>, which tends to <span class="math inline">1-2^{-k}</span> when <span class="math inline">M=N\to\infty</span>. They recommend <span class="math inline">k=5</span> and <span class="math inline">M=N=10</span>k, which gives about 0.969, and random embeddings for domains far from ImageNet.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>High precision/density, low recall/coverage</td>
+<td>mode dropping, high guidance or truncation</td>
+</tr>
+<tr>
+<td>Low precision, high recall</td>
+<td>artifacts spread over the data range, too little guidance</td>
+</tr>
+<tr>
+<td>Both low</td>
+<td>domain mismatch, preprocessing bug</td>
+</tr>
+<tr>
+<td>FID improves while recall drops</td>
+<td>diversity traded for fidelity</td>
+</tr>
+</tbody>
+</table>
+<details class="qa qa-asked" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">Explain the difference between precision and recall in your own words, without reciting formulas.</span><span class="qa-badge" title="Reported in a real interview">Asked · NIO algorithm intern (Nowcoder, 2024)</span>
+</summary><div class="qa-body">
+<p>Precision asks how much of what you produced is right, and recall asks how much of what exists you found. A cautious system that only answers when sure has high precision and low recall, and one that answers everything has the reverse. For generative models, precision is the fraction of samples that land on the real-data manifold (quality), and recall is the fraction of real data the model can produce (coverage). Raising guidance or truncation is like raising a classifier’s threshold: precision rises and recall falls.</p>
+</div></details>
+<details class="qa" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">Why did Naeem et al. replace precision/recall with density/coverage?</span>
+</summary><div class="qa-body">
+<p>Improved precision/recall estimate each manifold as a union of k-NN balls, and outliers have large radii, so one real outlier can make many poor samples count as precise. The metrics also miss 1 under a perfect model, and <span class="math inline">k</span> has no principled choice. Density counts overlaps with real neighbourhoods instead of testing membership in a union, so no single ball dominates, and its expectation is 1 for a perfect model. Coverage builds balls only around trusted real samples and has a closed-form expectation that guides the choice of <span class="math inline">k</span> and sample sizes.</p>
+</div></details>
+<h2 id="textimage-alignment-and-human-preference">Text–image alignment and human preference</h2>
+<p><strong>CLIPScore</strong> (Hessel et al., 2021) is <span class="math inline">w\cdot\max(\cos(E_T(c),E_I(v)),0)</span> with <span class="math inline">w=2.5</span> and ViT-B/32, averaged over a prompt set. Many text-to-image papers instead report <span class="math inline">100\cdot\max(\cos,0)</span> with other CLIP backbones, so values are not comparable across papers. It is cheap and reference-free. But CLIP mostly matches the gist of a caption: it is weak at counting, spatial relations and attribute binding, and it saturates for strong models.</p>
+<p>The fix is to break the prompt into checks that a specialist model can verify:</p>
+<ul>
+<li><strong>GenEval</strong> (Ghosh et al., 2023): six tasks (single object, two objects, counting, colours, position, attribute binding). Mask2Former detects objects, CLIP ViT-L/14 classifies colours on crops, box centroids decide position, and each image gets a binary score. GenEval agreed with annotators on 83% of images (inter-annotator 88%, thresholded CLIPScore 80%).</li>
+<li><strong>T2I-CompBench</strong> (Huang et al., 2023): 6,000 prompts covering colour, shape and texture binding, spatial and non-spatial relations, and complex compositions. It is scored with disentangled BLIP-VQA, a UniDet-based spatial check, and a “3-in-1” metric for complex prompts.</li>
+<li><strong>DPG-Bench</strong> (from ELLA): 1,065 dense prompts averaging about 67 words. Davidsonian-scene-graph questions are answered by mPLUG-large.</li>
+<li><strong>VQAScore</strong> (Lin et al., 2024): the probability that a VQA model answers “Yes” to “Does this figure show ‘{text}’?”.</li>
+</ul>
+<p>The judge’s error rate sets a limit on all of these benchmarks.</p>
+<p><strong>Preference models.</strong> ImageReward (BLIP-based, 137k expert comparisons), PickScore (CLIP-H on Pick-a-Pic, over 500k user choices, 70.5% held-out accuracy vs. 68.0% for experts) and HPSv2 (CLIP ViT-H/14, 798k choices) learn a utility <span class="math inline">s(c,x)</span>. PickScore and HPSv2 train it with a Bradley–Terry objective: <span class="math inline">p(x_1\succ x_2\mid c)=e^{s(c,x_1)}/(e^{s(c,x_1)}+e^{s(c,x_2)})</span>, with cross-entropy against the human choice. Once a preference model is used as a reward or for checkpoint selection, the generator exploits it (saturated colours, favoured styles), so evaluate with one you did not optimize and with humans. Prompt sources are biased too: HPSv2’s authors found that 28.5% of DiffusionDB prompts contain “artstation”, and rewrote the prompts with ChatGPT to remove such style words. <strong>Arenas</strong> fit pairwise user votes with Bradley–Terry; Chatbot Arena moved from online Elo to a BT maximum-likelihood fit with robust confidence intervals.</p>
+<details class="qa" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">A model gets a high CLIPScore on “a red cube on top of a blue sphere” but draws a blue cube next to a red sphere. Why, and what would you use instead?</span>
+</summary><div class="qa-body">
+<p>CLIP’s pooled embedding behaves partly like a bag of concepts. “Red”, “blue”, “cube” and “sphere” are all present, so similarity is high whatever the binding or relation. Decompose the prompt instead: detection plus per-object colour classification and geometric rules (GenEval-style), or VQA questions such as “Is the cube red?” and “Is the cube on the sphere?” (VQAScore, DPG-Bench, BLIP-VQA). Validate the judge against a small human-labelled set, since its errors limit the benchmark.</p>
+</div></details>
+<details class="qa" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">How are PickScore and HPSv2 trained, and why shouldn’t one be your only metric?</span>
+</summary><div class="qa-body">
+<p>They fine-tune CLIP-H so that a scaled image–text similarity acts as a utility. A softmax over two images’ scores gives a Bradley–Terry preference probability, trained with cross-entropy against which image people chose. They predict held-out choices well, but they encode one population’s taste on one prompt distribution. If you fine-tune or select checkpoints against them, the generator learns their blind spots and the score rises faster than real quality. Report a held-out preference model, distribution and alignment metrics, and a human study.</p>
+</div></details>
+<details class="qa qa-asked" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">How would you build a metric that flags anomalous or ambiguous generations?</span><span class="qa-badge" title="Reported in a real interview">Asked · Tencent Youtu CV intern, 2nd round (Nowcoder)</span>
+</summary><div class="qa-body">
+<p>Set-level metrics cannot flag single images, so you need per-sample scores. For anomalies: no-reference quality and artifact detectors, keypoint or pose checks for hands and bodies, and a vision-language judge with targeted questions (“Does each hand have five fingers?”). For ambiguity: split the prompt into atomic facts scored by VQA, and measure disagreement across judges or across seeds of the same prompt, since high variance signals an underspecified prompt. Calibrate each detector on a human-labelled set and report the flagger’s own precision and recall.</p>
+</div></details>
+<h2 id="video-fvd-and-vbench">Video: FVD and VBench</h2>
+<p><strong>FVD</strong> (Unterthiner et al., 2018) applies the Fréchet formula to features from I3D trained on Kinetics-400; KVD is the kernel analogue. Clip length, fps, resolution and the number of videos all change the value. Ge et al. (2024) showed a <strong>content bias</strong>. In one UCF-101 test (per-frame elastic distortion), temporal corruption with frame quality held fixed raised I3D-based FVD by 16.8% but an FVD on VideoMAE-v2 features (fine-tuned on SSv2) by 213%. Resampling a weighted subset of motionless videos (the first frame repeated) cut I3D FVD by roughly 30–55%, but the VideoMAE-v2 version by only about 5–13%. They trace this to a supervised classifier trained on actions recognizable from single frames, and recommend self-supervised video features.</p>
+<p><strong>VBench</strong> (Huang et al., 2023) scores 16 dimensions, each with a specialist model and checked against human preference labels. <em>Temporal quality:</em> subject consistency, background consistency, temporal flickering, motion smoothness, dynamic degree. <em>Frame-wise quality:</em> aesthetic quality and imaging quality (MUSIQ). <em>Semantics:</em> object class, multiple objects, human action, colour, spatial relationship, scene. <em>Style:</em> appearance style, temporal style. Plus <em>overall consistency</em>. Read them together: a static video scores near the top on consistency and flicker and poorly on dynamic degree.</p>
+<details class="qa" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">How can a video model that generates almost no motion still get a good FVD, and how would you evaluate a text-to-video model instead?</span>
+</summary><div class="qa-body">
+<p>I3D features come from an action classifier trained on Kinetics, where most actions can be recognized from appearance, so FVD mainly tracks per-frame quality. Ge et al. showed temporal corruption barely moves it and motionless videos can halve it. A better evaluation separates axes: frame quality (FD<span class="math inline">_\text{DINOv2}</span>, an NR score), temporal quality (FVD with self-supervised features, VBench’s consistency, smoothness and dynamic-degree dimensions read together), alignment (VQA or video-language checks, including actions and camera motion), and a side-by-side human study. Fix clip length, fps and resolution, and match inference cost.</p>
+</div></details>
+<h2 id="full-reference-metrics-for-restoration">Full-reference metrics for restoration</h2>
+<p><strong>PSNR.</strong> <span class="math inline">\mathrm{PSNR}=10\log_{10}(\mathrm{MAX}^2/\mathrm{MSE})</span>, with MSE averaged over pixels and channels. Super-resolution papers usually compute it on the Y channel after cropping a border equal to the scale factor, and these conventions can shift results by tenths of a dB or more.</p>
+<p><strong>Why MSE prefers blur.</strong> With <span class="math inline">m(y)=\mathbb{E}[X\mid Y=y]</span>, <span class="math inline">\mathbb{E}[\lVert X-\hat x\rVert^2\mid y]=\mathbb{E}[\lVert X-m\rVert^2\mid y]+\lVert m-\hat x\rVert^2</span>, so the posterior mean is optimal. When <span class="math inline">y</span> is ambiguous, the posterior has many sharp modes (edge positions, texture phases), and their average is smooth. If an edge sits at one of two positions with equal probability, the MMSE output is a half-intensity two-step ramp. A posterior sample <span class="math inline">\hat X\sim p(x\mid y)</span>, drawn independently of <span class="math inline">X</span> given <span class="math inline">y</span>, has a zero cross term:</p>
+<p><span class="math display">\mathbb{E}\lVert X-\hat X\rVert^2=\mathbb{E}\lVert X-m\rVert^2+\mathbb{E}\lVert\hat X-m\rVert^2=2\,\mathrm{MMSE},</span></p>
+<p>so an exact posterior sampler loses 3 dB (<span class="math inline">10\log_{10}2</span>, in average MSE) relative to the MMSE estimator. Other estimators with perfectly realistic outputs can lose less (see the perception–distortion section). L1 gives the per-pixel posterior median, still a single point summary of the posterior.</p>
+<p><strong>SSIM</strong> (Wang et al., 2004) compares local windows on luminance, contrast and structure:</p>
+<p><span class="math display">l=\frac{2\mu_x\mu_y+C_1}{\mu_x^2+\mu_y^2+C_1},\quad c=\frac{2\sigma_x\sigma_y+C_2}{\sigma_x^2+\sigma_y^2+C_2},\quad s=\frac{\sigma_{xy}+C_3}{\sigma_x\sigma_y+C_3}.</span></p>
+<p>With <span class="math inline">C_3=C_2/2</span>, the identity <span class="math inline">2\sigma_x\sigma_y+C_2=2(\sigma_x\sigma_y+C_3)</span> collapses <span class="math inline">c\cdot s</span> and gives</p>
+<p><span class="math display">\mathrm{SSIM}=\frac{(2\mu_x\mu_y+C_1)(2\sigma_{xy}+C_2)}{(\mu_x^2+\mu_y^2+C_1)(\sigma_x^2+\sigma_y^2+C_2)},</span></p>
+<p>with <span class="math inline">C_i=(K_iL)^2</span>, <span class="math inline">K_1=0.01</span>, <span class="math inline">K_2=0.03</span>, an 11×11 Gaussian window (<span class="math inline">\sigma=1.5</span>), and an average over the map (MSSIM). In the paper’s “Boat” example, images with identical MSE (210) range from MSSIM 0.99 (mean shift) to 0.69 (JPEG). SSIM is still pixel-aligned, so it does not reward realistic texture that differs from the ground-truth texture.</p>
+<p><strong>LPIPS</strong> (Zhang et al., 2018) unit-normalizes deep features <span class="math inline">\hat y^l</span> (AlexNet, VGG or SqueezeNet) across channels and computes</p>
+<p><span class="math display">d(x,x_0)=\sum_l\frac{1}{H_lW_l}\sum_{h,w}\big\lVert w_l\odot(\hat y^l_{hw}-\hat y^l_{0,hw})\big\rVert_2^2,</span></p>
+<p>with non-negative channel weights <span class="math inline">w_l</span> fitted to the 2AFC training judgments of BAPPS, a dataset of 484k human judgments (2AFC and JND) on 64×64 patches. On 2AFC agreement, humans score 73.9%, L2 63.2%, SSIM 63.1%, and LPIPS about 70%. It is a common training loss, so evaluating with it can flatter models trained on it. <strong>DISTS</strong> (Ding et al., 2020) uses VGG16 with <span class="math inline">\ell_2</span> pooling and compares SSIM-like terms on global feature means (texture) and on global variances and covariance (structure), with learned weights summing to 1. Because it uses global statistics, it tolerates resampled texture, which suits generative restoration.</p>
+<details class="qa qa-asked" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">What is the difference between PSNR, SSIM and LPIPS?</span><span class="qa-badge" title="Reported in a real interview">Asked · Alibaba DME, Nowcoder question list 2024</span>
+</summary><div class="qa-body">
+<p>PSNR is a log-scaled pixel MSE. It weighs every pixel error equally and is maximized by the blurry posterior mean. SSIM compares local means, contrasts and correlations, so it is less sensitive than MSE to uniform brightness and contrast shifts and emphasizes structure, but it is still a handcrafted, pixel-aligned statistic. LPIPS is a distance between normalized deep features with weights fitted to human 2AFC judgments, so it tracks perceived similarity better (about 70% vs. 63% agreement on BAPPS) and penalizes blur. All three need ground truth. Report PSNR/SSIM for fidelity and LPIPS or DISTS for perceptual similarity.</p>
+</div></details>
+<details class="qa qa-asked" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Write down SSIM and explain each term.</span><span class="qa-badge" title="Reported in a real interview">Asked · GenAI RS loop, candidate prep blog 2026</span>
+</summary><div class="qa-body">
+<p><span class="math inline">\mathrm{SSIM}=l\cdot c\cdot s</span>, with luminance <span class="math inline">l=\frac{2\mu_x\mu_y+C_1}{\mu_x^2+\mu_y^2+C_1}</span>, contrast <span class="math inline">c=\frac{2\sigma_x\sigma_y+C_2}{\sigma_x^2+\sigma_y^2+C_2}</span>, and structure <span class="math inline">s=\frac{\sigma_{xy}+C_3}{\sigma_x\sigma_y+C_3}</span>, the correlation of the normalized patches. With <span class="math inline">C_3=C_2/2</span> it becomes <span class="math inline">\frac{(2\mu_x\mu_y+C_1)(2\sigma_{xy}+C_2)}{(\mu_x^2+\mu_y^2+C_1)(\sigma_x^2+\sigma_y^2+C_2)}</span>. The constants <span class="math inline">(0.01L)^2</span> and <span class="math inline">(0.03L)^2</span> stabilize near-zero denominators. It is computed in 11×11 Gaussian windows and averaged, is at most 1, and can be negative.</p>
+</div></details>
+<details class="qa qa-asked" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">What is the difference between L1 and L2 losses, and what are their pros and cons?</span><span class="qa-badge" title="Reported in a real interview">Asked · Baidu AIGC intern (Nowcoder, 2024)</span>
+</summary><div class="qa-body">
+<p>L2’s minimizer under uncertainty is the conditional mean. It is smooth with strong gradients on large errors, but it is outlier-sensitive and gives blurry averages for multimodal targets. L1’s minimizer is the per-pixel conditional median. It is more robust to outliers, and in practice it often trains to better restorations: Zhao et al. (2017) found L1-trained networks reached lower L2 error than L2-trained ones and avoided L2’s splotchy artifacts in flat regions, which they attribute to L2 getting stuck in poorer local minima rather than to the minimizer itself. Its constant-magnitude gradient makes convergence near the optimum less smooth. Both are point estimates, so neither produces realistic texture when the posterior is spread out. PSNR directly rewards the L2 solution.</p>
+</div></details>
+<h2 id="no-reference-image-quality-assessment">No-reference image quality assessment</h2>
+<p>Real-world restoration rarely has ground truth.</p>
+<ul>
+<li><strong>NIQE</strong> (Mittal et al., 2013) fits a multivariate Gaussian <span class="math inline">(\nu_1,\Sigma_1)</span> to 36 natural-scene-statistics features from sharp 96×96 patches of pristine images, fits <span class="math inline">(\nu_2,\Sigma_2)</span> to all 96×96 patches of the test image (no sharpness selection, since blur is itself a distortion), and reports <span class="math inline">\sqrt{(\nu_1-\nu_2)^\top\big(\tfrac{\Sigma_1+\Sigma_2}{2}\big)^{-1}(\nu_1-\nu_2)}</span>. It needs no human scores. PIRM 2018’s <strong>Perceptual Index</strong> is <span class="math inline">\tfrac12\big((10-\mathrm{Ma})+\mathrm{NIQE}\big)</span>; lower is better.</li>
+<li><strong>MUSIQ</strong> (Ke et al., 2021) is a transformer over multi-scale patches at native aspect ratio, with hash-based spatial and scale embeddings, trained on MOS data.</li>
+<li><strong>MANIQA</strong> (Yang et al., 2022) combines ViT features, channel attention and Swin blocks with patch-weighted scoring. It won the NTIRE 2022 no-reference track.</li>
+<li><strong>CLIP-IQA</strong> (Wang et al., 2023) takes the softmax of the cosine similarities between the image and “Good photo.” / “Bad photo.”, using ResNet-50 CLIP with the positional embedding removed so any resolution works.</li>
+<li><strong>Q-Align</strong> (Wu et al., 2023) fine-tunes mPLUG-Owl2 to output one of five levels (bad … excellent) obtained by binning MOS. Its score is <span class="math inline">\sum_{i=1}^5 i\,p_i</span>, with a softmax over only the five level tokens.</li>
+</ul>
+<p><strong>Gaming.</strong> Each is trained on particular distortions (camera, compression, early super-resolution). Generative restorers can raise these scores with added high-frequency texture, noise-like detail or over-sharpening, even when the detail is wrong. Using an NR score as a loss, reward or checkpoint selector invites the generator to exploit it. Pair it with a fidelity check: a full-reference metric on synthetic pairs, or input consistency (degrade the output and compare it with the input).</p>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Your diffusion super-resolution model improves MUSIQ, MANIQA and CLIP-IQA but loses 2 dB PSNR versus a regression baseline. Is it better?</span>
+</summary><div class="qa-body">
+<p>The two models aim at different points on the perception–distortion curve, so neither metric alone decides. A 2 dB loss fits a move from near-MMSE towards realistic outputs: exact posterior sampling costs about 3 dB relative to the MMSE estimator, and the best perfectly realistic estimator costs at most that. But NR gains can come from hallucinated texture, so check LPIPS/DISTS on synthetic pairs, input consistency, and a 2AFC human study. Compare against perceptual methods at similar distortion, ideally by tracing each method’s curve with a knob such as loss weight or sampling temperature. For medical or forensic uses, hallucination is a failure whatever the NR score says.</p>
+</div></details>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">How does Q-Align turn a multimodal LLM into a quality regressor, and why levels instead of numbers?</span>
+</summary><div class="qa-body">
+<p>Human studies collect categorical ratings and average them into a MOS. Q-Align mirrors this: MOS values are binned into five words, and the LMM learns to output the word. At inference it applies a softmax over the five level tokens and takes the expectation <span class="math inline">\sum_i i\,p_i</span>, which gives a continuous score that reflects the model’s uncertainty. Level words suit a language model’s pretraining better than generating calibrated digits, and the expectation gives finer resolution than an argmax.</p>
+</div></details>
+<h2 id="the-perceptiondistortion-trade-off">The perception–distortion trade-off</h2>
+<p>Blau and Michaeli (2018) let <span class="math inline">X\sim p_X</span> be a clean image, <span class="math inline">Y</span> its degraded observation, and <span class="math inline">\hat X</span> any, possibly stochastic, estimator. <strong>Distortion</strong> is <span class="math inline">\mathbb{E}[\Delta(X,\hat X)]</span> for any full-reference <span class="math inline">\Delta</span>. <strong>Perceptual quality</strong> is a divergence <span class="math inline">d(p_X,p_{\hat X})</span> between distributions. This is motivated by the real-vs-fake test, where the best achievable observer accuracy is <span class="math inline">\tfrac12+\tfrac12 d_{\mathrm{TV}}(p_X,p_{\hat X})</span>. Define</p>
+<p><span class="math display">P(D)=\min_{p_{\hat X\mid Y}}\ d\big(p_X,p_{\hat X}\big)\quad\text{s.t.}\quad\mathbb{E}\big[\Delta(X,\hat X)\big]\le D.</span></p>
+<p><strong>Theorem.</strong> <span class="math inline">P(D)</span> is non-increasing, and convex if <span class="math inline">d(p,q)</span> is convex in <span class="math inline">q</span> (as for f-divergences). Nothing is assumed about <span class="math inline">\Delta</span>, so the trade-off is not an MSE artifact. When the degradation loses information, no algorithm reaches both minimum distortion and perfect realism. The MMSE estimate averages sharp alternatives and leaves the image manifold. Perfect realism forces committing to one mode at a time, which costs distortion. Convexity means the curve is steepest at the low-distortion end: the first bit of extra distortion buys the most realism.</p>
+<p><strong>Closed form for MSE and <span class="math inline">W_2</span>.</strong> With <span class="math inline">X^*=\mathbb{E}[X\mid Y]</span>, <span class="math inline">D^*=\mathbb{E}\lVert X-X^*\rVert^2</span> and <span class="math inline">P^*=W_2(p_X,p_{X^*})</span>, Freirich et al. (2021) proved</p>
+<p><span class="math display">D(P)=D^*+\big[(P^*-P)_+\big]^2,</span></p>
+<p>attained by <span class="math inline">\hat X_P=(1-P/P^*)\hat X_0+(P/P^*)X^*</span>, a straight interpolation between the best perfect-realism estimator and the MMSE estimate. The endpoint follows from orthogonality. Any <span class="math inline">\hat X</span> built from <span class="math inline">Y</span> and independent noise has <span class="math inline">\mathbb{E}\lVert X-\hat X\rVert^2=D^*+\mathbb{E}\lVert X^*-\hat X\rVert^2</span>. With <span class="math inline">p_{\hat X}=p_X</span> the second term is at least <span class="math inline">W_2^2(p_{X^*},p_X)\le D^*</span>. So perfect realism costs at most <span class="math inline">2D^*</span>, and posterior sampling costs exactly <span class="math inline">2D^*</span>.</p>
+<p><strong>Consequences.</strong> Report one full-reference and one no-reference metric, and compare methods in the perception–distortion plane. PIRM 2018 ranked entries by PI within RMSE regions (≤11.5, ≤12.5, ≤16). In its human study of the 10 top submissions, RMSE and SSIM were anti-correlated with mean opinion scores and PI was the most correlated measure (Spearman 0.83), though PI tracked human scores across regions better than within one region. Blau and Michaeli (2019) add rate: <span class="math inline">R(D,P)=\min I(X;\hat X)</span> subject to both constraints. Requiring realism raises the rate–distortion curve, and for MSE <span class="math inline">R(D,0)\le R(D/2,\infty)</span>: realism at distortion <span class="math inline">D</span> costs no more bits than plain compression at <span class="math inline">D/2</span>. Stochastic decoders matter at low rates. So generative codecs and tokenizers trade PSNR for realism, and should be compared at matched rate on both axes.</p>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">State the perception–distortion trade-off. Is it specific to MSE?</span>
+</summary><div class="qa-body">
+<p>Let perceptual quality be a divergence between the distributions of outputs and natural images, and distortion an expected pairwise error. Blau and Michaeli showed that the best divergence achievable at distortion <span class="math inline">D</span> is non-increasing in <span class="math inline">D</span> and, for divergences convex in their second argument, convex. When the degradation loses information, minimum distortion and zero divergence cannot both be reached. No assumption is placed on the distortion measure, so it holds for MSE, SSIM-type and deep-feature distortions alike. Minimizing any expected pairwise loss pulls towards a summary of the posterior, while realism needs a committed sample.</p>
+</div></details>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Show that posterior sampling achieves perfect perceptual quality at exactly twice the MMSE.</span>
+</summary><div class="qa-body">
+<p>If <span class="math inline">\hat X\sim p(x\mid y)</span>, then <span class="math inline">p_{\hat X}=p_X</span> marginally, so the divergence is zero. Write <span class="math inline">X-\hat X=(X-m)-(\hat X-m)</span> with <span class="math inline">m=\mathbb{E}[X\mid y]</span>. Given <span class="math inline">y</span>, the two are independent and identically distributed, so the cross term vanishes and each square has expectation <span class="math inline">\mathrm{tr}\,\mathrm{Cov}(X\mid y)</span>. Averaging over <span class="math inline">y</span> gives <span class="math inline">2\,\mathrm{MMSE}</span>, a 3 dB PSNR loss. Freirich et al. show the best perfect-realism estimator achieves <span class="math inline">D^*+W_2^2(p_X,p_{X^*})\le 2D^*</span>.</p>
+</div></details>
+<h2 id="human-evaluation">Human evaluation</h2>
+<p><strong>Protocols.</strong> In <em>2AFC / side-by-side</em> tests, raters pick the better of two outputs for the same input on a named axis (realism, alignment, overall). <em>Real-vs-fake</em> tests ask raters to spot the generated image, and chance-level accuracy means success. <em>MOS</em> collects 1–5 ratings, which need per-rater normalization and screening. <em>Arenas</em> fit a global ranking from pairwise votes.</p>
+<p><strong>Bradley–Terry and Elo.</strong> BT models <span class="math inline">P(i\succ j)=\sigma(\theta_i-\theta_j)</span>. For one vote where <span class="math inline">A</span> beats <span class="math inline">B</span>, <span class="math inline">\partial_{\theta_A}\log\sigma(\theta_A-\theta_B)=1-\sigma(\theta_A-\theta_B)</span>, and Elo’s update <span class="math inline">R_A\leftarrow R_A+K(S_A-E_A)</span>, with <span class="math inline">E_A=1/(1+10^{(R_B-R_A)/400})</span>, is exactly one stochastic-gradient step on the BT likelihood (scale <span class="math inline">400/\ln 10</span>). Online Elo therefore depends on vote order and <span class="math inline">K</span>. A batch maximum-likelihood fit with bootstrap or sandwich intervals is preferred.</p>
+<p><strong>Sample size.</strong> A win rate from <span class="math inline">n</span> independent votes has standard error at most <span class="math inline">0.5/\sqrt n</span>. A 95% half-width <span class="math inline">h</span> needs <span class="math inline">n\approx 0.96/h^2</span>: 385 for ±5 points, 1,068 for ±3. Detecting 55% vs. 50% at <span class="math inline">\alpha=0.05</span> with 80% power needs</p>
+<p><span class="math display">n\approx\left(\frac{1.96\cdot 0.5+0.84\sqrt{0.55\cdot 0.45}}{0.05}\right)^2\approx 782.</span></p>
+<p>Votes cluster by prompt and rater, which shrinks the effective <span class="math inline">n</span> by <span class="math inline">1+(m-1)\rho</span>. Bootstrap over prompts and raters, or fit a mixed-effects logistic model. Correct for multiple comparisons, randomize left/right placement, hide model identity, fix prompts in advance, and include gold items.</p>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">How many 2AFC judgments do you need to claim your model is preferred, and what makes naive counts misleading?</span>
+</summary><div class="qa-body">
+<p>Treat the win rate as binomial: ±3 points at 95% needs about 1,070 judgments, and detecting a true 55% preference with 80% power needs about 780. But votes are correlated: raters on the same prompt share its difficulty, and a prolific rater contributes many dependent votes, so the effective <span class="math inline">n</span> is smaller by the design effect <span class="math inline">1+(m-1)\rho</span>. Use a bootstrap that resamples prompts and raters, or a mixed-effects model, and report the interval, not just the percentage.</p>
+</div></details>
+<h2 id="reporting-checklist">Reporting checklist</h2>
+<ul>
+<li>State the protocol: sample count, reference statistics, resizing and format, feature extractor and weights, prompt set.</li>
+<li>Use several seeds and report mean ± std or bootstrap intervals.</li>
+<li>Report complementary metrics: FID with FD<span class="math inline">_\text{DINOv2}</span> or CMMD, precision/recall or density/coverage, a task metric (alignment or fidelity), and a human study for headline claims.</li>
+<li>Show curves, not points: guidance sweeps, NFE sweeps, the perception–distortion plane.</li>
+<li>Match compute: same NFE and resolution, baselines tuned equally (for example their best guidance), and training compute reported.</li>
+<li>Never select checkpoints on the reported test metric, or present a reward you optimized as evidence. Check memorization with nearest-neighbour retrieval against the training set.</li>
+</ul>
+<details class="qa qa-asked" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">Which metric would you actually trust for a product, and when does a metric stop meaning anything?</span><span class="qa-badge" title="Reported in a real interview">Asked · GenAI RS loop, candidate prep blog 2026</span>
+</summary><div class="qa-body">
+<p>I would trust the measure closest to the user decision: side-by-side human preference on prompts sampled from real traffic, with confidence intervals, plus targeted checks for known failures (text, anatomy, safety). Automatic metrics are for fast iteration once they have been checked against those human results for this model family. A metric stops meaning anything when it saturates (gaps within seed noise, as FID near the top), when it is optimized directly (reward hacking, NR-IQA gaming), when outputs leave its feature extractor’s training distribution, or when protocols differ across the models compared.</p>
+</div></details>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">Design an evaluation framework for an AIGC model that generates e-commerce product images.</span>
+</summary><div class="qa-body">
+<p>Start from what can go wrong for the business. Product fidelity: compare logo, colour and shape with the source photo using CLIP-I/DINO similarity, masked LPIPS and OCR. Image quality: NR-IQA or aesthetic scores plus artifact detectors. Brief compliance: VQA checks on scene and style. Policy compliance: safety detectors. Calibrate these offline against side-by-side ratings from designers or merchants, then run online A/B tests on click-through, conversion and returns with guardrail metrics. Break results down by product category, since averages hide where the model fails.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">Which Inception layer and input size does FID use?</span>
+</summary><div class="qa-body">
+<p>The 2048-d pool3 activations, with images resized to 299×299. The resize method is part of the metric.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">What is the maximum Inception Score?</span>
+</summary><div class="qa-body">
+<p>1000, the number of classes, because <span class="math inline">\mathrm{IS}=\exp(I(x;y))\le\exp(H(y))</span>.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">Is FID between a dataset and a held-out split of itself zero?</span>
+</summary><div class="qa-body">
+<p>Not at finite <span class="math inline">N</span>. The estimator is biased upward, roughly by an amount that shrinks like <span class="math inline">1/N</span>.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">PSNR of an 8-bit image whose MSE is 1?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">10\log_{10}255^2\approx 48.13</span> dB. Halving the MSE adds about 3.01 dB.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">What does CLIP-IQA compute?</span>
+</summary><div class="qa-body">
+<p>A softmax over the image’s cosine similarities to “Good photo.” and “Bad photo.”. The probability of the positive prompt is the score.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">What gives FVD its features, and what is its main bias?</span>
+</summary><div class="qa-body">
+<p>I3D trained on Kinetics-400. FVD is driven mostly by per-frame appearance and only weakly by temporal artifacts.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">Raising guidance makes precision go up and recall go down. What happened?</span>
+</summary><div class="qa-body">
+<p>Samples moved towards dense, prototypical regions: each image looks better, but less of the data distribution is covered.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">What is the expected coverage of a perfect model with <span class="math inline">k=5</span> and <span class="math inline">M=N</span> large?</span>
+</summary><div class="qa-body">
+<p>About <span class="math inline">1-2^{-5}\approx 0.97</span>. Expected density is 1.</p>
+</div></details>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">How do you check fidelity in real-world super-resolution without ground truth?</span>
+</summary><div class="qa-body">
+<p>Degrade the output with the assumed forward model and compare it with the input (input-consistency PSNR), and report this next to no-reference scores.</p>
+</div></details>
+<details class="qa qa-asked" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">What is VIF measuring?</span><span class="qa-badge" title="Reported in a real interview">Asked · GenAI RS loop, candidate prep blog 2026</span>
+</summary><div class="qa-body">
+<p>Visual Information Fidelity (Sheikh and Bovik, 2006) models the reference’s wavelet coefficients as a natural-image source (a Gaussian scale mixture), the distortion as a channel with gain and additive noise, and human vision as further additive noise. VIF is a ratio of two mutual informations with the source: what can be extracted from the perceived distorted image over what can be extracted from the perceived reference. It equals 1 for an undistorted image, falls as information is lost, and can exceed 1 for contrast enhancement.</p>
+</div></details>
+<details class="qa" id="q33"><summary>
+<span class="qa-n">Q33</span><span class="qa-q">Why do arena leaderboards fit Bradley–Terry instead of reporting raw Elo?</span>
+</summary><div class="qa-body">
+<p>Elo is online SGD on the BT likelihood, so it depends on vote order and <span class="math inline">K</span>. A batch BT fit uses all votes symmetrically and gives confidence intervals.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Heusel et al., “GANs Trained by a Two Time-Scale Update Rule Converge to a Local Nash Equilibrium” (FID), 2017. <a href="https://arxiv.org/abs/1706.08500" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1706.08500</a></li>
+<li>TTUR reference FID implementation. <a href="https://github.com/bioinf-jku/TTUR" class="uri" target="_blank" rel="noopener">https://github.com/bioinf-jku/TTUR</a></li>
+<li>Salimans et al., “Improved Techniques for Training GANs” (Inception Score), 2016. <a href="https://arxiv.org/abs/1606.03498" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1606.03498</a></li>
+<li>Barratt and Sharma, “A Note on the Inception Score,” 2018. <a href="https://arxiv.org/abs/1801.01973" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1801.01973</a></li>
+<li>Theis, van den Oord, Bethge, “A note on the evaluation of generative models,” 2016. <a href="https://arxiv.org/abs/1511.01844" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1511.01844</a></li>
+<li>Bińkowski et al., “Demystifying MMD GANs” (KID), 2018. <a href="https://arxiv.org/abs/1801.01401" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1801.01401</a></li>
+<li>Chong and Forsyth, “Effectively Unbiased FID and Inception Score and where to find them,” 2020. <a href="https://arxiv.org/abs/1911.07023" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1911.07023</a></li>
+<li>Parmar, Zhang, Zhu, “On Aliased Resizing and Surprising Subtleties in GAN Evaluation” (clean-fid), 2022. <a href="https://arxiv.org/abs/2104.11222" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2104.11222</a>; code: <a href="https://github.com/GaParmar/clean-fid" class="uri" target="_blank" rel="noopener">https://github.com/GaParmar/clean-fid</a></li>
+<li>Kynkäänniemi et al., “The Role of ImageNet Classes in Fréchet Inception Distance,” 2023. <a href="https://arxiv.org/abs/2203.06026" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2203.06026</a></li>
+<li>Stein et al., “Exposing flaws of generative model evaluation metrics and their unfair treatment of diffusion models,” 2023. <a href="https://arxiv.org/abs/2306.04675" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2306.04675</a></li>
+<li>Jayasumana et al., “Rethinking FID: Towards a Better Evaluation Metric for Image Generation” (CMMD), 2024. <a href="https://arxiv.org/abs/2401.09603" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2401.09603</a></li>
+<li>Karras et al., “Analyzing and Improving the Training Dynamics of Diffusion Models” (EDM2), 2024. <a href="https://arxiv.org/abs/2312.02696" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2312.02696</a>; code: <a href="https://github.com/NVlabs/edm2" class="uri" target="_blank" rel="noopener">https://github.com/NVlabs/edm2</a></li>
+<li>Sajjadi et al., “Assessing Generative Models via Precision and Recall,” 2018. <a href="https://arxiv.org/abs/1806.00035" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1806.00035</a></li>
+<li>Kynkäänniemi et al., “Improved Precision and Recall Metric for Assessing Generative Models,” 2019. <a href="https://arxiv.org/abs/1904.06991" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1904.06991</a></li>
+<li>Naeem et al., “Reliable Fidelity and Diversity Metrics for Generative Models,” 2020. <a href="https://arxiv.org/abs/2002.09797" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2002.09797</a></li>
+<li>Hessel et al., “CLIPScore: A Reference-free Evaluation Metric for Image Captioning,” 2021. <a href="https://arxiv.org/abs/2104.08718" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2104.08718</a></li>
+<li>Ghosh, Hajishirzi, Schmidt, “GenEval: An Object-Focused Framework for Evaluating Text-to-Image Alignment,” 2023. <a href="https://arxiv.org/abs/2310.11513" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2310.11513</a></li>
+<li>Huang et al., “T2I-CompBench: A Comprehensive Benchmark for Open-world Compositional Text-to-image Generation,” 2023. <a href="https://arxiv.org/abs/2307.06350" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2307.06350</a></li>
+<li>Hu et al., “ELLA: Equip Diffusion Models with LLM for Enhanced Semantic Alignment” (DPG-Bench), 2024. <a href="https://arxiv.org/abs/2403.05135" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2403.05135</a></li>
+<li>Lin et al., “Evaluating Text-to-Visual Generation with Image-to-Text Generation” (VQAScore), 2024. <a href="https://arxiv.org/abs/2404.01291" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2404.01291</a></li>
+<li>Xu et al., “ImageReward: Learning and Evaluating Human Preferences for Text-to-Image Generation,” 2023. <a href="https://arxiv.org/abs/2304.05977" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2304.05977</a></li>
+<li>Kirstain et al., “Pick-a-Pic: An Open Dataset of User Preferences for Text-to-Image Generation,” 2023. <a href="https://arxiv.org/abs/2305.01569" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.01569</a></li>
+<li>Wu et al., “Human Preference Score v2,” 2023. <a href="https://arxiv.org/abs/2306.09341" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2306.09341</a></li>
+<li>Chiang et al., “Chatbot Arena: An Open Platform for Evaluating LLMs by Human Preference,” 2024. <a href="https://arxiv.org/abs/2403.04132" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2403.04132</a></li>
+<li>Unterthiner et al., “Towards Accurate Generative Models of Video: A New Metric &amp; Challenges” (FVD), 2018. <a href="https://arxiv.org/abs/1812.01717" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1812.01717</a></li>
+<li>Ge et al., “On the Content Bias in Fréchet Video Distance,” 2024. <a href="https://arxiv.org/abs/2404.12391" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2404.12391</a></li>
+<li>Huang et al., “VBench: Comprehensive Benchmark Suite for Video Generative Models,” 2023. <a href="https://arxiv.org/abs/2311.17982" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2311.17982</a></li>
+<li>Wang, Bovik, Sheikh, Simoncelli, “Image Quality Assessment: From Error Visibility to Structural Similarity,” IEEE TIP 2004. <a href="https://www.cns.nyu.edu/pub/lcv/wang03-reprint.pdf" class="uri" target="_blank" rel="noopener">https://www.cns.nyu.edu/pub/lcv/wang03-reprint.pdf</a></li>
+<li>Zhang et al., “The Unreasonable Effectiveness of Deep Features as a Perceptual Metric” (LPIPS), 2018. <a href="https://arxiv.org/abs/1801.03924" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1801.03924</a></li>
+<li>Ding, Ma, Wang, Simoncelli, “Image Quality Assessment: Unifying Structure and Texture Similarity” (DISTS), 2020. <a href="https://arxiv.org/abs/2004.07728" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2004.07728</a></li>
+<li>Zhao, Gallo, Frosio, Kautz, “Loss Functions for Image Restoration with Neural Networks,” IEEE TCI 2017. <a href="https://arxiv.org/abs/1511.08861" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1511.08861</a></li>
+<li>Sheikh and Bovik, “Image Information and Visual Quality” (VIF), IEEE TIP 2006. <a href="https://doi.org/10.1109/TIP.2005.859378" class="uri" target="_blank" rel="noopener">https://doi.org/10.1109/TIP.2005.859378</a></li>
+<li>Mittal, Soundararajan, Bovik, “Making a ‘Completely Blind’ Image Quality Analyzer” (NIQE), IEEE SPL 2013. <a href="https://doi.org/10.1109/LSP.2012.2227726" class="uri" target="_blank" rel="noopener">https://doi.org/10.1109/LSP.2012.2227726</a></li>
+<li>Ke et al., “MUSIQ: Multi-scale Image Quality Transformer,” 2021. <a href="https://arxiv.org/abs/2108.05997" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2108.05997</a></li>
+<li>Yang et al., “MANIQA: Multi-dimension Attention Network for No-Reference Image Quality Assessment,” 2022. <a href="https://arxiv.org/abs/2204.08958" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2204.08958</a></li>
+<li>Wang, Chan, Loy, “Exploring CLIP for Assessing the Look and Feel of Images” (CLIP-IQA), 2023. <a href="https://arxiv.org/abs/2207.12396" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2207.12396</a></li>
+<li>Wu et al., “Q-Align: Teaching LMMs for Visual Scoring via Discrete Text-Defined Levels,” 2023. <a href="https://arxiv.org/abs/2312.17090" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2312.17090</a></li>
+<li>Blau and Michaeli, “The Perception-Distortion Tradeoff,” 2018. <a href="https://arxiv.org/abs/1711.06077" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1711.06077</a></li>
+<li>Blau et al., “The 2018 PIRM Challenge on Perceptual Image Super-resolution,” 2018. <a href="https://arxiv.org/abs/1809.07517" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1809.07517</a></li>
+<li>Freirich, Michaeli, Meir, “A Theory of the Distortion-Perception Tradeoff in Wasserstein Space,” 2021. <a href="https://arxiv.org/abs/2107.02555" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2107.02555</a></li>
+<li>Blau and Michaeli, “Rethinking Lossy Compression: The Rate-Distortion-Perception Tradeoff,” 2019. <a href="https://arxiv.org/abs/1901.07821" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1901.07821</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="gans-vaes-autoregressive.html"><span class="pager-dir">Previous</span><span class="pager-title">GANs, VAEs and Autoregressive Models</span></a>
+        <a class="pager-next" href="restoration-super-resolution.html"><span class="pager-dir">Next</span><span class="pager-title">Image and Video Restoration</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

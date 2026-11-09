@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diffusion Models · Notes · Wanzhou Lei</title>
+  <meta name="description" content="DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, derived in one notation.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Diffusion Models</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#the-forward-process" id="toc-the-forward-process">The forward process</a></li>
+      <li><a href="#the-reverse-process-and-the-elbo" id="toc-the-reverse-process-and-the-elbo">The reverse process and the ELBO</a></li>
+      <li><a href="#score-matching-and-tweedies-formula" id="toc-score-matching-and-tweedies-formula">Score matching and Tweedie’s formula</a></li>
+      <li><a href="#the-sde-view" id="toc-the-sde-view">The SDE view</a></li>
+      <li><a href="#parameterizations" id="toc-parameterizations">Parameterizations</a></li>
+      <li><a href="#noise-schedules-and-snr" id="toc-noise-schedules-and-snr">Noise schedules and SNR</a></li>
+      <li><a href="#loss-weighting-and-edm-preconditioning" id="toc-loss-weighting-and-edm-preconditioning">Loss weighting and EDM preconditioning</a></li>
+      <li><a href="#samplers" id="toc-samplers">Samplers</a></li>
+      <li><a href="#guidance" id="toc-guidance">Guidance</a></li>
+      <li><a href="#latent-diffusion-and-a-note-on-dit" id="toc-latent-diffusion-and-a-note-on-dit">Latent diffusion and a note on DiT</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Diffusion Models</h1>
+        <p class="page-lede">DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, derived in one notation.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>37 practice questions</span><span>30 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#the-forward-process">The forward process</a></li>
+<li><a href="#the-reverse-process-and-the-elbo">The reverse process and the ELBO</a></li>
+<li><a href="#score-matching-and-tweedies-formula">Score matching and Tweedie’s formula</a></li>
+<li><a href="#the-sde-view">The SDE view</a></li>
+<li><a href="#parameterizations">Parameterizations</a></li>
+<li><a href="#noise-schedules-and-snr">Noise schedules and SNR</a></li>
+<li><a href="#loss-weighting-and-edm-preconditioning">Loss weighting and EDM preconditioning</a></li>
+<li><a href="#samplers">Samplers</a></li>
+<li><a href="#guidance">Guidance</a></li>
+<li><a href="#latent-diffusion-and-a-note-on-dit">Latent diffusion and a note on DiT</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>A diffusion model learns to reverse a fixed process that slowly corrupts data with Gaussian noise. Training is a plain regression problem at random noise levels, and sampling calls the same network many times, removing a little noise each time. Most current image and video generators are diffusion models or close relatives, and flow matching reuses most of the same ideas. Interviewers like the topic because short derivations separate memorized slogans (“predict the noise”) from real understanding: why the loss is a mean-squared error, what the network actually estimates, why samplers can skip steps, and why guidance trades diversity for fidelity.</p>
+<p><strong>Notation.</strong> Data <span class="math inline">x_0 \sim p_{\text{data}}</span>, noise <span class="math inline">\epsilon \sim \mathcal{N}(0, I)</span>. DDPM uses a variance schedule <span class="math inline">\beta_1, \dots, \beta_T</span> and <span class="math inline">\bar{\alpha}_t = \prod_{s \le t} (1 - \beta_s)</span>. For the general view I write the noisy sample as <span class="math inline">x_t = \alpha_t x_0 + \sigma_t \epsilon</span>, so <span class="math inline">\alpha_t</span> always means the signal scale (for DDPM, <span class="math inline">\alpha_t = \sqrt{\bar{\alpha}_t}</span> and <span class="math inline">\sigma_t = \sqrt{1 - \bar{\alpha}_t}</span>; I avoid DDPM’s own symbol <span class="math inline">\alpha_t = 1 - \beta_t</span>). <span class="math inline">\mathrm{SNR}(t) = \alpha_t^2 / \sigma_t^2</span> and <span class="math inline">\lambda_t = \log \mathrm{SNR}(t)</span>. The EDM sections use the variance-exploding form <span class="math inline">x = x_0 + \sigma \epsilon</span>, which is the VP sample divided by <span class="math inline">\alpha_t</span>, with <span class="math inline">\sigma = \sigma_t / \alpha_t</span>. The standard deviation of a reverse sampling step is written <span class="math inline">\varsigma_t</span> (DDPM and DDIM call it <span class="math inline">\sigma_t</span>, which would clash with the noise scale).</p>
+<h2 id="the-forward-process">The forward process</h2>
+<p>The forward process is a fixed Markov chain that adds a small amount of Gaussian noise at each step and shrinks the signal so the variance stays bounded:</p>
+<p><span class="math display">
+q(x_t \mid x_{t-1}) = \mathcal{N}\big(\sqrt{1-\beta_t}\, x_{t-1},\ \beta_t I\big).
+</span></p>
+<p>Nothing is learned here. DDPM uses <span class="math inline">T = 1000</span> and <span class="math inline">\beta_t</span> rising linearly from <span class="math inline">10^{-4}</span> to <span class="math inline">0.02</span>.</p>
+<p><strong>Closed form.</strong> Write <span class="math inline">x_t = \sqrt{1-\beta_t}\, x_{t-1} + \sqrt{\beta_t}\, \epsilon_t</span> and assume by induction <span class="math inline">x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}\, x_0 + \sqrt{1-\bar{\alpha}_{t-1}}\, \bar{\epsilon}</span>. Then</p>
+<p><span class="math display">
+x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \underbrace{\sqrt{1-\beta_t}\sqrt{1-\bar{\alpha}_{t-1}}\, \bar{\epsilon} + \sqrt{\beta_t}\, \epsilon_t}_{\text{sum of independent Gaussians}} .
+</span></p>
+<p>The noise term has variance <span class="math inline">(1-\beta_t)(1-\bar{\alpha}_{t-1}) + \beta_t = 1 - \bar{\alpha}_t</span>, so</p>
+<p><span class="math display">
+q(x_t \mid x_0) = \mathcal{N}\big(\sqrt{\bar{\alpha}_t}\, x_0,\ (1-\bar{\alpha}_t) I\big), \qquad x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1-\bar{\alpha}_t}\, \epsilon .
+</span></p>
+<p>This is why training is cheap: pick <span class="math inline">t</span>, draw <span class="math inline">\epsilon</span>, form <span class="math inline">x_t</span> in one shot, with no simulation of the chain.</p>
+<p><strong>The posterior given <span class="math inline">x_0</span>.</strong> The true reverse marginal <span class="math inline">q(x_{t-1} \mid x_t)</span> needs <span class="math inline">p_{\text{data}}</span>, but conditioning on <span class="math inline">x_0</span> makes everything Gaussian. By Bayes, <span class="math inline">q(x_{t-1} \mid x_t, x_0) \propto q(x_t \mid x_{t-1})\, q(x_{t-1} \mid x_0)</span>. Adding the two precisions gives <span class="math inline">\frac{1-\beta_t}{\beta_t} + \frac{1}{1-\bar{\alpha}_{t-1}} = \frac{1-\bar{\alpha}_t}{\beta_t (1-\bar{\alpha}_{t-1})}</span>, and the mean is the precision-weighted combination:</p>
+<p><span class="math display">
+\begin{aligned}
+q(x_{t-1} \mid x_t, x_0) &amp;= \mathcal{N}(\tilde{\mu}_t, \tilde{\beta}_t I), \qquad \tilde{\beta}_t = \frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}\beta_t, \\
+\tilde{\mu}_t &amp;= \frac{\sqrt{\bar{\alpha}_{t-1}}\,\beta_t}{1-\bar{\alpha}_t}\, x_0 + \frac{\sqrt{1-\beta_t}\,(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}\, x_t .
+\end{aligned}
+</span></p>
+<details class="qa qa-asked" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Explain the forward and reverse processes of a diffusion model.</span><span class="qa-badge" title="Reported in a real interview">Asked · Mistral AI SWE screen, PracHub 2026</span>
+</summary><div class="qa-body">
+<p>The forward process is a fixed Gaussian Markov chain that mixes data with more and more noise; it has the closed form <span class="math inline">x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon</span> and ends near <span class="math inline">\mathcal{N}(0, I)</span>. The reverse process is a learned chain <span class="math inline">p_\theta(x_{t-1} \mid x_t)</span>, modeled as Gaussian because each forward step is small. The network takes <span class="math inline">x_t</span>, the noise level and any conditioning, and predicts the noise (or <span class="math inline">x_0</span>, or <span class="math inline">v</span>); training is an MSE at a random <span class="math inline">t</span>. Sampling starts from pure noise and applies the learned denoising step repeatedly, often with fewer steps than training via DDIM or an ODE solver. A complete answer also names the design choices: noise schedule, prediction target, sampler, and guidance scale, since each changes quality, diversity and cost.</p>
+</div></details>
+<details class="qa qa-asked" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">Explain diffusion models and their applications. Why use one instead of a GAN or a VAE?</span><span class="qa-badge" title="Reported in a real interview">Asked · Prenuvo senior ML scientist, Glassdoor 2024</span>
+</summary><div class="qa-body">
+<p>Diffusion models are trained with a stable regression loss, so there is no adversarial game and no mode collapse in the GAN sense, and they cover the data distribution well. A VAE decodes in one step with a simple (often factorized Gaussian) likelihood, so its outputs average over plausible details and look blurry; diffusion splits generation into many small steps, each of which a Gaussian models well, so samples are much sharper. The price is sampling cost: tens to hundreds of network evaluations instead of one, which is why fast solvers and distillation matter. Applications include text-to-image and video generation, super-resolution and inpainting (as conditional generation or as a learned prior for inverse problems), editing via inversion, audio, and molecules. See <a href="gans-vaes-autoregressive.html">GANs, VAEs and autoregressive models</a> for the comparison in depth.</p>
+</div></details>
+<h2 id="the-reverse-process-and-the-elbo">The reverse process and the ELBO</h2>
+<p>If every <span class="math inline">\beta_t</span> is small, the reverse of a single forward step is close to Gaussian, so we set <span class="math inline">p_\theta(x_{t-1} \mid x_t) = \mathcal{N}(\mu_\theta(x_t, t), \varsigma_t^2 I)</span> with <span class="math inline">p(x_T) = \mathcal{N}(0, I)</span>.</p>
+<p><strong>ELBO.</strong> Start from <span class="math inline">-\log p_\theta(x_0) \le \mathbb{E}_q\big[-\log \frac{p_\theta(x_{0:T})}{q(x_{1:T} \mid x_0)}\big]</span>. For <span class="math inline">t \ge 2</span>, the Markov property and Bayes give <span class="math inline">q(x_t \mid x_{t-1}) = q(x_{t-1} \mid x_t, x_0)\, \frac{q(x_t \mid x_0)}{q(x_{t-1} \mid x_0)}</span>. The ratio of marginals telescopes across <span class="math inline">t</span>, leaving</p>
+<p><span class="math display">
+L = \mathbb{E}_q\Big[\underbrace{\mathrm{KL}\big(q(x_T \mid x_0)\,\|\,p(x_T)\big)}_{L_T} + \sum_{t=2}^{T} \underbrace{\mathrm{KL}\big(q(x_{t-1} \mid x_t, x_0)\,\|\,p_\theta(x_{t-1} \mid x_t)\big)}_{L_{t-1}} \underbrace{- \log p_\theta(x_0 \mid x_1)}_{L_0}\Big].
+</span></p>
+<p><span class="math inline">L_T</span> has no parameters. Each <span class="math inline">L_{t-1}</span> is a KL between Gaussians with fixed covariances, so only the means matter:</p>
+<p><span class="math display">
+L_{t-1} = \mathbb{E}_q\Big[\tfrac{1}{2\varsigma_t^2}\big\lVert \tilde{\mu}_t(x_t, x_0) - \mu_\theta(x_t, t)\big\rVert^2\Big] + C.
+</span></p>
+<p><strong>Noise parameterization.</strong> Substitute <span class="math inline">x_0 = (x_t - \sqrt{1-\bar{\alpha}_t}\,\epsilon)/\sqrt{\bar{\alpha}_t}</span> into <span class="math inline">\tilde{\mu}_t</span>. The <span class="math inline">x_t</span> coefficients combine to <span class="math inline">1/\sqrt{1-\beta_t}</span>, giving</p>
+<p><span class="math display">
+\tilde{\mu}_t = \frac{1}{\sqrt{1-\beta_t}}\Big(x_t - \frac{\beta_t}{\sqrt{1-\bar{\alpha}_t}}\,\epsilon\Big).
+</span></p>
+<p>Since <span class="math inline">x_t</span> is a network input, the only unknown is <span class="math inline">\epsilon</span>, so DDPM uses the same form with <span class="math inline">\epsilon_\theta(x_t, t)</span> in place of <span class="math inline">\epsilon</span>. Then</p>
+<p><span class="math display">
+L_{t-1} = \mathbb{E}\Big[\frac{\beta_t^2}{2\varsigma_t^2 (1-\beta_t)(1-\bar{\alpha}_t)}\big\lVert \epsilon - \epsilon_\theta(\sqrt{\bar{\alpha}_t}x_0 + \sqrt{1-\bar{\alpha}_t}\epsilon,\ t)\big\rVert^2\Big] + C,
+</span></p>
+<p>and Ho et al. drop the weight:</p>
+<p><span class="math display">
+L_{\text{simple}} = \mathbb{E}_{t \sim \mathcal{U}\{1..T\},\, x_0,\, \epsilon}\big\lVert \epsilon - \epsilon_\theta(x_t, t)\big\rVert^2 .
+</span></p>
+<p>The dropped weight is largest at small <span class="math inline">t</span>, so <span class="math inline">L_{\text{simple}}</span> shifts emphasis toward harder, noisier steps. It gives better samples and worse likelihoods than the true bound. DDPM fixes <span class="math inline">\varsigma_t^2</span> to <span class="math inline">\beta_t</span> or <span class="math inline">\tilde{\beta}_t</span> (similar results). Improved DDPM (Nichol &amp; Dhariwal) learns <span class="math inline">\Sigma_\theta = \exp(v \log \beta_t + (1-v)\log \tilde{\beta}_t)</span> with <span class="math inline">L_{\text{hybrid}} = L_{\text{simple}} + 0.001\, L_{\text{vlb}}</span>, which improves likelihood and keeps quality with about 100 sampling steps.</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“<span class="math inline">L_{\text{simple}}</span> is the ELBO.” It is a reweighted ELBO. Kingma &amp; Gao show that the common objectives are all the same per-noise-level loss integrated with different weights <span class="math inline">w(\lambda)</span>; only <span class="math inline">w(\lambda) = 1</span> is the ELBO.</p>
+</aside>
+<details class="qa" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">The DDPM chain has 1000 latent steps. Why does its loss reduce to a simple MSE on the noise?</span>
+</summary><div class="qa-body">
+<p>Three structural facts do the work. The forward marginals <span class="math inline">q(x_t \mid x_0)</span> are Gaussian in closed form, so any <span class="math inline">x_t</span> is one reparameterized sample away. The forward posterior <span class="math inline">q(x_{t-1} \mid x_t, x_0)</span> is also Gaussian, so the ELBO splits into per-step KLs between Gaussians. With the reverse variance fixed, each KL is a weighted squared distance between means, and writing the mean in terms of <span class="math inline">\epsilon</span> turns it into a weighted <span class="math inline">\lVert \epsilon - \epsilon_\theta \rVert^2</span>. Uniform sampling of <span class="math inline">t</span> gives an unbiased estimate of the sum, so no chain is ever simulated. Dropping the weights gives <span class="math inline">L_{\text{simple}}</span>.</p>
+</div></details>
+<details class="qa" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">Why is each reverse step modeled as a Gaussian, and when does that assumption fail?</span>
+</summary><div class="qa-body">
+<p>The true reverse step <span class="math inline">q(x_{t-1} \mid x_t)</span> is a mixture over all clean images consistent with <span class="math inline">x_t</span>. When the forward step is small, <span class="math inline">x_{t-1}</span> is pinned close to <span class="math inline">x_t</span> and this mixture is close to a Gaussian, so a Gaussian model loses little. With large jumps (few sampling steps), the reverse conditional becomes multimodal, and a Gaussian centered on the conditional mean averages the modes, which produces blur. This is why naive few-step sampling degrades and why few-step generators use distillation or adversarial losses, covered on the <a href="flow-matching.html">flow matching</a> page.</p>
+</div></details>
+<details class="qa qa-asked" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">Write the core of a DDPM training step.</span><span class="qa-badge" title="Reported in a real interview">Asked · Photoroom AS, diffusion coding task, Glassdoor 2025</span>
+</summary><div class="qa-body">
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> ddpm_loss(model, x0, alpha_bar):           <span class="co"># alpha_bar: (T,) cumulative products</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    B <span class="op">=</span> x0.shape[<span class="dv">0</span>]</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    t <span class="op">=</span> torch.randint(<span class="dv">0</span>, alpha_bar.numel(), (B,), device<span class="op">=</span>x0.device)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    a <span class="op">=</span> alpha_bar[t].view(B, <span class="op">*</span>([<span class="dv">1</span>] <span class="op">*</span> (x0.dim() <span class="op">-</span> <span class="dv">1</span>)))</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    eps <span class="op">=</span> torch.randn_like(x0)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    xt <span class="op">=</span> a.sqrt() <span class="op">*</span> x0 <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> a).sqrt() <span class="op">*</span> eps</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> F.mse_loss(model(xt, t), eps)</span></code></pre></div>
+<p>Things interviewers check: broadcasting <span class="math inline">\bar{\alpha}_t</span> per sample, using <span class="math inline">\bar{\alpha}_t</span> (not <span class="math inline">\beta_t</span>) and square roots, consistent 0- or 1-based timestep indexing between training and sampling, and, for conditional models, randomly replacing the condition with a null token so classifier-free guidance works later.</p>
+</div></details>
+<h2 id="score-matching-and-tweedies-formula">Score matching and Tweedie’s formula</h2>
+<p>The score <span class="math inline">\nabla_x \log p(x)</span> does not depend on the normalizing constant, so it is a natural target. Plain score matching needs the unknown <span class="math inline">\nabla \log p</span>; denoising score matching (Vincent, 2011) replaces it with something we know.</p>
+<p><strong>DSM identity.</strong> Let <span class="math inline">p_\sigma(\tilde{x}) = \int q(\tilde{x} \mid x)\, p(x)\, dx</span> with Gaussian <span class="math inline">q</span>. Then</p>
+<p><span class="math display">
+\mathbb{E}_{p_\sigma}\big\lVert s(\tilde{x}) - \nabla \log p_\sigma(\tilde{x})\big\rVert^2 = \mathbb{E}_{p(x)\,q(\tilde{x} \mid x)}\big\lVert s(\tilde{x}) - \nabla_{\tilde{x}} \log q(\tilde{x} \mid x)\big\rVert^2 + C.
+</span></p>
+<p>Expand both squares. The <span class="math inline">\lVert s \rVert^2</span> terms match, and the cross terms match because</p>
+<p><span class="math display">
+\mathbb{E}_{p_\sigma}[s^\top \nabla \log p_\sigma] = \int s^\top \nabla p_\sigma\, d\tilde{x} = \iint s^\top \nabla_{\tilde{x}} q(\tilde{x} \mid x)\, p(x)\, dx\, d\tilde{x} = \mathbb{E}[s^\top \nabla_{\tilde{x}} \log q(\tilde{x} \mid x)].
+</span></p>
+<p>For <span class="math inline">x_t = \alpha_t x_0 + \sigma_t \epsilon</span>, <span class="math inline">\nabla \log q(x_t \mid x_0) = -\epsilon/\sigma_t</span>, so DSM at level <span class="math inline">t</span> is <span class="math inline">\mathbb{E}\lVert s_\theta(x_t) + \epsilon/\sigma_t \rVert^2</span>. With <span class="math inline">s_\theta = -\epsilon_\theta/\sigma_t</span> this is <span class="math inline">\sigma_t^{-2}\,\mathbb{E}\lVert \epsilon_\theta - \epsilon \rVert^2</span>: noise prediction is denoising score matching up to a per-level weight.</p>
+<p><strong>Tweedie’s formula.</strong> The same exchange of gradient and integral gives <span class="math inline">\nabla \log p_t(x_t) = \mathbb{E}[\nabla \log q(x_t \mid x_0) \mid x_t] = -\big(x_t - \alpha_t\, \mathbb{E}[x_0 \mid x_t]\big)/\sigma_t^2</span>. Rearranging:</p>
+<p><span class="math display">
+\mathbb{E}[x_0 \mid x_t] = \frac{x_t + \sigma_t^2\, \nabla \log p_t(x_t)}{\alpha_t}, \qquad \mathbb{E}[\epsilon \mid x_t] = -\sigma_t\, \nabla \log p_t(x_t).
+</span></p>
+<p><strong>Why the denoiser estimates the posterior mean.</strong> For any random pair, <span class="math inline">\arg\min_f \mathbb{E}\lVert x_0 - f(x_t)\rVert^2 = \mathbb{E}[x_0 \mid x_t]</span>. So an MSE-trained <span class="math inline">x_0</span>-predictor converges to the posterior mean, an <span class="math inline">\epsilon</span>-predictor to <span class="math inline">\mathbb{E}[\epsilon \mid x_t]</span>, and by Tweedie both are affine functions of the score of the noisy marginal <span class="math inline">p_t</span>.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>The network cannot recover the exact noise that was added; that is not identifiable from <span class="math inline">x_t</span>. It learns the average noise consistent with <span class="math inline">x_t</span>, which is a rescaled score. One trained denoiser is therefore a score model at every noise level.</p>
+</aside>
+<details class="qa" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">Why does a network trained to predict noise give you the score?</span>
+</summary><div class="qa-body">
+<p>MSE regression converges to a conditional expectation, so at the optimum <span class="math inline">\epsilon_\theta(x_t, t) = \mathbb{E}[\epsilon \mid x_t]</span>. Tweedie’s formula for Gaussian corruption gives <span class="math inline">\mathbb{E}[\epsilon \mid x_t] = -\sigma_t \nabla \log p_t(x_t)</span>, so <span class="math inline">s_\theta = -\epsilon_\theta/\sigma_t</span>. Equivalently, the <span class="math inline">\epsilon</span>-loss is denoising score matching up to a per-level weight, and DSM equals explicit score matching on <span class="math inline">p_t</span> up to a constant. Two caveats: this holds only at the optimum, and it gives the score of the noise-smoothed marginal <span class="math inline">p_t</span>, not of <span class="math inline">p_{\text{data}}</span>, which may not have a score at all if the data sit on a low-dimensional manifold.</p>
+</div></details>
+<details class="qa" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">One-step <span class="math inline">x_0</span> predictions at high noise look blurry. Why are final samples sharp?</span>
+</summary><div class="qa-body">
+<p>At high noise many clean images are consistent with <span class="math inline">x_t</span>, and the MSE-optimal prediction is their average, the posterior mean, which is blurry. The sampler does not output that high-noise average directly. Each step moves only a little toward it and then either re-noises (ancestral sampling) or follows the ODE, so the next prediction is made from a less noisy input where the posterior is narrower. The sequence of small, locally accurate steps commits to one mode gradually. Blur reappears when you take too few steps, because each step then trusts a wide posterior mean.</p>
+</div></details>
+<h2 id="the-sde-view">The SDE view</h2>
+<p>Song et al. (2021) take <span class="math inline">T \to \infty</span>, giving a forward SDE <span class="math inline">dx = f(x,t)\,dt + g(t)\,dw</span>.</p>
+<ul>
+<li><strong>VP SDE</strong> (limit of DDPM): <span class="math inline">x_i = \sqrt{1-\beta_i}\,x_{i-1} + \sqrt{\beta_i}\,z</span> becomes <span class="math inline">dx = -\tfrac{1}{2}\beta(t)\,x\,dt + \sqrt{\beta(t)}\,dw</span>. Variance stays bounded.</li>
+<li><strong>VE SDE</strong> (limit of NCSN): <span class="math inline">x_i = x_{i-1} + \sqrt{\sigma_i^2 - \sigma_{i-1}^2}\,z</span> becomes <span class="math inline">dx = \sqrt{\tfrac{d[\sigma^2(t)]}{dt}}\,dw</span>. Here <span class="math inline">\alpha_t = 1</span> and the variance grows to <span class="math inline">\sigma_{\max}^2</span>.</li>
+</ul>
+<p><strong>Reverse-time SDE</strong> (Anderson, 1982), integrated from <span class="math inline">t = T</span> down to <span class="math inline">0</span>:</p>
+<p><span class="math display">
+dx = \big[f(x,t) - g(t)^2 \nabla_x \log p_t(x)\big]\,dt + g(t)\,d\bar{w}.
+</span></p>
+<p><strong>Probability-flow ODE.</strong> The Fokker-Planck equation of the forward SDE is <span class="math inline">\partial_t p_t = -\nabla\cdot(f p_t) + \tfrac{1}{2}g^2 \Delta p_t</span>. Since <span class="math inline">\Delta p = \nabla\cdot(p\,\nabla \log p)</span>,</p>
+<p><span class="math display">
+\partial_t p_t = -\nabla\cdot\Big[\big(f - \tfrac{1}{2}g^2 \nabla \log p_t\big)\,p_t\Big],
+</span></p>
+<p>which is a continuity equation with velocity <span class="math inline">f - \tfrac{1}{2}g^2\nabla\log p_t</span>. So the deterministic ODE</p>
+<p><span class="math display">
+\frac{dx}{dt} = f(x,t) - \tfrac{1}{2}g(t)^2\, \nabla_x \log p_t(x)
+</span></p>
+<p>has exactly the same marginals <span class="math inline">p_t</span> as the SDE. The same argument gives a whole family: for any <span class="math inline">\zeta \ge 0</span>, the reverse process <span class="math inline">dx = [f - \tfrac{1+\zeta^2}{2} g^2 \nabla \log p_t]\,dt + \zeta g\, d\bar{w}</span> preserves the marginals (<span class="math inline">\zeta = 1</span> is the reverse SDE, <span class="math inline">\zeta = 0</span> the ODE). The ODE gives a deterministic, invertible map between noise and data, exact likelihoods via the instantaneous change-of-variables formula (with a Hutchinson trace estimator), and access to high-order ODE solvers.</p>
+<p>In EDM’s VE form with <span class="math inline">\sigma(t) = t</span>, Tweedie gives <span class="math inline">\nabla \log p(x;\sigma) = (D(x;\sigma) - x)/\sigma^2</span> for the denoiser <span class="math inline">D</span>, and the ODE becomes <span class="math inline">dx/d\sigma = (x - D(x;\sigma))/\sigma</span>. All EDM samplers integrate this.</p>
+<details class="qa" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">How are DDPM and score-based generative models (NCSN) related?</span>
+</summary><div class="qa-body">
+<p>They are two discretizations of the same continuous framework: DDPM is a discretized VP SDE and NCSN (annealed Langevin over noise levels) is a discretized VE SDE. DDPM’s noise predictor is a scaled score, <span class="math inline">s_\theta = -\epsilon_\theta/\sigma_t</span>, and both are trained by denoising score matching with different per-level weights. Ancestral DDPM sampling is a discretization of the reverse SDE; NCSN’s Langevin steps act as a corrector. The SDE view adds the probability-flow ODE (deterministic sampling, likelihoods), predictor-corrector samplers, and a clean way to compare schedules.</p>
+</div></details>
+<details class="qa" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">The probability-flow ODE injects no noise. How can it produce the same distribution as the reverse SDE?</span>
+</summary><div class="qa-body">
+<p>The Fokker-Planck equation of the SDE can be rewritten as a pure transport equation by absorbing the diffusion term into the drift: <span class="math inline">\tfrac{1}{2}g^2\Delta p = \nabla\cdot(\tfrac{1}{2}g^2 p\, \nabla\log p)</span>. A deterministic flow with that modified drift moves probability mass exactly as the SDE does, so the marginals match at every <span class="math inline">t</span>, while individual trajectories differ. The equivalence assumes the exact score. With learned scores and discretization error, the two behave differently: the SDE’s fresh noise tends to contract accumulated errors, while the ODE carries them forward but converges faster with high-order solvers.</p>
+</div></details>
+<h2 id="parameterizations">Parameterizations</h2>
+<p>Given <span class="math inline">x_t</span> and <span class="math inline">t</span>, the relation <span class="math inline">x_t = \alpha_t x_0 + \sigma_t \epsilon</span> leaves one unknown, so every target is an affine function of the others. With variance preserving <span class="math inline">\alpha_t^2 + \sigma_t^2 = 1</span>:</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Target</th>
+<th>Definition</th>
+<th>Recover <span class="math inline">\hat{x}_0</span></th>
+<th>Recover <span class="math inline">\hat{\epsilon}</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>noise</td>
+<td><span class="math inline">\epsilon</span></td>
+<td><span class="math inline">(x_t - \sigma_t \hat{\epsilon})/\alpha_t</span></td>
+<td><span class="math inline">\hat{\epsilon}</span></td>
+</tr>
+<tr>
+<td>data</td>
+<td><span class="math inline">x_0</span></td>
+<td><span class="math inline">\hat{x}_0</span></td>
+<td><span class="math inline">(x_t - \alpha_t \hat{x}_0)/\sigma_t</span></td>
+</tr>
+<tr>
+<td>velocity</td>
+<td><span class="math inline">v = \alpha_t \epsilon - \sigma_t x_0</span></td>
+<td><span class="math inline">\alpha_t x_t - \sigma_t \hat{v}</span></td>
+<td><span class="math inline">\sigma_t x_t + \alpha_t \hat{v}</span></td>
+</tr>
+<tr>
+<td>score</td>
+<td><span class="math inline">\nabla \log p_t(x_t)</span></td>
+<td><span class="math inline">(x_t + \sigma_t^2 \hat{s})/\alpha_t</span></td>
+<td><span class="math inline">-\sigma_t \hat{s}</span></td>
+</tr>
+</tbody>
+</table>
+<p>With <span class="math inline">\alpha_t = \cos\phi</span>, <span class="math inline">\sigma_t = \sin\phi</span>, <span class="math inline">v = dx_t/d\phi</span>, the velocity along the circle between data and noise. In terms of the <span class="math inline">x_0</span> error,</p>
+<p><span class="math display">
+\lVert \epsilon - \hat{\epsilon}\rVert^2 = \mathrm{SNR}(t)\,\lVert x_0 - \hat{x}_0\rVert^2, \qquad \lVert v - \hat{v}\rVert^2 = \big(1 + \mathrm{SNR}(t)\big)\lVert x_0 - \hat{x}_0\rVert^2 .
+</span></p>
+<p>So changing the target does two things: it changes the implied loss weight over noise levels, and it changes how well-conditioned the regression is (how large the target is and how much output errors get amplified).</p>
+<p>When each is preferred:</p>
+<ul>
+<li><strong><span class="math inline">\epsilon</span></strong>: unit-variance target at every level; works well for many-step sampling. But <span class="math inline">\hat{x}_0 = (x_t - \sigma_t\hat{\epsilon})/\alpha_t</span> amplifies errors by <span class="math inline">\sigma_t/\alpha_t</span> at low SNR, and at zero SNR the task is trivial (<span class="math inline">x_T = \epsilon</span>) and says nothing about data.</li>
+<li><strong><span class="math inline">x_0</span></strong>: well-behaved at high noise (predict a mean image). At low noise the network must reproduce almost its input, and the implied <span class="math inline">\epsilon</span> is noisy; usually paired with a skip connection.</li>
+<li><strong><span class="math inline">v</span></strong>: behaves like <span class="math inline">\epsilon</span>-prediction at high SNR and like <span class="math inline">-x_0</span> at low SNR, with a unit-variance target if the data have unit variance. It stays well-defined at zero SNR, which is why progressive distillation and the zero-terminal-SNR fix use it.</li>
+<li><strong>score</strong>: natural in theory, but it scales like <span class="math inline">1/\sigma_t</span>, so networks rarely output it directly.</li>
+<li><strong>EDM preconditioning</strong> (next section) mixes these in a <span class="math inline">\sigma</span>-dependent way; with <span class="math inline">\sigma_{\text{data}} = 1</span> its network input <span class="math inline">c_{\text{in}}x</span> is exactly the VP sample <span class="math inline">x_t</span> (with <span class="math inline">\sigma_t/\alpha_t = \sigma</span>) and its effective target is exactly <span class="math inline">-v</span>.</li>
+</ul>
+<details class="qa" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Compare <span class="math inline">\epsilon</span>-, <span class="math inline">x_0</span>- and <span class="math inline">v</span>-prediction. When would you pick each?</span>
+</summary><div class="qa-body">
+<p>All three carry the same information given <span class="math inline">x_t</span>, so the differences are optimization and numerics. <span class="math inline">\epsilon</span>-prediction has a unit-variance target and is the classic choice for many-step samplers, but implied <span class="math inline">\hat{x}_0</span> errors are amplified by <span class="math inline">\sigma_t/\alpha_t</span> at low SNR. <span class="math inline">x_0</span>-prediction is stable at high noise but wasteful at low noise, where it must copy most of the input. <span class="math inline">v</span>-prediction interpolates: like <span class="math inline">\epsilon</span> when noise is small, like <span class="math inline">x_0</span> when noise is large, so its errors stay bounded across the range. I would use <span class="math inline">v</span> (or EDM preconditioning) for zero terminal SNR, few-step distillation or high resolution, and remember that switching targets also changes the implied loss weighting.</p>
+</div></details>
+<details class="qa" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Why does <span class="math inline">\epsilon</span>-prediction break down at zero SNR and in one-step distillation?</span>
+</summary><div class="qa-body">
+<p>At zero SNR, <span class="math inline">x_T = \epsilon</span>, so predicting the noise is the identity map and the loss gives no signal about the data. Converting to an image needs <span class="math inline">\hat{x}_0 = (x_t - \sigma_t\hat{\epsilon})/\alpha_t</span>, which divides by <span class="math inline">\alpha_t = 0</span>. Near zero SNR the division is finite but amplifies tiny output errors enormously. With many steps later updates correct this; with one or few steps the first prediction must already be a good image. Equivalently, the <span class="math inline">\epsilon</span>-loss gives weight <span class="math inline">\mathrm{SNR} \to 0</span> to <span class="math inline">x_0</span> reconstruction there. Salimans &amp; Ho switched to <span class="math inline">x_0</span>, mixed, or <span class="math inline">v</span> targets for this reason.</p>
+</div></details>
+<h2 id="noise-schedules-and-snr">Noise schedules and SNR</h2>
+<p>Think of a schedule as a curve <span class="math inline">\lambda_t</span> in log-SNR. It decides which noise levels the network trains on and how often, and separately, where the sampler places its steps. Kingma &amp; Gao make the training side precise: changing variables from <span class="math inline">t</span> to <span class="math inline">\lambda</span>,</p>
+<p><span class="math display">
+\mathcal{L}_w = \tfrac{1}{2}\int_{\lambda_{\min}}^{\lambda_{\max}} w(\lambda)\, \mathbb{E}_\epsilon\lVert \hat{\epsilon}_\theta(x_\lambda;\lambda) - \epsilon\rVert^2\, d\lambda,
+</span></p>
+<p>which does not depend on the schedule except through its endpoints. The schedule only sets the sampling density <span class="math inline">p(\lambda)</span> of a Monte Carlo estimate, that is, an importance-sampling distribution. Plain <span class="math inline">\epsilon</span>-MSE with uniform <span class="math inline">t</span> therefore has implied weight <span class="math inline">w(\lambda) = p(\lambda)</span>.</p>
+<p><strong>Linear and cosine.</strong> DDPM’s linear <span class="math inline">\beta_t</span> destroys information too early at 32 and 64 pixels: Nichol &amp; Dhariwal found that skipping up to the first 20% of the reverse process (the noisiest steps) barely changed FID. Their cosine schedule sets</p>
+<p><span class="math display">
+\bar{\alpha}_t = \frac{f(t)}{f(0)}, \qquad f(t) = \cos^2\Big(\frac{t/T + s}{1+s}\cdot\frac{\pi}{2}\Big), \quad s = 0.008,
+</span></p>
+<p>with <span class="math inline">\beta_t</span> clipped at <span class="math inline">0.999</span>. In continuous time without the offset this is <span class="math inline">\lambda_t = -2\log\tan(\pi t/2)</span>.</p>
+<p><strong>Resolution-dependent shifting.</strong> Noise is independent per pixel, but image content is strongly correlated across neighboring pixels. Averaging an <span class="math inline">s \times s</span> patch keeps the signal and divides noise variance by <span class="math inline">s^2</span>, so the coarse-scale SNR is <span class="math inline">s^2</span> times the per-pixel SNR. At high resolution, the same schedule leaves global layout visible at nominally high noise, so the model has only a short window in which to decide composition. Simple diffusion (Hoogeboom et al.) defines the schedule at a reference resolution of 64 and sets</p>
+<p><span class="math display">
+\mathrm{SNR}^{d\times d}_{\text{shift}}(t) = \mathrm{SNR}^{64\times 64}(t)\cdot (64/d)^2,
+</span></p>
+<p>a shift of <span class="math inline">2\log(64/d)</span> in log-SNR. Stable Diffusion 3 uses the same idea for rectified flow, <span class="math inline">t_m = \frac{\alpha t_n}{1 + (\alpha - 1)t_n}</span> with shift factor <span class="math inline">\alpha = \sqrt{m/n}</span> for pixel counts <span class="math inline">m, n</span> (here <span class="math inline">\alpha</span> is not the signal scale; equivalently <span class="math inline">\lambda</span> shifted by <span class="math inline">-2\log\alpha</span>), and uses <span class="math inline">\alpha = 3</span> at <span class="math inline">1024^2</span>. See <a href="flow-matching.html">flow matching</a> for that parameterization.</p>
+<p><strong>Zero terminal SNR.</strong> The linear, clipped cosine and Stable Diffusion schedules do not reach <span class="math inline">\mathrm{SNR} = 0</span>. Stable Diffusion’s schedule ends at <span class="math inline">\sqrt{\bar{\alpha}_T} \approx 0.068</span>, so <span class="math inline">x_T \approx 0.068\,x_0 + 0.998\,\epsilon</span>. During training the model sees this leaked low-frequency signal at <span class="math inline">t = T</span>, including each channel’s mean, and learns to keep it. At inference it gets pure noise with zero mean, so outputs stay near medium brightness and prompts like “solid black background” fail. Lin et al. fix the mismatch with four changes: (1) rescale so <span class="math inline">\sqrt{\bar{\alpha}_T} = 0</span> while keeping <span class="math inline">\sqrt{\bar{\alpha}_1}</span>,</p>
+<p><span class="math display">
+\sqrt{\bar{\alpha}_t}&#39; = \big(\sqrt{\bar{\alpha}_t} - \sqrt{\bar{\alpha}_T}\big)\,\frac{\sqrt{\bar{\alpha}_1}}{\sqrt{\bar{\alpha}_1} - \sqrt{\bar{\alpha}_T}};
+</span></p>
+<ol start="2" type="1">
+<li>train with <span class="math inline">v</span>-prediction, since <span class="math inline">\epsilon</span>-prediction is trivial at <span class="math inline">t = T</span> (there <span class="math inline">v = -x_0</span>, so the model predicts the prompt-conditional mean); (3) make samplers start at <span class="math inline">t = T</span> (“trailing” timestep spacing; some DDIM implementations never visit <span class="math inline">T</span>); (4) rescale CFG to avoid over-exposure. VE schedules cannot reach zero SNR because <span class="math inline">\alpha_t = 1</span>.</li>
+</ol>
+<details class="qa" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">Why should the noise schedule change with resolution?</span>
+</summary><div class="qa-body">
+<p>SNR is defined per pixel, but what matters for generation is how much of the image’s structure survives. Neighboring pixels share signal while noise is independent, so downsampling by <span class="math inline">s</span> raises the effective SNR by <span class="math inline">s^2</span>. A schedule tuned at 64 pixels therefore under-noises a 512-pixel image: global structure is still readable at what should be near-pure noise, and the model gets little training at the levels where layout is decided. Shifting log-SNR down by <span class="math inline">2\log(d/64)</span> (simple diffusion) or using SD3’s timestep shift restores the balance. Some papers interpolate between shifts so fine detail still gets enough steps.</p>
+</div></details>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">What is zero terminal SNR, and which train/test mismatch does it fix?</span>
+</summary><div class="qa-body">
+<p>Schedules like Stable Diffusion’s leave a little signal at <span class="math inline">t = T</span> (<span class="math inline">\sqrt{\bar{\alpha}_T} \approx 0.068</span>). In training the model learns to read low-frequency information such as the mean color from that leak; at sampling the input is pure zero-mean noise, so outputs stay near medium brightness. Rescaling so <span class="math inline">\bar{\alpha}_T = 0</span> makes the training input at <span class="math inline">t = T</span> match the sampling input. It requires <span class="math inline">v</span>- or <span class="math inline">x_0</span>-prediction (at zero SNR, <span class="math inline">\epsilon</span>-prediction is trivial and <span class="math inline">\hat{x}_0</span> undefined), a sampler that starts at <span class="math inline">t = T</span>, and, per Lin et al., CFG rescaling to prevent over-exposure.</p>
+</div></details>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“The cosine schedule reaches zero SNR.” Improved DDPM clips <span class="math inline">\beta_t \le 0.999</span>, so its terminal SNR is small but positive; removing the clip fixes it. Also, the training schedule and the sampling time grid are separate choices.</p>
+</aside>
+<h2 id="loss-weighting-and-edm-preconditioning">Loss weighting and EDM preconditioning</h2>
+<p>All the objectives above can be written as <span class="math inline">\mathbb{E}_t[w(t)\,\lVert x_0 - \hat{x}_0\rVert^2]</span> for some weight. The <span class="math inline">\epsilon</span>-loss corresponds to <span class="math inline">w = \mathrm{SNR}</span>, which puts very large weight on low-noise steps that are easy and contribute little to perceptual quality.</p>
+<p><strong>Min-SNR-<span class="math inline">\gamma</span></strong> (Hang et al.) treats each timestep as a task in a multi-task problem whose gradients conflict, and clamps the weight to <span class="math inline">w_t = \min(\mathrm{SNR}(t), \gamma)</span> in <span class="math inline">x_0</span> space, default <span class="math inline">\gamma = 5</span>. For other targets, divide by the implicit factor:</p>
+<p><span class="math display">
+w^{\epsilon}_t = \frac{\min(\mathrm{SNR}, \gamma)}{\mathrm{SNR}} = \min\Big(\frac{\gamma}{\mathrm{SNR}}, 1\Big), \qquad w^{v}_t = \frac{\min(\mathrm{SNR}, \gamma)}{\mathrm{SNR} + 1}.
+</span></p>
+<p>They report about 3.4 times faster convergence to the same FID on ImageNet 256.</p>
+<p><strong>EDM preconditioning</strong> (Karras et al. 2022). Write the denoiser as</p>
+<p><span class="math display">
+D_\theta(x;\sigma) = c_{\text{skip}}(\sigma)\,x + c_{\text{out}}(\sigma)\,F_\theta\big(c_{\text{in}}(\sigma)\,x;\ c_{\text{noise}}(\sigma)\big),
+</span></p>
+<p>with <span class="math inline">x = x_0 + \sigma\epsilon</span> and data standard deviation <span class="math inline">\sigma_{\text{data}}</span>. The loss <span class="math inline">\lambda(\sigma)\lVert D_\theta - x_0\rVert^2</span> equals <span class="math inline">\lambda(\sigma)\,c_{\text{out}}^2\,\lVert F_\theta - (x_0 - c_{\text{skip}}x)/c_{\text{out}}\rVert^2</span>. The design rules:</p>
+<ul>
+<li>Unit-variance input: <span class="math inline">c_{\text{in}}^2(\sigma^2 + \sigma_{\text{data}}^2) = 1</span>, so <span class="math inline">c_{\text{in}} = 1/\sqrt{\sigma^2 + \sigma_{\text{data}}^2}</span>.</li>
+<li>Unit-variance target: <span class="math inline">c_{\text{out}}^2 = (1 - c_{\text{skip}})^2\sigma_{\text{data}}^2 + c_{\text{skip}}^2\sigma^2</span>.</li>
+<li>Amplify network errors as little as possible: minimize <span class="math inline">c_{\text{out}}</span> over <span class="math inline">c_{\text{skip}}</span>. Setting the derivative to zero gives</li>
+</ul>
+<p><span class="math display">
+c_{\text{skip}} = \frac{\sigma_{\text{data}}^2}{\sigma^2 + \sigma_{\text{data}}^2}, \qquad c_{\text{out}} = \frac{\sigma\,\sigma_{\text{data}}}{\sqrt{\sigma^2 + \sigma_{\text{data}}^2}}, \qquad c_{\text{noise}} = \tfrac{1}{4}\ln\sigma .
+</span></p>
+<ul>
+<li>Equalize the effective weight (<span class="math inline">\lambda(\sigma)</span> here is EDM’s loss weight, not log-SNR): <span class="math inline">\lambda(\sigma) = 1/c_{\text{out}}^2 = (\sigma^2 + \sigma_{\text{data}}^2)/(\sigma\,\sigma_{\text{data}})^2</span>.</li>
+</ul>
+<p>As <span class="math inline">\sigma \to 0</span>, <span class="math inline">c_{\text{skip}} \to 1</span> and <span class="math inline">D \approx x</span> (the network only adds a small correction); as <span class="math inline">\sigma \to \infty</span>, <span class="math inline">c_{\text{skip}} \to 0</span> and the network predicts <span class="math inline">x_0</span> directly. Training noise levels follow a log-normal, <span class="math inline">\ln\sigma \sim \mathcal{N}(P_{\text{mean}}, P_{\text{std}}^2)</span> with <span class="math inline">P_{\text{mean}} = -1.2</span>, <span class="math inline">P_{\text{std}} = 1.2</span> and <span class="math inline">\sigma_{\text{data}} = 0.5</span>, because the loss can only be reduced substantially at intermediate noise: at tiny <span class="math inline">\sigma</span> the noise is hard to detect and irrelevant, and at huge <span class="math inline">\sigma</span> the best answer is close to the dataset mean.</p>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Derive EDM’s <span class="math inline">c_{\text{skip}}</span>, <span class="math inline">c_{\text{out}}</span> and <span class="math inline">c_{\text{in}}</span>.</span>
+</summary><div class="qa-body">
+<p>With <span class="math inline">x = x_0 + \sigma\epsilon</span> and independent <span class="math inline">x_0</span> of variance <span class="math inline">\sigma_{\text{data}}^2</span>, the input has variance <span class="math inline">\sigma^2 + \sigma_{\text{data}}^2</span>, so <span class="math inline">c_{\text{in}} = (\sigma^2 + \sigma_{\text{data}}^2)^{-1/2}</span>. The network’s effective target is <span class="math inline">(x_0 - c_{\text{skip}}x)/c_{\text{out}}</span>; requiring unit variance gives <span class="math inline">c_{\text{out}}^2 = (1 - c_{\text{skip}})^2\sigma_{\text{data}}^2 + c_{\text{skip}}^2\sigma^2</span>. Minimizing this over <span class="math inline">c_{\text{skip}}</span> (so network errors are scaled up as little as possible) gives <span class="math inline">c_{\text{skip}} = \sigma_{\text{data}}^2/(\sigma^2 + \sigma_{\text{data}}^2)</span>. Substituting back gives <span class="math inline">c_{\text{out}} = \sigma\sigma_{\text{data}}/\sqrt{\sigma^2 + \sigma_{\text{data}}^2}</span>. Finally <span class="math inline">\lambda = 1/c_{\text{out}}^2</span> makes the effective loss weight one at every <span class="math inline">\sigma</span>.</p>
+</div></details>
+<details class="qa" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">Why does Min-SNR weighting speed up training?</span>
+</summary><div class="qa-body">
+<p>Under the <span class="math inline">\epsilon</span>-loss, the implied <span class="math inline">x_0</span>-space weight is the SNR, so low-noise timesteps dominate the gradient even though those denoising tasks are easy and matter little for global structure. Hang et al. measure that gradients from different timesteps conflict, and they frame training as multi-task learning. Clamping the weight at <span class="math inline">\gamma</span> caps the influence of high-SNR steps and leaves noisier steps unchanged, which is close to the Pareto-optimal weighting they compute directly. For an <span class="math inline">\epsilon</span>-model the per-sample weight is <span class="math inline">\min(\gamma/\mathrm{SNR}, 1)</span>, which down-weights only the cleanest timesteps.</p>
+</div></details>
+<h2 id="samplers">Samplers</h2>
+<p><strong>Ancestral DDPM.</strong> Use the learned reverse Gaussian:</p>
+<p><span class="math display">
+x_{t-1} = \frac{1}{\sqrt{1-\beta_t}}\Big(x_t - \frac{\beta_t}{\sqrt{1-\bar{\alpha}_t}}\,\epsilon_\theta(x_t, t)\Big) + \varsigma_t z, \qquad \varsigma_t^2 \in \{\beta_t, \tilde{\beta}_t\}.
+</span></p>
+<p>It needs roughly as many steps as training because the Gaussian approximation relies on small steps.</p>
+<p><strong>DDIM.</strong> Look for non-Markovian forward processes with the same marginals <span class="math inline">q(x_t \mid x_0)</span>. Try</p>
+<p><span class="math display">
+q_\sigma(x_{t-1} \mid x_t, x_0) = \mathcal{N}\big(\sqrt{\bar{\alpha}_{t-1}}\,x_0 + k_t\,(x_t - \sqrt{\bar{\alpha}_t}\,x_0),\ \varsigma_t^2 I\big).
+</span></p>
+<p>Because <span class="math inline">x_t - \sqrt{\bar{\alpha}_t}x_0 = \sqrt{1-\bar{\alpha}_t}\,\epsilon</span>, the marginal of <span class="math inline">x_{t-1}</span> has variance <span class="math inline">k_t^2(1-\bar{\alpha}_t) + \varsigma_t^2</span>, which must equal <span class="math inline">1 - \bar{\alpha}_{t-1}</span>. So <span class="math inline">k_t = \sqrt{1-\bar{\alpha}_{t-1}-\varsigma_t^2}/\sqrt{1-\bar{\alpha}_t}</span>. Replacing <span class="math inline">x_0</span> and <span class="math inline">\epsilon</span> by network estimates gives</p>
+<p><span class="math display">
+x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}\,\hat{x}_0 + \sqrt{1-\bar{\alpha}_{t-1}-\varsigma_t^2}\;\hat{\epsilon} + \varsigma_t z, \qquad \varsigma_t(\eta) = \eta\sqrt{\frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}}\sqrt{1-\frac{\bar{\alpha}_t}{\bar{\alpha}_{t-1}}}.
+</span></p>
+<p><span class="math inline">\eta = 1</span> recovers DDPM’s posterior variance <span class="math inline">\tilde{\beta}_t</span>; <span class="math inline">\eta = 0</span> is deterministic. No retraining is needed because the <span class="math inline">\epsilon</span>-network only depends on the marginals <span class="math inline">q(x_t \mid x_0)</span>, which every member of the family shares (the DDIM paper shows each variational objective is a reweighted <span class="math inline">L_{\text{simple}}</span>, with the same optimum when parameters are not shared across <span class="math inline">t</span>). Steps can be skipped because the derivation only used the marginals at two times, so <span class="math inline">(t, t-1)</span> can be any pair <span class="math inline">(\tau_i, \tau_{i-1})</span> from a subsequence.</p>
+<p><strong>DDIM is Euler on the ODE.</strong> With <span class="math inline">\eta = 0</span>, divide by <span class="math inline">\alpha_{t-1}</span> and set <span class="math inline">\bar{x} = x/\alpha</span>, <span class="math inline">\bar{\sigma} = \sigma/\alpha</span>: <span class="math inline">\bar{x}_{t-1} = \bar{x}_t + (\bar{\sigma}_{t-1} - \bar{\sigma}_t)\,\hat{\epsilon}</span>. This is an Euler step of <span class="math inline">d\bar{x}/d\bar{\sigma} = \hat{\epsilon}</span>, the probability-flow ODE in VE coordinates.</p>
+<p><strong>DPM-Solver.</strong> With <span class="math inline">\lambda = \log(\alpha_t/\sigma_t)</span> (half the log-SNR in this paper’s convention), the linear part of the VP ODE can be solved exactly:</p>
+<p><span class="math display">
+x_t = \frac{\alpha_t}{\alpha_s}\,x_s - \alpha_t\int_{\lambda_s}^{\lambda_t} e^{-\lambda}\,\hat{\epsilon}_\theta(\hat{x}_\lambda, \lambda)\,d\lambda .
+</span></p>
+<p>Taylor-expanding <span class="math inline">\hat{\epsilon}_\theta</span> in <span class="math inline">\lambda</span> gives solvers of order <span class="math inline">k</span>. Order 1 is exactly DDIM; orders 2 and 3 give good samples in about 10 to 20 evaluations. DPM-Solver++ uses the <span class="math inline">x_0</span>-prediction form with multistep updates, which is more stable under large guidance.</p>
+<p><strong>EDM Heun.</strong> Time steps <span class="math inline">\sigma_i = \big(\sigma_{\max}^{1/\rho} + \tfrac{i}{N-1}(\sigma_{\min}^{1/\rho} - \sigma_{\max}^{1/\rho})\big)^\rho</span> with <span class="math inline">\rho = 7</span>, <span class="math inline">\sigma_{\min} = 0.002</span>, <span class="math inline">\sigma_{\max} = 80</span> concentrate steps at low noise. Each step is Euler plus a trapezoidal correction:</p>
+<p><span class="math display">
+\begin{aligned}
+d_i &amp;= \frac{x_i - D(x_i;\sigma_i)}{\sigma_i}, \qquad \tilde{x} = x_i + (\sigma_{i+1} - \sigma_i)\,d_i, \\
+x_{i+1} &amp;= x_i + (\sigma_{i+1} - \sigma_i)\,\tfrac{1}{2}\Big(d_i + \frac{\tilde{x} - D(\tilde{x};\sigma_{i+1})}{\sigma_{i+1}}\Big),
+\end{aligned}
+</span></p>
+<p>skipping the correction on the final step to <span class="math inline">\sigma = 0</span>, so <span class="math inline">N</span> steps cost <span class="math inline">2N - 1</span> evaluations. EDM reached FID 1.79 on class-conditional CIFAR-10 with 35 evaluations.</p>
+<p><strong>Stochastic vs deterministic.</strong> Fresh noise (ancestral sampling, EDM’s “churn”) acts like a Langevin correction that repairs earlier errors; EDM’s stochastic sampler took a pretrained ImageNet-64 model from FID 2.07 to 1.55. For EDM’s best CIFAR-10 models, deterministic sampling was better. Quality improves with steps with diminishing returns: ODE solvers do well with tens of steps, but below roughly ten the trajectory’s curvature dominates and distillation is the usual answer (<a href="flow-matching.html">flow matching</a>).</p>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Derive DDIM. Why can it skip steps and reuse a DDPM-trained model?</span>
+</summary><div class="qa-body">
+<p>Define a family of forward processes whose conditional <span class="math inline">q(x_{t-1} \mid x_t, x_0)</span> is Gaussian with mean <span class="math inline">\sqrt{\bar{\alpha}_{t-1}}x_0 + k_t(x_t - \sqrt{\bar{\alpha}_t}x_0)</span> and variance <span class="math inline">\varsigma_t^2</span>, and pick <span class="math inline">k_t = \sqrt{1-\bar{\alpha}_{t-1}-\varsigma_t^2}/\sqrt{1-\bar{\alpha}_t}</span> so that every marginal <span class="math inline">q(x_t \mid x_0)</span> matches DDPM’s. Replacing <span class="math inline">x_0</span> and <span class="math inline">\epsilon</span> with network predictions gives the DDIM update. Since <span class="math inline">L_{\text{simple}}</span> only involves the marginals, the trained network is valid for every member of the family. The construction only uses the marginals at the two endpoints of a step, so any decreasing subsequence of timesteps works. With <span class="math inline">\varsigma_t = 0</span> the map is deterministic, which also makes approximate inversion possible.</p>
+</div></details>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">How do DDIM, the probability-flow ODE and DPM-Solver relate?</span>
+</summary><div class="qa-body">
+<p>Deterministic DDIM is a first-order solver of the probability-flow ODE: in coordinates <span class="math inline">\bar{x} = x/\alpha_t</span>, <span class="math inline">\bar{\sigma} = \sigma_t/\alpha_t</span> it is exactly an Euler step of <span class="math inline">d\bar{x}/d\bar{\sigma} = \hat{\epsilon}</span>. DPM-Solver writes the VP ODE as a linear term plus a nonlinear term, solves the linear term exactly, and expresses the rest as an exponentially weighted integral of <span class="math inline">\hat{\epsilon}</span> over half-log-SNR. Its first-order version coincides with DDIM; higher orders approximate <span class="math inline">\hat{\epsilon}</span> along <span class="math inline">\lambda</span> with a Taylor expansion. That is why DDIM already beats naive Euler in <span class="math inline">t</span>, and why second and third order buy another large reduction in steps.</p>
+</div></details>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">When would you use a stochastic sampler instead of a deterministic one?</span>
+</summary><div class="qa-body">
+<p>Use stochastic sampling when the model is imperfect and you can afford more steps: the injected noise lets the sampler correct earlier errors, which often gives the best FID at large step counts. Use deterministic ODE solvers when steps are scarce, when you need a reproducible noise-to-image map (inversion, interpolation, editing, consistent seeds), or when you want likelihoods. Too much stochasticity has costs: EDM saw loss of detail and color drift, and the best settings had to be tuned per model. In practice, high-order deterministic solvers dominate the low-step regime and mildly stochastic samplers the high-step regime.</p>
+</div></details>
+<h2 id="guidance">Guidance</h2>
+<p><strong>Classifier guidance</strong> (Dhariwal &amp; Nichol). By Bayes, <span class="math inline">\nabla\log p(x_t \mid c) = \nabla\log p(x_t) + \nabla\log p(c \mid x_t)</span>. Scaling the classifier term:</p>
+<p><span class="math display">
+\tilde{\epsilon} = \epsilon_\theta(x_t, c) - w\,\sigma_t\,\nabla_{x_t}\log p_\phi(c \mid x_t) \approx -\sigma_t\nabla_{x_t}\big[\log p(x_t \mid c) + w\log p_\phi(c \mid x_t)\big],
+</span></p>
+<p>which targets <span class="math inline">p(x_t \mid c)\,p_\phi(c \mid x_t)^w</span>. It needs a separate classifier trained on noisy inputs, and classifier gradients can be adversarial rather than semantic.</p>
+<p><strong>Classifier-free guidance</strong> (Ho &amp; Salimans). Train one network conditionally and unconditionally by replacing <span class="math inline">c</span> with a null token with probability <span class="math inline">p_{\text{uncond}}</span> (<span class="math inline">0.1</span> to <span class="math inline">0.2</span> worked best; <span class="math inline">0.5</span> was worse). Define the implicit classifier <span class="math inline">p^i(c \mid x_t) \propto p(x_t \mid c)/p(x_t)</span>. With exact scores,</p>
+<p><span class="math display">
+\nabla\log p^i(c \mid x_t) = \nabla\log p(x_t \mid c) - \nabla\log p(x_t) = -\frac{1}{\sigma_t}\big(\epsilon^*(x_t, c) - \epsilon^*(x_t)\big).
+</span></p>
+<p>Plugging this into classifier guidance on the conditional model:</p>
+<p><span class="math display">
+\tilde{\epsilon} = \epsilon(x_t, c) + w\big(\epsilon(x_t, c) - \epsilon(x_t)\big) = (1+w)\,\epsilon(x_t, c) - w\,\epsilon(x_t).
+</span></p>
+<p>Most code writes <span class="math inline">\epsilon_u + s(\epsilon_c - \epsilon_u)</span> with <span class="math inline">s = 1 + w</span> (<span class="math inline">s = 1</span> means no guidance). Each step costs two forward passes, usually batched. A negative prompt simply replaces <span class="math inline">\epsilon_u</span> with the prediction under that prompt.</p>
+<p><strong>Why fidelity goes up and diversity down.</strong> The target <span class="math inline">p(x \mid c)\,p(c \mid x)^w \propto p(x \mid c)^{1+w}/p(x)^w</span> up-weights samples where the condition is much more likely than under the unconditional model: prototypical, unambiguous examples. Raising a density to a power above one also sharpens it, like lowering temperature. On ImageNet, FID was best at small guidance (<span class="math inline">w = 0.1</span> or <span class="math inline">0.3</span>) and Inception score kept rising with <span class="math inline">w</span>; text-to-image systems use <span class="math inline">s</span> of roughly 5 to 10 because prompt alignment and perceived quality matter more than coverage.</p>
+<p><strong>Nuance.</strong> The guided score at each noise level is not the score of any noised version of the tilted distribution, so samplers do not actually sample <span class="math inline">p(x \mid c)^{1+w}/p(x)^w</span>, and CFG with DDPM and with DDIM gives different distributions (Bradley &amp; Nakkiran; Karras et al. 2024). In practice, guidance at high noise pulls trajectories toward a few template layouts, and at high scale the extrapolated prediction leaves the range of real data, giving oversaturated, over-exposed images.</p>
+<p><strong>Fixes and refinements.</strong></p>
+<ul>
+<li><em>Dynamic thresholding</em> (Imagen, pixel space): set <span class="math inline">s</span> to a high percentile of <span class="math inline">\lvert\hat{x}_0\rvert</span> per sample; if <span class="math inline">s &gt; 1</span>, clip <span class="math inline">\hat{x}_0</span> to <span class="math inline">[-s, s]</span> and divide by <span class="math inline">s</span>.</li>
+<li><em>CFG rescale</em> (Lin et al.): match the standard deviation of the guided output to the conditional one, <span class="math inline">x_{\text{rescaled}} = x_{\text{cfg}}\cdot\operatorname{std}(x_{\text{pos}})/\operatorname{std}(x_{\text{cfg}})</span>, then blend <span class="math inline">x_{\text{final}} = \phi\,x_{\text{rescaled}} + (1-\phi)\,x_{\text{cfg}}</span> with <span class="math inline">\phi = 0.7</span>.</li>
+<li><em>Adaptive projected guidance</em> (Sadat et al.): split the guidance update into components parallel and orthogonal to the conditional prediction; the parallel part mostly causes oversaturation, so down-weight it.</li>
+<li><em>Guidance interval</em> (Kynkäänniemi et al.): apply guidance only in a middle range of noise levels (details in the question below).</li>
+<li><em>Autoguidance</em> (Karras et al. 2024): guide with a worse version of the same conditional model, <span class="math inline">D_w = w\,D_1(x;\sigma,c) + (1-w)\,D_0(x;\sigma,c)</span>, where <span class="math inline">D_0</span> is smaller and/or trained for less time on the same task and conditioning. It reached FID 1.01 on ImageNet-64 and 1.25 on ImageNet-512, and it also works for unconditional models. In the EDM2-S ablation the best guide was one size smaller (XS) and trained for 1/16 as long; the 1.25 result guided EDM2-XXL with an M-size model.</li>
+</ul>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Derive classifier-free guidance from classifier guidance.</span>
+</summary><div class="qa-body">
+<p>Classifier guidance adds <span class="math inline">w\nabla\log p(c \mid x_t)</span> to the conditional score. Replace the external classifier with the implicit one given by Bayes’ rule, <span class="math inline">p(c \mid x_t) \propto p(x_t \mid c)/p(x_t)</span>, whose gradient is the difference of conditional and unconditional scores. In noise units the score is <span class="math inline">-\epsilon/\sigma_t</span>, so the gradient is <span class="math inline">-(\epsilon(x_t,c) - \epsilon(x_t))/\sigma_t</span>. Substituting gives <span class="math inline">\tilde{\epsilon} = (1+w)\epsilon(x_t, c) - w\epsilon(x_t)</span>. One network provides both terms because the condition is dropped at random during training. Ho &amp; Salimans note that with learned networks this difference is generally not the gradient of any classifier.</p>
+</div></details>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">Why does classifier-free guidance increase fidelity and reduce diversity? What happens if the scale is too high?</span>
+</summary><div class="qa-body">
+<p>Guidance tilts the target toward <span class="math inline">p(x \mid c)^{1+w}/p(x)^w</span>, which concentrates mass where the condition is most distinguishable from the unconditional distribution, so samples are more typical of the prompt. Raising a density to a power above one also lowers its entropy, so variety falls, and at high noise levels guidance steers many seeds toward the same few layouts. At very high scales the extrapolated prediction overshoots the data range: oversaturated colors, over-exposure and artifacts. Fixes: a lower scale, dynamic thresholding, CFG rescale or APG, or a guidance interval.</p>
+</div></details>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">What is autoguidance and how does it differ from CFG?</span>
+</summary><div class="qa-body">
+<p>CFG extrapolates away from an unconditional model, which entangles two effects: better prompt alignment with lower variation, and an image-quality gain. Karras et al. argue the quality gain comes from the two models fitting the data with different errors, while the task mismatch (conditional vs unconditional) is what also pulls samples toward prototypes. Autoguidance keeps only the quality effect by guiding a model with a smaller or less-trained version of itself on the same conditioning: <span class="math inline">D_w = wD_1 + (1-w)D_0</span>. Since both models solve the same task, the difference mainly flags regions the weaker model fits poorly and pushes samples toward the data manifold without collapsing them to prototypes. It needs an extra model and does not by itself improve prompt adherence.</p>
+</div></details>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">Why apply guidance only in a limited interval of noise levels?</span>
+</summary><div class="qa-body">
+<p>At high noise, the guided update changes the global layout, and with strong guidance many seeds drift toward a few template images, so variation collapses and FID worsens. At low noise, the conditional and unconditional predictions nearly agree, so guidance changes little. Between these, guidance improves detail and alignment. Kynkäänniemi et al. disable it outside a tuned middle interval and keep the same weight inside; on ImageNet-512 FID improved from 1.81 to 1.40, and steps outside the interval need only one network pass.</p>
+</div></details>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>Mixing up guidance conventions. In Ho &amp; Salimans, <span class="math inline">w = 0</span> is unguided and <span class="math inline">\tilde{\epsilon} = (1+w)\epsilon_c - w\epsilon_u</span>; in most libraries “guidance scale” <span class="math inline">s = 1 + w</span>, so <span class="math inline">s = 1</span> is unguided and <span class="math inline">s = 7.5</span> corresponds to <span class="math inline">w = 6.5</span>. State which one you mean.</p>
+</aside>
+<h2 id="latent-diffusion-and-a-note-on-dit">Latent diffusion and a note on DiT</h2>
+<p><strong>Why latent space.</strong> Likelihood-style models spend most of their capacity on imperceptible high-frequency detail. Latent diffusion (Rombach et al.) splits the job: an autoencoder does perceptual compression and the diffusion model does semantic composition in a latent that is <span class="math inline">f</span> times smaller per side. The autoencoder is trained with a perceptual loss plus a patch-based adversarial loss and a light KL or VQ regularizer, so reconstructions stay sharp. LDM found <span class="math inline">f</span> between 4 and 16 a good trade-off: <span class="math inline">f = 1, 2</span> train slowly, and large <span class="math inline">f</span> loses too much information. Compute drops roughly with the number of latent positions. The autoencoder caps achievable fidelity (small text, faces, fine texture), and latent scale matters for the schedule: LDM rescales KL latents by <span class="math inline">1/\hat{\sigma}</span>, a single standard deviation estimated over all latent entries of the first training batch, so they have roughly unit variance and the schedule’s SNR means what it should. The constant <span class="math inline">0.18215</span> is not in the LDM paper; it is the <code>scale_factor</code> in the Stable Diffusion configs and code, described there as this estimate for SD’s <span class="math inline">f = 8</span> autoencoder. Conditioning on text enters through cross-attention. See <a href="gans-vaes-autoregressive.html">GANs, VAEs and autoregressive models</a> for the autoencoder.</p>
+<p><strong>DiT.</strong> Diffusion Transformers patchify the latent into tokens and replace the U-Net with a transformer. Conditioning on timestep and class uses adaptive layer norm: an MLP on the sum of the two embeddings regresses a per-block scale <span class="math inline">\gamma</span> and shift <span class="math inline">\beta</span>. adaLN-Zero also regresses a per-dimension gate <span class="math inline">\alpha</span> applied before each residual connection and initializes it to zero, so every block starts as the identity. It beat in-context and cross-attention conditioning at lower compute, and DiT-XL/2 reached FID 2.27 on ImageNet 256 with guidance. FID tracked model Gflops closely. Architecture depth (MMDiT, text conditioning) is on <a href="text-to-image-multimodal.html">text-to-image and multimodal</a>.</p>
+<details class="qa qa-asked" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">Walk through the architecture of a diffusion model: how data are corrupted, what the network predicts, how it is built and conditioned, and how samples are generated.</span><span class="qa-badge" title="Reported in a real interview">Asked · Wells Fargo applied AI research intern, PracHub 2026</span>
+</summary><div class="qa-body">
+<p>An image is encoded to a latent by a pretrained autoencoder, then corrupted as <span class="math inline">z_t = \alpha_t z_0 + \sigma_t\epsilon</span> at a random noise level. A U-Net or DiT takes <span class="math inline">z_t</span>, an embedding of the noise level and the condition, and predicts <span class="math inline">\epsilon</span>, <span class="math inline">v</span> or <span class="math inline">z_0</span>; text enters through cross-attention or joint attention, timestep and class through adaptive normalization. Training is a weighted MSE with the condition dropped about 10% of the time. To sample, start from Gaussian noise, run 20 to 50 steps of a DDIM, DPM-Solver or Heun-type solver with classifier-free guidance, then decode the latent. I would also state the schedule (e.g. zero terminal SNR, resolution shift) and how much each choice costs at inference.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">Why train diffusion in a latent space, and what can go wrong?</span>
+</summary><div class="qa-body">
+<p>Pixel-space diffusion spends compute and capacity on high-frequency detail that a good autoencoder reproduces cheaply, so a latent 8 times smaller per side cuts cost roughly by the reduction in positions while keeping perceptual quality. The risks: reconstruction error is a hard ceiling on detail; too much compression loses information; the latent’s scale changes the effective SNR, so latents must be normalized or the schedule retuned; and decoder artifacts can look like generator failures. Pixel-space models avoid the autoencoder at higher compute cost.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa qa-asked" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">Name two activation functions used in diffusion networks and how they differ.</span><span class="qa-badge" title="Reported in a real interview">Asked · TikTok AI research scientist, Interview Query</span>
+</summary><div class="qa-body">
+<p>DDPM and ADM U-Nets use SiLU (Swish), <span class="math inline">x\,\sigma(x)</span>; DiT uses tanh-approximated GELU, <span class="math inline">x\,\Phi(x)</span>, in its MLPs and SiLU before the adaLN projection. Both are smooth, non-monotone near zero, and close in shape; GELU weights by the Gaussian CDF, SiLU by the logistic sigmoid.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">Why does the network need the timestep or noise level as input?</span>
+</summary><div class="qa-body">
+<p>The same <span class="math inline">x_t</span> can arise from different noise levels, and the optimal denoiser depends on <span class="math inline">\sigma</span>. DDPM uses sinusoidal timestep embeddings followed by an MLP; EDM feeds <span class="math inline">c_{\text{noise}} = \tfrac{1}{4}\ln\sigma</span>.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">What is the difference between the noise schedule and the loss weighting?</span>
+</summary><div class="qa-body">
+<p>In continuous time, the loss is an integral over log-SNR with weight <span class="math inline">w(\lambda)</span>, independent of the schedule except its endpoints. The training schedule acts as an importance-sampling density that affects gradient variance; the sampling schedule controls discretization error.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">VP vs VE: what is the practical difference?</span>
+</summary><div class="qa-body">
+<p>VP keeps <span class="math inline">\alpha_t^2 + \sigma_t^2 = 1</span> and bounded variance; VE keeps <span class="math inline">\alpha_t = 1</span> and grows noise up to <span class="math inline">\sigma_{\max}</span>. They are rescalings of each other (<span class="math inline">x_{\text{VE}} = x_{\text{VP}}/\alpha_t</span>), but VE cannot reach zero SNR and its inputs need normalization (<span class="math inline">c_{\text{in}}</span>).</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">What does learning the reverse variance buy?</span>
+</summary><div class="qa-body">
+<p>Better likelihoods and robustness to fewer sampling steps. Improved DDPM interpolates between <span class="math inline">\beta_t</span> and <span class="math inline">\tilde{\beta}_t</span> in log space and trains it with a small <span class="math inline">L_{\text{vlb}}</span> term; about 100 steps sufficed.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">Can diffusion models give likelihoods?</span>
+</summary><div class="qa-body">
+<p>Yes: a bound via the ELBO in discrete time, or an exact value via the probability-flow ODE using the change-of-variables formula and a Hutchinson trace estimate. Models tuned for sample quality usually have worse likelihoods.</p>
+</div></details>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">Why is DDIM inversion only approximate?</span>
+</summary><div class="qa-body">
+<p>Running the deterministic update forward uses <span class="math inline">\hat{\epsilon}(x_t)</span> where the exact inverse would need <span class="math inline">\hat{\epsilon}(x_{t+1})</span>. The error grows with large steps and with CFG, which is why editing methods add corrections.</p>
+</div></details>
+<details class="qa" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">Why does <span class="math inline">p_{\text{uncond}}</span> matter in CFG training?</span>
+</summary><div class="qa-body">
+<p>It sets how much capacity goes to the unconditional model. Ho &amp; Salimans found 0.1 and 0.2 about equally good and 0.5 clearly worse across the whole quality-diversity frontier.</p>
+</div></details>
+<details class="qa" id="q33"><summary>
+<span class="qa-n">Q33</span><span class="qa-q">What is “trailing” timestep spacing?</span>
+</summary><div class="qa-body">
+<p>Choosing sampler steps counted back from <span class="math inline">t = T</span> so the first step uses the pure-noise level the model was trained on. “Leading” spacing never visits <span class="math inline">T</span>, so sampling feeds pure noise at a timestep whose training inputs still contained signal, reintroducing the mismatch that zero terminal SNR removes.</p>
+</div></details>
+<details class="qa" id="q34"><summary>
+<span class="qa-n">Q34</span><span class="qa-q">How would you reduce sampling steps without retraining?</span>
+</summary><div class="qa-body">
+<p>Switch from ancestral sampling to a deterministic high-order solver (DPM-Solver++, Heun), use a good time grid (EDM’s <span class="math inline">\rho = 7</span> or trailing spacing), and limit guidance to a middle interval. Below about 10 steps you usually need distillation, which requires training.</p>
+</div></details>
+<details class="qa" id="q35"><summary>
+<span class="qa-n">Q35</span><span class="qa-q">Why use an EMA of the weights?</span>
+</summary><div class="qa-body">
+<p>Sample quality fluctuates noticeably between nearby checkpoints (for example color shifts), and averaging the weights smooths this out. Song &amp; Ermon (2020) recommended EMA for score models for this reason, DDPM also used it, and it is now standard.</p>
+</div></details>
+<details class="qa" id="q36"><summary>
+<span class="qa-n">Q36</span><span class="qa-q">What does <span class="math inline">\sigma_{\min}</span> control?</span>
+</summary><div class="qa-body">
+<p>The smallest noise level the model is trained on and sampled at. Too large leaves visible noise; too small wastes training on imperceptible noise where the <span class="math inline">\epsilon</span>-target is very hard to estimate. EDM uses 0.002 for data in <span class="math inline">[-1, 1]</span>.</p>
+</div></details>
+<details class="qa" id="q37"><summary>
+<span class="qa-n">Q37</span><span class="qa-q">Why does CFG roughly double inference cost, and how is it reduced?</span>
+</summary><div class="qa-body">
+<p>Each step evaluates conditional and unconditional branches. Options: batch both, apply guidance only in an interval, or distill a guided teacher into a student that takes the scale as input (<a href="flow-matching.html">flow matching</a>).</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Sohl-Dickstein et al., “Deep Unsupervised Learning using Nonequilibrium Thermodynamics,” 2015. <a href="https://arxiv.org/abs/1503.03585" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1503.03585</a></li>
+<li>Ho, Jain, Abbeel, “Denoising Diffusion Probabilistic Models,” 2020. <a href="https://arxiv.org/abs/2006.11239" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2006.11239</a></li>
+<li>Song &amp; Ermon, “Generative Modeling by Estimating Gradients of the Data Distribution,” 2019. <a href="https://arxiv.org/abs/1907.05600" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1907.05600</a></li>
+<li>Song &amp; Ermon, “Improved Techniques for Training Score-Based Generative Models,” 2020. <a href="https://arxiv.org/abs/2006.09011" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2006.09011</a></li>
+<li>Song et al., “Score-Based Generative Modeling through Stochastic Differential Equations,” 2021. <a href="https://arxiv.org/abs/2011.13456" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2011.13456</a></li>
+<li>Song, Meng, Ermon, “Denoising Diffusion Implicit Models,” 2020. <a href="https://arxiv.org/abs/2010.02502" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2010.02502</a></li>
+<li>Nichol &amp; Dhariwal, “Improved Denoising Diffusion Probabilistic Models,” 2021. <a href="https://arxiv.org/abs/2102.09672" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2102.09672</a></li>
+<li>Dhariwal &amp; Nichol, “Diffusion Models Beat GANs on Image Synthesis,” 2021. <a href="https://arxiv.org/abs/2105.05233" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2105.05233</a></li>
+<li>Kingma et al., “Variational Diffusion Models,” 2021. <a href="https://arxiv.org/abs/2107.00630" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2107.00630</a></li>
+<li>Ho &amp; Salimans, “Classifier-Free Diffusion Guidance,” 2022. <a href="https://arxiv.org/abs/2207.12598" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2207.12598</a></li>
+<li>Salimans &amp; Ho, “Progressive Distillation for Fast Sampling of Diffusion Models,” 2022. <a href="https://arxiv.org/abs/2202.00512" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2202.00512</a></li>
+<li>Karras et al., “Elucidating the Design Space of Diffusion-Based Generative Models,” 2022. <a href="https://arxiv.org/abs/2206.00364" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2206.00364</a></li>
+<li>Lu et al., “DPM-Solver: A Fast ODE Solver for Diffusion Probabilistic Model Sampling in Around 10 Steps,” 2022. <a href="https://arxiv.org/abs/2206.00927" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2206.00927</a></li>
+<li>Lu et al., “DPM-Solver++: Fast Solver for Guided Sampling of Diffusion Probabilistic Models,” 2022. <a href="https://arxiv.org/abs/2211.01095" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2211.01095</a></li>
+<li>Rombach et al., “High-Resolution Image Synthesis with Latent Diffusion Models,” 2021. <a href="https://arxiv.org/abs/2112.10752" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2112.10752</a></li>
+<li>Saharia et al., “Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding” (Imagen), 2022. <a href="https://arxiv.org/abs/2205.11487" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2205.11487</a></li>
+<li>Peebles &amp; Xie, “Scalable Diffusion Models with Transformers,” 2022. <a href="https://arxiv.org/abs/2212.09748" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2212.09748</a></li>
+<li>Hoogeboom et al., “Simple diffusion: End-to-end diffusion for high resolution images,” 2023. <a href="https://arxiv.org/abs/2301.11093" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2301.11093</a></li>
+<li>Chen, “On the Importance of Noise Scheduling for Diffusion Models,” 2023. <a href="https://arxiv.org/abs/2301.10972" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2301.10972</a></li>
+<li>Kingma &amp; Gao, “Understanding Diffusion Objectives as the ELBO with Simple Data Augmentation,” 2023. <a href="https://arxiv.org/abs/2303.00848" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2303.00848</a></li>
+<li>Hang et al., “Efficient Diffusion Training via Min-SNR Weighting Strategy,” 2023. <a href="https://arxiv.org/abs/2303.09556" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2303.09556</a></li>
+<li>Lin et al., “Common Diffusion Noise Schedules and Sample Steps are Flawed,” 2023. <a href="https://arxiv.org/abs/2305.08891" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.08891</a></li>
+<li>Karras et al., “Analyzing and Improving the Training Dynamics of Diffusion Models” (EDM2), 2023. <a href="https://arxiv.org/abs/2312.02696" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2312.02696</a></li>
+<li>Esser et al., “Scaling Rectified Flow Transformers for High-Resolution Image Synthesis” (SD3), 2024. <a href="https://arxiv.org/abs/2403.03206" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2403.03206</a></li>
+<li>Kynkäänniemi et al., “Applying Guidance in a Limited Interval Improves Sample and Distribution Quality in Diffusion Models,” 2024. <a href="https://arxiv.org/abs/2404.07724" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2404.07724</a></li>
+<li>Karras et al., “Guiding a Diffusion Model with a Bad Version of Itself,” 2024. <a href="https://arxiv.org/abs/2406.02507" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2406.02507</a></li>
+<li>Bradley &amp; Nakkiran, “Classifier-Free Guidance is a Predictor-Corrector,” 2024. <a href="https://arxiv.org/abs/2408.09000" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2408.09000</a></li>
+<li>Sadat et al., “Eliminating Oversaturation and Artifacts of High Guidance Scales in Diffusion Models,” 2024. <a href="https://arxiv.org/abs/2410.02416" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2410.02416</a></li>
+<li>Vincent, “A Connection Between Score Matching and Denoising Autoencoders,” Neural Computation, 2011. <a href="https://doi.org/10.1162/NECO_a_00142" class="uri" target="_blank" rel="noopener">https://doi.org/10.1162/NECO_a_00142</a></li>
+<li>Efron, “Tweedie’s Formula and Selection Bias,” JASA, 2011. <a href="https://doi.org/10.1198/jasa.2011.tm11181" class="uri" target="_blank" rel="noopener">https://doi.org/10.1198/jasa.2011.tm11181</a></li>
+<li>Anderson, “Reverse-time diffusion equation models,” Stochastic Processes and their Applications, 1982. <a href="https://doi.org/10.1016/0304-4149(82)90051-5" class="uri" target="_blank" rel="noopener">https://doi.org/10.1016/0304-4149(82)90051-5</a></li>
+<li>Luo, “Understanding Diffusion Models: A Unified Perspective,” 2022. <a href="https://arxiv.org/abs/2208.11970" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2208.11970</a></li>
+<li>Weng, “What are Diffusion Models?” (blog), 2021. <a href="https://lilianweng.github.io/posts/2021-07-11-diffusion-models/" class="uri" target="_blank" rel="noopener">https://lilianweng.github.io/posts/2021-07-11-diffusion-models/</a></li>
+<li>Song, “Generative Modeling by Estimating Gradients of the Data Distribution” (blog), 2021. <a href="https://yang-song.net/blog/2021/score/" class="uri" target="_blank" rel="noopener">https://yang-song.net/blog/2021/score/</a></li>
+<li>Dieleman, “Guidance: a cheat code for diffusion models” (blog), 2022. <a href="https://sander.ai/2022/05/26/guidance.html" class="uri" target="_blank" rel="noopener">https://sander.ai/2022/05/26/guidance.html</a></li>
+<li>Dieleman, “Noise schedules considered harmful” (blog), 2024. <a href="https://sander.ai/2024/06/14/noise-schedules.html" class="uri" target="_blank" rel="noopener">https://sander.ai/2024/06/14/noise-schedules.html</a></li>
+<li>Interview report (Mistral AI): “Explain the Forward and Reverse Processes of Diffusion Models,” PracHub. <a href="https://prachub.com/interview-questions/explain-the-forward-and-reverse-processes-of-diffusion-models" class="uri" target="_blank" rel="noopener">https://prachub.com/interview-questions/explain-the-forward-and-reverse-processes-of-diffusion-models</a></li>
+<li>Interview report (Wells Fargo): “Research Deep Dive: Model Details, Coding Habits and Diffusion Architecture,” PracHub. <a href="https://prachub.com/interview-questions/research-deep-dive-model-details-coding-habits-and-diffusion-architecture" class="uri" target="_blank" rel="noopener">https://prachub.com/interview-questions/research-deep-dive-model-details-coding-habits-and-diffusion-architecture</a></li>
+<li>Interview report (Prenuvo), Glassdoor. <a href="https://www.glassdoor.ca/Interview/Prenuvo-Interview-E2603205-RVW89924656.htm" class="uri" target="_blank" rel="noopener">https://www.glassdoor.ca/Interview/Prenuvo-Interview-E2603205-RVW89924656.htm</a></li>
+<li>Interview report (Photoroom), Glassdoor. <a href="https://www.glassdoor.sg/Interview/Photoroom-Interview-E8011752-RVW96817759.htm" class="uri" target="_blank" rel="noopener">https://www.glassdoor.sg/Interview/Photoroom-Interview-E8011752-RVW96817759.htm</a></li>
+<li>Interview guide with candidate reports (TikTok AI research scientist), Interview Query. <a href="https://www.interviewquery.com/guides/tiktok-ai-research-scientist" class="uri" target="_blank" rel="noopener">https://www.interviewquery.com/guides/tiktok-ai-research-scientist</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="interview-question-bank.html"><span class="pager-dir">Previous</span><span class="pager-title">Research Interview Question Bank</span></a>
+        <a class="pager-next" href="flow-matching.html"><span class="pager-dir">Next</span><span class="pager-title">Flow Matching and Few-Step Generation</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

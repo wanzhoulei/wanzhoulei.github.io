@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vision Backbones and Representations · Notes · Wanzhou Lei</title>
+  <meta name="description" content="Convolution and attention arithmetic, residual and normalization layers, ViTs, self-supervised features, and how pretrained encoders now feed into generative models.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Vision Backbones and Representations</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#convolution-arithmetic" id="toc-convolution-arithmetic">Convolution arithmetic</a></li>
+      <li><a href="#residual-connections" id="toc-residual-connections">Residual connections</a></li>
+      <li><a href="#normalization" id="toc-normalization">Normalization</a></li>
+      <li><a href="#vision-transformers" id="toc-vision-transformers">Vision Transformers</a></li>
+      <li><a href="#attention-and-its-cost" id="toc-attention-and-its-cost">Attention and its cost</a></li>
+      <li><a href="#self-supervised-representation-learning" id="toc-self-supervised-representation-learning">Self-supervised representation learning</a></li>
+      <li><a href="#representations-for-generation" id="toc-representations-for-generation">Representations for generation</a></li>
+      <li><a href="#optical-flow" id="toc-optical-flow">Optical flow</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Vision Backbones and Representations</h1>
+        <p class="page-lede">Convolution and attention arithmetic, residual and normalization layers, ViTs, self-supervised features, and how pretrained encoders now feed into generative models.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>31 practice questions</span><span>31 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#convolution-arithmetic">Convolution arithmetic</a></li>
+<li><a href="#residual-connections">Residual connections</a></li>
+<li><a href="#normalization">Normalization</a></li>
+<li><a href="#vision-transformers">Vision Transformers</a></li>
+<li><a href="#attention-and-its-cost">Attention and its cost</a></li>
+<li><a href="#self-supervised-representation-learning">Self-supervised representation learning</a></li>
+<li><a href="#representations-for-generation">Representations for generation</a></li>
+<li><a href="#optical-flow">Optical flow</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>Every generative vision system is built on a backbone: a U-Net or transformer that denoises, a tokenizer that compresses, and often a pretrained encoder that conditions or supervises. Interviews test it in two ways. The first is counting: shapes, parameters, FLOPs, receptive fields, token counts and attention memory, done on a whiteboard without hesitation. The second is judgment: why residual connections and normalization help, what a ViT gives up compared with a CNN, and what different pretrained encoders actually encode. That last question matters more now that REPA-style alignment and representation autoencoders make pretrained features part of the generator. Training recipes live in <a href="deep-learning-training.html">deep learning training</a> and generator architectures in <a href="text-to-image-multimodal.html">text-to-image and multimodal</a>.</p>
+<h2 id="convolution-arithmetic">Convolution arithmetic</h2>
+<h3 id="output-size">Output size</h3>
+<p>Notation: input side <span class="math inline">n</span>, kernel <span class="math inline">k</span>, padding <span class="math inline">p</span> per side, stride <span class="math inline">s</span>, dilation <span class="math inline">d</span>. Dilation spaces the taps <span class="math inline">d</span> apart, so the kernel spans <span class="math inline">d(k-1)+1</span> pixels. The padded length is <span class="math inline">n+2p</span>, the last valid window start is <span class="math inline">n+2p-d(k-1)-1</span>, and starts come every <span class="math inline">s</span> pixels from 0:</p>
+<p><span class="math display">
+n_{\text{out}} = \left\lfloor \frac{n + 2p - d(k-1) - 1}{s} \right\rfloor + 1 .
+</span></p>
+<p>This is PyTorch’s <code>Conv2d</code> formula; with <span class="math inline">s&gt;1</span> the floor silently drops border pixels. Example, the ResNet stem at 224: a <span class="math inline">7\times7</span> conv with <span class="math inline">s=2, p=3</span> gives <span class="math inline">\lfloor 223/2\rfloor + 1 = 112</span>; the <span class="math inline">3\times3</span> max-pool with <span class="math inline">s=2, p=1</span> gives <span class="math inline">\lfloor 111/2 \rfloor + 1 = 56</span>.</p>
+<h3 id="parameters-and-compute">Parameters and compute</h3>
+<p>A conv with <span class="math inline">C_\text{in}</span> inputs, <span class="math inline">C_\text{out}</span> outputs, a <span class="math inline">k_h\times k_w</span> kernel and <span class="math inline">g</span> groups has</p>
+<p><span class="math display">
+\#\text{params} = \frac{k_h k_w C_\text{in}}{g}\, C_\text{out} + C_\text{out}, \qquad
+\text{MACs} = H_\text{out} W_\text{out} C_\text{out}\cdot \frac{k_h k_w C_\text{in}}{g},
+</span></p>
+<p>since each output element is one dot product of length <span class="math inline">k_h k_w C_\text{in}/g</span>; FLOPs <span class="math inline">\approx 2\times</span> MACs. Parameters do not depend on resolution; compute does. Example: a <span class="math inline">3\times3</span> conv from 64 to 128 channels on <span class="math inline">56\times56</span> (<span class="math inline">s=1</span>, <span class="math inline">p=1</span>) has <span class="math inline">9\cdot64\cdot128 = 73{,}728</span> weights (<span class="math inline">73{,}856</span> with bias) and <span class="math inline">56\cdot56\cdot128\cdot576 \approx 231</span>M MACs.</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>Many papers report multiply-accumulates and call them FLOPs; say which you are counting. And a conv followed by BatchNorm needs no bias: BN’s mean subtraction cancels it and <span class="math inline">\beta</span> replaces it.</p>
+</aside>
+<h3 id="receptive-field">Receptive field</h3>
+<p>Track the receptive field (RF) size <span class="math inline">r</span> and the jump <span class="math inline">j</span>, the input-pixel distance between neighboring units of the current layer:</p>
+<p><span class="math display">
+r_l = r_{l-1} + d_l\,(k_l-1)\, j_{l-1}, \qquad j_l = j_{l-1}\, s_l, \qquad r_0 = j_0 = 1 .
+</span></p>
+<p>Each layer adds <span class="math inline">d_l(k_l-1)</span> of its own steps, each worth <span class="math inline">j_{l-1}</span> input pixels. Three stacked <span class="math inline">3\times3</span> convs give <span class="math inline">r = 7</span> with <span class="math inline">27C^2</span> weights, against <span class="math inline">49C^2</span> for one <span class="math inline">7\times7</span> (VGG’s argument), plus two extra nonlinearities. ResNet stem: the <span class="math inline">7\times7/2</span> conv gives <span class="math inline">r=7, j=2</span>; the <span class="math inline">3\times3/2</span> pool gives <span class="math inline">r = 7 + 2\cdot2 = 11, j=4</span>; the next <span class="math inline">3\times3</span> conv gives <span class="math inline">r = 11 + 2\cdot4 = 19</span>. Early strides multiply the growth of every later layer.</p>
+<p>The theoretical RF is an upper bound. Luo et al. showed the effective receptive field (the gradient of a central output unit with respect to each input pixel) is roughly Gaussian and grows like <span class="math inline">\sqrt{n}</span> with depth <span class="math inline">n</span>, while the theoretical RF grows like <span class="math inline">n</span>.</p>
+<h3 id="dilated-depthwise-separable-and-1x1-convolutions">Dilated, depthwise-separable and 1x1 convolutions</h3>
+<p><strong>Dilated convolution</strong> keeps the parameters but widens the extent. Stacking <span class="math inline">3\times3</span> convs with dilations <span class="math inline">1, 2, \dots, 2^{L-1}</span> gives <span class="math inline">r = 2^{L+1}-1</span>: exponential RF growth at full resolution (Yu and Koltun), at the cost of gridding, where a unit sees only a sparse lattice of inputs.</p>
+<p><strong>Depthwise-separable convolution</strong> factors a <span class="math inline">k\times k</span> conv into a per-channel <span class="math inline">k\times k</span> conv (<span class="math inline">g = C_\text{in}</span>) and a <span class="math inline">1\times1</span> pointwise conv. Ignoring bias,</p>
+<p><span class="math display">
+\frac{k^2 C_\text{in} + C_\text{in} C_\text{out}}{k^2 C_\text{in} C_\text{out}} = \frac{1}{C_\text{out}} + \frac{1}{k^2}.
+</span></p>
+<p>For the example above: <span class="math inline">8{,}768</span> vs <span class="math inline">73{,}728</span> parameters, a ratio of about 0.12, and the same ratio for MACs. MobileNets report 8 to 9 times less computation for <span class="math inline">3\times3</span> kernels.</p>
+<p><strong>A <span class="math inline">1\times1</span> convolution</strong> is a per-pixel linear layer across channels (Network in Network): it changes width cheaply, mixes channels after depthwise convs, and implements projection shortcuts.</p>
+<h3 id="transposed-convolution-and-checkerboard-artifacts">Transposed convolution and checkerboard artifacts</h3>
+<p>A transposed conv is the adjoint of a strided conv: each input pixel scatters a scaled copy of the kernel onto the output, with copies <span class="math inline">s</span> apart. Output size: <span class="math inline">(n-1)s - 2p + d(k-1) + a + 1</span> with output padding <span class="math inline">a</span>, so <span class="math inline">k=4, s=2, p=1</span> maps 32 to 64. In 1D each output receives <span class="math inline">\lfloor k/s \rfloor</span> or <span class="math inline">\lceil k/s \rceil</span> contributions. When <span class="math inline">s</span> does not divide <span class="math inline">k</span> (say <span class="math inline">k=3, s=2</span>) neighbors alternate between 1 and 2, so even a constant input gives a periodic output, which in 2D becomes a checkerboard (Odena, Dumoulin and Olah). Even overlap does not fully prevent it. The standard fix, used in common diffusion U-Nets and the Stable Diffusion VAE decoder, is nearest-neighbor upsampling followed by a regular conv.</p>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">How many parameters does a 2D conv layer have, and how much compute does it take?</span>
+</summary><div class="qa-body">
+<p>Weights <span class="math inline">k_h k_w (C_\text{in}/g) C_\text{out}</span> plus <span class="math inline">C_\text{out}</span> biases; the kernel spans every input channel of its group, which people forget. A <span class="math inline">3\times3</span> conv from 3 to 64 channels has <span class="math inline">1{,}728 + 64 = 1{,}792</span> parameters, at any image size. Compute is <span class="math inline">H_\text{out}W_\text{out}C_\text{out}\cdot k_hk_wC_\text{in}/g</span> MACs. Drop the bias when BN follows.</p>
+</div></details>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">What is the receptive field of a CNN unit, and how do you compute it?</span>
+</summary><div class="qa-body">
+<p>It is the input region that can influence the unit. Use <span class="math inline">r_l = r_{l-1} + d_l(k_l-1)j_{l-1}</span> with <span class="math inline">j_l = j_{l-1}s_l</span>: each layer adds <span class="math inline">d(k-1)</span> steps, each the size of the product of all earlier strides. Three <span class="math inline">3\times3</span> convs give 7; an early stride-2 layer doubles what every later layer adds. The nuance: the effective RF is Gaussian-shaped and much smaller, growing like the square root of depth.</p>
+</div></details>
+<details class="qa" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">What is a depthwise-separable convolution, and how much does it save?</span>
+</summary><div class="qa-body">
+<p>It splits a conv into per-channel spatial filtering (groups <span class="math inline">= C_\text{in}</span>) and <span class="math inline">1\times1</span> channel mixing. Parameters and MACs drop to a fraction <span class="math inline">1/C_\text{out} + 1/k^2</span> of the original, close to <span class="math inline">1/9</span> for <span class="math inline">3\times3</span> kernels and wide layers. It assumes spatial and channel correlations factor (Xception, MobileNets, ConvNeXt). On GPUs the wall-clock gain is smaller than the FLOP gain, because depthwise convs do little arithmetic per byte moved.</p>
+</div></details>
+<h2 id="residual-connections">Residual connections</h2>
+<p>A residual block computes <span class="math inline">y = x + F(x)</span>. He et al. were responding to <em>degradation</em>: deeper plain networks had higher <em>training</em> error than shallower ones, so it was not overfitting, and with BatchNorm their plain nets had healthy forward signals and gradient norms. They diagnosed an optimization difficulty. A residual block makes the identity the default (<span class="math inline">F=0</span>), so extra depth cannot make a good solution harder to reach.</p>
+<p>The gradient is <span class="math inline">\partial \mathcal{L}/\partial x = \partial \mathcal{L}/\partial y\,(I + \partial F/\partial x)</span>. Pre-activation ResNets move BN and ReLU inside the branch so the shortcut is a pure identity across blocks:</p>
+<p><span class="math display">
+x_L = x_l + \sum_{i=l}^{L-1} F(x_i), \qquad
+\frac{\partial \mathcal{L}}{\partial x_l} = \frac{\partial \mathcal{L}}{\partial x_L}\left(1 + \frac{\partial}{\partial x_l}\sum_{i=l}^{L-1} F(x_i)\right).
+</span></p>
+<p>The “1” carries the gradient from any deep layer straight to any shallow one. With it, a 1001-layer ResNet reached 4.92% error on CIFAR-10, against 7.61% with the original ordering. Pre-LN transformer blocks, <span class="math inline">x + \text{Attn}(\text{LN}(x))</span>, use the same idea, and DiT’s adaLN-Zero initializes each residual branch’s gate to zero so the network starts as the identity. Skips also visibly smooth the loss surface (Li et al.).</p>
+<p><strong>U-Net skips serve a different purpose.</strong> Encoder features at each resolution are <em>concatenated</em> into the decoder at the same resolution, restoring high-frequency detail the bottleneck cannot carry. ResNet skips are short, additive and help optimization; U-Net skips are long and help information flow. Diffusion U-Nets use both.</p>
+<details class="qa qa-asked" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">What helped ResNets avoid the vanishing-gradient problem? Why the shortcut?</span><span class="qa-badge" title="Reported in a real interview">Asked · Anduril CV engineer, Glassdoor</span>
+</summary><div class="qa-body">
+<p>The identity shortcut. With <span class="math inline">y = x + F(x)</span> the Jacobian is <span class="math inline">I + \partial F/\partial x</span>, and in pre-activation form the gradient at layer <span class="math inline">l</span> contains an unattenuated copy of the gradient at any deeper layer, so it cannot shrink multiplicatively with depth. The nuance worth adding: the original paper argued its BN-equipped plain nets did not have vanishing gradients but suffered degradation, a harder optimization problem. Shortcuts fix that by making the identity the default, so each block learns only a correction.</p>
+</div></details>
+<h2 id="normalization">Normalization</h2>
+<p>Every normalizer computes <span class="math inline">\hat x = (x - \mu)/\sqrt{\sigma^2 + \epsilon}</span> and then a learned per-channel affine <span class="math inline">\gamma \hat x + \beta</span>. They differ only in which axes the statistics use. For a conv activation of shape <span class="math inline">(N, C, H, W)</span>:</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Method</th>
+<th>Statistics over</th>
+<th>Uses the batch?</th>
+<th>Typical home</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BatchNorm</td>
+<td><span class="math inline">N, H, W</span>, per channel</td>
+<td>yes</td>
+<td>CNN classifiers, large batches</td>
+</tr>
+<tr>
+<td>LayerNorm</td>
+<td>all features of one sample (per token in transformers)</td>
+<td>no</td>
+<td>transformers</td>
+</tr>
+<tr>
+<td>InstanceNorm</td>
+<td><span class="math inline">H, W</span>, per sample and channel</td>
+<td>no</td>
+<td>style transfer</td>
+</tr>
+<tr>
+<td>GroupNorm</td>
+<td><span class="math inline">H, W</span> and <span class="math inline">C/G</span> channels, per sample</td>
+<td>no</td>
+<td>small-batch detection, diffusion U-Nets</td>
+</tr>
+<tr>
+<td>RMSNorm</td>
+<td>like LayerNorm, but no mean and no <span class="math inline">\beta</span></td>
+<td>no</td>
+<td>LLMs, recent DiTs</td>
+</tr>
+</tbody>
+</table>
+<p>GroupNorm with <span class="math inline">G=1</span> is LayerNorm, and with <span class="math inline">G=C</span> it is InstanceNorm.</p>
+<p><strong>BatchNorm</strong> uses batch statistics in training, with gradients flowing through them, and running averages at evaluation (an EMA; PyTorch’s momentum is 0.1). It was motivated as reducing “internal covariate shift”, but Santurkar et al. found its benefit is better explained by a smoother loss and gradients, which permit larger learning rates. It regularizes because each sample’s output depends on the random other samples in its batch. It breaks with small or non-i.i.d. batches, variable-length sequences, and contrastive learning, where batch statistics can leak which samples are positives (MoCo shuffles BN across GPUs for this reason). At batch size 2, GroupNorm has 10.6% lower ImageNet error than BN on ResNet-50.</p>
+<p><strong>InstanceNorm</strong> removes each image’s per-channel mean and variance, which carry contrast and style, so it helped fast stylization. <strong>AdaIN</strong> substitutes another image’s statistics, <span class="math inline">\text{AdaIN}(x,y) = \sigma(y)\,\frac{x-\mu(x)}{\sigma(x)} + \mu(y)</span>, and StyleGAN uses it to inject style. <strong>RMSNorm</strong> drops re-centering, <span class="math inline">\bar x_i = g_i\, x_i / \sqrt{\tfrac1d\sum_j x_j^2}</span>, keeping rescaling invariance at lower cost (7–64% faster in its paper). <strong>adaLN</strong> makes <span class="math inline">\gamma, \beta</span> functions of the conditioning (FiLM-style); DiT regresses them from the timestep and class embeddings, and adaLN-Zero adds a per-branch gate initialized to zero.</p>
+<details class="qa qa-asked" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">What does batch normalization do, and what are its parameters?</span><span class="qa-badge" title="Reported in a real interview">Asked · Waymo, Glassdoor 2022</span>
+</summary><div class="qa-body">
+<p>It standardizes each channel with the mini-batch mean and variance over batch and space, then applies a learned scale <span class="math inline">\gamma</span> and shift <span class="math inline">\beta</span> so the layer can still represent the identity. Per channel: two learned parameters and two buffers (running mean and variance) used at evaluation; hyperparameters are <span class="math inline">\epsilon</span> and the momentum. It allows higher learning rates and its batch noise regularizes. Classic bugs: forgetting eval mode, and tiny batches.</p>
+</div></details>
+<details class="qa qa-asked" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">What is the difference among batch, layer, instance and group normalization?</span><span class="qa-badge" title="Reported in a real interview">Asked · Google intern, Glassdoor 2024</span>
+</summary><div class="qa-body">
+<p>Only the reduction axes. BN averages over batch and space per channel, coupling samples and needing large i.i.d. batches. LN averages over all features of one sample (per token in a transformer), so it ignores the batch and matches between training and evaluation. IN averages over space per sample and channel, removing per-image contrast and style. GN averages over space and a group of channels per sample; it sits between LN and IN and is the usual choice for small batches, as in detection or high-resolution diffusion training.</p>
+</div></details>
+<details class="qa qa-asked" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">Implement a BatchNorm2d forward pass. What details matter?</span><span class="qa-badge" title="Reported in a real interview">Asked · NVIDIA ML researcher, Glassdoor 2022</span>
+</summary><div class="qa-body">
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> bn2d(x, gamma, beta, rm, rv, training, m<span class="op">=</span><span class="fl">0.1</span>, eps<span class="op">=</span><span class="fl">1e-5</span>):</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="co"># x: (N, C, H, W); rm, rv: running buffers of shape (C,)</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> training:</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        mu <span class="op">=</span> x.mean(dim<span class="op">=</span>(<span class="dv">0</span>, <span class="dv">2</span>, <span class="dv">3</span>))</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>        var <span class="op">=</span> x.var(dim<span class="op">=</span>(<span class="dv">0</span>, <span class="dv">2</span>, <span class="dv">3</span>), unbiased<span class="op">=</span><span class="va">False</span>)       <span class="co"># normalize with biased var</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>        n <span class="op">=</span> x.numel() <span class="op">/</span> x.shape[<span class="dv">1</span>]</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">with</span> torch.no_grad():                             <span class="co"># buffers are not trained</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>            rm.mul_(<span class="dv">1</span> <span class="op">-</span> m).add_(m <span class="op">*</span> mu)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>            rv.mul_(<span class="dv">1</span> <span class="op">-</span> m).add_(m <span class="op">*</span> var <span class="op">*</span> n <span class="op">/</span> (n <span class="op">-</span> <span class="dv">1</span>))    <span class="co"># PyTorch stores unbiased var</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        mu, var <span class="op">=</span> rm, rv</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    s <span class="op">=</span> (<span class="dv">1</span>, <span class="op">-</span><span class="dv">1</span>, <span class="dv">1</span>, <span class="dv">1</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    xh <span class="op">=</span> (x <span class="op">-</span> mu.view(s)) <span class="op">/</span> torch.sqrt(var.view(s) <span class="op">+</span> eps)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> gamma.view(s) <span class="op">*</span> xh <span class="op">+</span> beta.view(s)</span></code></pre></div>
+<p>Reduce over <span class="math inline">(N, H, W)</span>, not <span class="math inline">C</span>; let gradients flow through <code>mu</code> and <code>var</code> in training; update the running buffers without gradient; use them at evaluation so the output is deterministic.</p>
+</div></details>
+<details class="qa" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">Why do diffusion U-Nets use GroupNorm and DiTs use adaLN instead of BatchNorm?</span>
+</summary><div class="qa-body">
+<p>Diffusion batches mix very different noise levels, often with small per-GPU batches at high resolution, so batch statistics would be noisy and would differ between training and sampling; GroupNorm and LayerNorm are per-sample. The network must also change behavior with timestep and condition, and modulating <span class="math inline">\gamma</span>, <span class="math inline">\beta</span> and a residual gate from the conditioning embedding does that cheaply and globally. DiT found adaLN-Zero gave the best FID among the conditioning schemes it tried.</p>
+</div></details>
+<h2 id="vision-transformers">Vision Transformers</h2>
+<p><strong>Patchify.</strong> An <span class="math inline">H\times W\times C</span> image cut into <span class="math inline">P\times P</span> patches gives <span class="math inline">N = HW/P^2</span> tokens, each projected linearly from <span class="math inline">P^2C</span> values to width <span class="math inline">D</span> (a conv with kernel and stride <span class="math inline">P</span>). ViT-B/16 at 224: 196 patches plus one CLS token; the patch embedding has <span class="math inline">16\cdot16\cdot3\cdot768 + 768 = 590{,}592</span> parameters. Each block has about <span class="math inline">4D^2</span> attention parameters (<span class="math inline">Q, K, V, O</span>) and <span class="math inline">8D^2</span> MLP parameters, so <span class="math inline">12D^2 \approx 7.1</span>M; 12 blocks give about 86M with embeddings.</p>
+<p><strong>CLS token vs pooling.</strong> ViT classified from a CLS token, as in BERT, but its appendix shows global average pooling works equally well once the learning rate is tuned.</p>
+<p><strong>Position embeddings.</strong> Attention is permutation-equivariant, so position must be injected. <em>Learned absolute</em> embeddings (ViT) store one vector per grid cell; ViT’s ablation found a large gap between none and any, but little difference among 1D, 2D and relative variants. <em>Sinusoidal</em> embeddings use <span class="math inline">\sin(m/10000^{2i/D})</span> and <span class="math inline">\cos(m/10000^{2i/D})</span>, with half the channels for rows and half for columns in 2D (as in DiT). <em>RoPE</em> rotates each pair of query and key dimensions by <span class="math inline">m\theta_i</span>, <span class="math inline">\theta_i = 10000^{-2(i-1)/d}</span>; since rotations compose, <span class="math inline">\langle R_m q, R_n k\rangle = q^\top R_{n-m} k</span> depends only on the offset. 2D axial RoPE rotates half the head dimensions by <span class="math inline">x</span> and half by <span class="math inline">y</span>; RoPE-Mixed learns frequencies that mix the axes and extrapolated better to larger images (Heo et al.).</p>
+<p><strong>Changing resolution.</strong> Keep the patch size so the grid grows. With learned embeddings, reshape the table to its 2D grid, interpolate it in 2D (14×14 to 24×24 for 224 to 384 at <span class="math inline">P=16</span>; bicubic is common), keep the CLS embedding, and fine-tune briefly, as ViT does. With RoPE, positions are coordinates: extrapolate or rescale them into the training range. Both work for moderate changes, but quality falls far outside the trained range. DINOv3 randomly rescales the coordinate box during training to gain robustness.</p>
+<p><strong>Inductive biases.</strong> A CNN builds locality, 2D neighborhoods and translation equivariance into every layer. A ViT uses 2D structure only when patchifying and interpolating position embeddings; everything else is learned. So ViT trained on ImageNet-1k alone trailed comparable ResNets by a few points, but overtook them with ImageNet-21k or JFT-300M pretraining. DeiT closed the ImageNet-1k gap with heavy augmentation and distillation. Raghu et al. found that ViT-L/16 and ViT-H/14 trained only on ImageNet-1k did not learn locally attending heads in their lowest layers, unlike the same models pretrained on JFT-300M, and performed much worse; ViT-B/32 learned local heads either way.</p>
+<p><strong>Hierarchical designs.</strong> Swin computes attention inside <span class="math inline">M\times M</span> windows (<span class="math inline">M=7</span>), shifts them by half a window in alternate blocks so information crosses borders, and merges patches into a four-stage pyramid (strides 4 to 32) that fits FPN-style dense heads:</p>
+<p><span class="math display">
+\Omega(\text{MSA}) = 4hwC^2 + 2(hw)^2C, \qquad \Omega(\text{W-MSA}) = 4hwC^2 + 2M^2hwC ,
+</span></p>
+<p>linear in <span class="math inline">hw</span>; at stage 1 at 224 (<span class="math inline">hw = 3136</span>) the attention term shrinks <span class="math inline">64\times</span>. ConvNeXt went the other way, modernizing ResNet-50 step by step: the training recipe alone took it from 76.1% to 78.8%, then a (3,3,9,3) stage ratio, a <span class="math inline">4\times4</span> patchify stem, depthwise <span class="math inline">7\times7</span> convs, inverted bottlenecks, GELU, fewer norms and activations, LN and separate downsampling layers reached 82.0% for ConvNeXt-T, above Swin-T. Much of the early gap was recipe and macro design, not attention itself.</p>
+<details class="qa qa-asked" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">Explain Vision Transformers.</span><span class="qa-badge" title="Reported in a real interview">Asked · Apple senior CV engineer, Glassdoor</span>
+</summary><div class="qa-body">
+<p>Cut the image into <span class="math inline">P\times P</span> patches, project each to a <span class="math inline">D</span>-dimensional token, add position embeddings, optionally prepend a CLS token, and run a pre-LN transformer encoder; read out from CLS or mean-pooled tokens. A 224 image with <span class="math inline">P=16</span> gives 196 tokens; ViT-B (<span class="math inline">D=768</span>, 12 layers) has about 86M parameters. Every layer mixes information globally but locality is not built in, so ViTs need large-scale pretraining or strong augmentation to beat CNNs, and scale well with data.</p>
+</div></details>
+<h2 id="attention-and-its-cost">Attention and its cost</h2>
+<p>Scaled dot-product attention with <span class="math inline">Q\in\mathbb{R}^{N\times d_k}</span>, <span class="math inline">K\in\mathbb{R}^{M\times d_k}</span>, <span class="math inline">V\in\mathbb{R}^{M\times d_v}</span>:</p>
+<p><span class="math display">
+\text{Attn}(Q,K,V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V .
+</span></p>
+<p><strong>Why <span class="math inline">\sqrt{d_k}</span>.</strong> If the components of <span class="math inline">q</span> and <span class="math inline">k</span> are independent with mean 0 and variance 1, then <span class="math inline">\mathbb{E}[q^\top k] = 0</span> and</p>
+<p><span class="math display">
+\operatorname{Var}[q^\top k] = \sum_{i=1}^{d_k} \mathbb{E}[q_i^2]\,\mathbb{E}[k_i^2] = d_k .
+</span></p>
+<p>Unscaled logits have standard deviation <span class="math inline">\sqrt{d_k}</span> (8 for <span class="math inline">d_k=64</span>), which saturates softmax toward one-hot. Its Jacobian <span class="math inline">\partial p_i/\partial z_j = p_i(\delta_{ij} - p_j)</span> then vanishes, and so do the gradients to <span class="math inline">Q</span> and <span class="math inline">K</span>. The argument holds near initialization; logits can still grow in training, which is why some large ViTs add QK-normalization (ViT-22B reported divergence from attention-logit growth without it).</p>
+<p><strong>Multi-head attention</strong> splits <span class="math inline">D</span> into <span class="math inline">h</span> heads of width <span class="math inline">D/h</span>; parameters (<span class="math inline">4D^2</span>) and FLOPs match one head of width <span class="math inline">D</span>, but the layer gets <span class="math inline">h</span> independent attention patterns.</p>
+<p><strong>Counting.</strong> Per layer with <span class="math inline">N</span> tokens and width <span class="math inline">D</span>: projections cost <span class="math inline">4ND^2</span> MACs, <span class="math inline">QK^\top</span> and the product with <span class="math inline">V</span> cost <span class="math inline">N^2D</span> each, and a 4× MLP costs <span class="math inline">8ND^2</span>:</p>
+<p><span class="math display">
+\text{MACs per layer} \approx 12ND^2 + 2N^2D,
+</span></p>
+<p>so the quadratic term dominates once <span class="math inline">N &gt; 6D</span>. A materialized attention matrix holds <span class="math inline">hN^2</span> entries per layer per sample.</p>
+<p><strong>Worked example: a 1024×1024 image.</strong></p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Tokenization</th>
+<th>Tokens <span class="math inline">N</span></th>
+<th>Score entries per head</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pixels, <span class="math inline">P=16</span></td>
+<td><span class="math inline">64^2 = 4{,}096</span></td>
+<td>16.8M (32 MiB in fp16)</td>
+</tr>
+<tr>
+<td>f8 VAE latent (<span class="math inline">128^2</span>), DiT patch 2</td>
+<td><span class="math inline">4{,}096</span></td>
+<td>16.8M</td>
+</tr>
+<tr>
+<td>f8 latent with patch 1, or pixels with <span class="math inline">P=8</span></td>
+<td><span class="math inline">128^2 = 16{,}384</span></td>
+<td>268M (512 MiB in fp16)</td>
+</tr>
+</tbody>
+</table>
+<p>At DiT-XL width <span class="math inline">D=1152</span> and <span class="math inline">N=4096</span>, <span class="math inline">2N^2D \approx 38.7</span>G MACs against <span class="math inline">12ND^2 \approx 65.2</span>G, so the two <span class="math inline">N^2</span> products are about 37% of each layer’s MACs; at <span class="math inline">N = 16{,}384</span> it is 618G against 261G, about 70%. Going from 256² to 1024² at fixed patch size multiplies tokens by 16 and attention cost by 256. Materializing all 16 heads at <span class="math inline">N=4096</span> takes 512 MiB per layer per image, so exact attention at this scale is usually run with fused kernels.</p>
+<p><strong>Cheaper attention.</strong> Windowed attention (Swin, neighborhood attention) is linear in <span class="math inline">N</span> but needs shifts or global tokens for long range. Linear attention replaces <span class="math inline">\exp(q^\top k)</span> with <span class="math inline">\phi(q)^\top\phi(k)</span> and reorders the product,</p>
+<p><span class="math display">
+\text{out}_i = \frac{\phi(q_i)^\top \sum_j \phi(k_j) v_j^\top}{\phi(q_i)^\top \sum_j \phi(k_j)},
+</span></p>
+<p>costing <span class="math inline">O(Nd^2)</span> because the <span class="math inline">d\times d</span> sum is computed once (its causal form is an RNN). The implicit attention matrix has rank at most the feature dimension, so it cannot be as sharply peaked as softmax, and quality usually lags.</p>
+<p><strong>FlashAttention</strong> keeps attention exact and attacks memory traffic. Standard attention writes <span class="math inline">S = QK^\top</span> and <span class="math inline">P = \operatorname{softmax}(S)</span> to HBM and reads them back, so it is memory-bound. FlashAttention tiles <span class="math inline">Q, K, V</span> into SRAM-sized blocks inside one fused kernel and computes softmax incrementally. For one query row, after each key block with scores <span class="math inline">s_k</span>:</p>
+<p><span class="math display">
+m&#39; = \max(m, \max_k s_k), \quad \ell&#39; = e^{m-m&#39;}\ell + \sum_k e^{s_k - m&#39;}, \quad o&#39; = e^{m-m&#39;}o + \sum_k e^{s_k-m&#39;}v_k ,
+</span></p>
+<p>and the output is <span class="math inline">o/\ell</span>. The backward pass recomputes score blocks from <span class="math inline">Q</span>, <span class="math inline">K</span> and the saved row statistics. Memory becomes linear in <span class="math inline">N</span>, HBM accesses fall to <span class="math inline">O(N^2d^2/M)</span> for SRAM size <span class="math inline">M</span> (against <span class="math inline">\Omega(Nd + N^2)</span>), and attention ran up to 7.6× faster on GPT-2. FLOPs stay quadratic, slightly higher due to recomputation.</p>
+<p><strong>KV caching</strong> stores past keys and values in causal decoding (autoregressive image models, causal video generators). It does not apply across the denoising steps of a bidirectional diffusion transformer, where every token changes.</p>
+<details class="qa" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Why do we divide attention logits by <span class="math inline">\sqrt{d_k}</span> and not by <span class="math inline">d_k</span>?</span>
+</summary><div class="qa-body">
+<p>With unit-variance independent components, <span class="math inline">q^\top k</span> has variance <span class="math inline">d_k</span>. Large logits push softmax to near one-hot, where its Jacobian <span class="math inline">p_i(\delta_{ij}-p_j)</span> and the gradients to <span class="math inline">Q</span> and <span class="math inline">K</span> vanish. Dividing by <span class="math inline">\sqrt{d_k}</span> makes the logit variance 1 for any head width. Dividing by <span class="math inline">d_k</span> over-shrinks it to <span class="math inline">1/d_k</span>, giving nearly uniform attention that learns slowly.</p>
+</div></details>
+<details class="qa" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Is FlashAttention an approximation? What exactly does it reduce?</span>
+</summary><div class="qa-body">
+<p>No; it computes the same softmax attention up to floating-point rounding. It reduces HBM traffic and memory, not arithmetic. Tiling plus an online softmax that rescales partial sums whenever the running max changes means the <span class="math inline">N\times N</span> matrix never reaches slow memory, and the backward pass recomputes tiles instead of storing them. Memory becomes linear in <span class="math inline">N</span> and wall-clock time drops because attention was memory-bound, but FLOPs stay <span class="math inline">O(N^2d)</span>.</p>
+</div></details>
+<details class="qa qa-asked" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">What is a KV cache, and how does it help inference?</span><span class="qa-badge" title="Reported in a real interview">Asked · Apple MLE, Glassdoor</span>
+</summary><div class="qa-body">
+<p>In causal decoding each new token attends to all earlier tokens, whose keys and values never change. Caching them per layer means each step projects only the new token and computes one attention row, <span class="math inline">O(ND)</span> attention work per layer per step instead of re-encoding the prefix. The cost is memory, <span class="math inline">2 \times \text{layers} \times N \times D</span> values per sequence: 2 GiB for 32 layers, <span class="math inline">D=4096</span> and 4096 tokens in fp16. That memory often limits batch size, which grouped-query attention, cache quantization and paged allocation reduce.</p>
+</div></details>
+<h2 id="self-supervised-representation-learning">Self-supervised representation learning</h2>
+<h3 id="contrastive-learning-and-infonce">Contrastive learning and InfoNCE</h3>
+<p>Take an anchor <span class="math inline">x</span>, one positive <span class="math inline">y^+</span> (another view, or the paired caption) and <span class="math inline">N-1</span> negatives, with <span class="math inline">\ell_2</span>-normalized embeddings, cosine similarity <span class="math inline">s</span> and temperature <span class="math inline">\tau</span>:</p>
+<p><span class="math display">
+\mathcal{L}_N = -\,\mathbb{E}\left[\log \frac{\exp(s(x,y^+)/\tau)}{\sum_{j=1}^{N}\exp(s(x,y_j)/\tau)}\right],
+</span></p>
+<p>the cross-entropy of an <span class="math inline">N</span>-way “which one is the positive” classification.</p>
+<p><strong>Mutual-information bound.</strong> Draw the positive from <span class="math inline">p(y\mid x)</span> and negatives from <span class="math inline">p(y)</span>. The Bayes-optimal critic is the density ratio, <span class="math inline">e^{f^*(x,y)} \propto p(y\mid x)/p(y)</span>. Substituting it gives CPC’s approximate argument:</p>
+<p><span class="math display">
+\begin{aligned}
+\mathcal{L}_N^{\text{opt}} &amp;= \mathbb{E}\log\left[1 + \frac{p(y^+)}{p(y^+\mid x)}\sum_{j\in\text{neg}} \frac{p(y_j\mid x)}{p(y_j)}\right]
+\approx \mathbb{E}\log\left[1 + \frac{p(y^+)}{p(y^+\mid x)}(N-1)\right] \\
+&amp;\gtrsim \mathbb{E}\log\left[N\,\frac{p(y^+)}{p(y^+\mid x)}\right] = \log N - I(x;y).
+\end{aligned}
+</span></p>
+<p>Both steps are heuristic: the first replaces the sum over negatives by <span class="math inline">N-1</span> times its expectation (which is 1), and the second, <span class="math inline">1+(N-1)a \ge Na</span> with <span class="math inline">a = p(y^+)/p(y^+\mid x)</span>, holds only when <span class="math inline">a\le 1</span>. The exact statement is Poole et al.’s: <span class="math inline">I(x;y) \ge \log N - \mathcal{L}_N</span> for any critic. Consequences: the bound cannot exceed <span class="math inline">\log N</span> (<span class="math inline">N = 4096</span> candidates certify at most <span class="math inline">\ln 4096 \approx 8.3</span> nats), one reason contrastive methods want many negatives; and a tighter bound does not by itself mean better features, since the augmentations decide what the views share.</p>
+<p><strong>Temperature.</strong> With <span class="math inline">p_j</span> the softmax weight of candidate <span class="math inline">j</span>,</p>
+<p><span class="math display">
+\frac{\partial \mathcal{L}}{\partial s^+} = -\frac{1-p^+}{\tau}, \qquad \frac{\partial \mathcal{L}}{\partial s_j} = \frac{p_j}{\tau}\ \ (j \ne +),
+</span></p>
+<p>so negatives are pushed in proportion to their softmax weight. Small <span class="math inline">\tau</span> concentrates the push on the hardest negatives, giving uniform embeddings but also separating semantically similar images; large <span class="math inline">\tau</span> treats negatives evenly (Wang and Liu’s uniformity–tolerance dilemma). As <span class="math inline">N\to\infty</span>, Wang and Isola show that</p>
+<p><span class="math display">
+\mathcal{L}_N - \log N \to -\tfrac{1}{\tau}\,\mathbb{E}_{\text{pos}}\big[f(x)^\top f(y)\big] + \mathbb{E}_x \log \mathbb{E}_{x^-}\big[e^{f(x)^\top f(x^-)/\tau}\big],
+</span></p>
+<p>an <em>alignment</em> term for positives plus a <em>uniformity</em> term on the hypersphere.</p>
+<h3 id="simclr-and-moco">SimCLR and MoCo</h3>
+<p>SimCLR takes two strong augmentations per image (crop and color distortion matter most), encodes them into <span class="math inline">h</span>, maps them through an MLP head to <span class="math inline">z</span>, and applies the loss over <span class="math inline">2N</span> views at batch 4096. Linear probes on <span class="math inline">h</span> beat probes on <span class="math inline">z</span> by more than 10%, because the head absorbs the invariances the loss imposes, such as discarding color. MoCo decouples negatives from batch size with a queue of 65,536 keys encoded by a momentum copy of the query encoder, <span class="math inline">\theta_k \leftarrow m\theta_k + (1-m)\theta_q</span> with <span class="math inline">m = 0.999</span>, which keeps queued keys consistent; with <span class="math inline">m=0</span> training failed.</p>
+<h3 id="clip-and-siglip">CLIP and SigLIP</h3>
+<p>CLIP trains image and text encoders on 400M pairs at batch 32,768 with a symmetric cross-entropy over the <span class="math inline">N\times N</span> cosine matrix: image-to-text over rows and text-to-image over columns, each an InfoNCE with <span class="math inline">N-1</span> in-batch negatives. The temperature is learned, initialized at the equivalent of 0.07 and clipped so logits scale by at most 100. Zero-shot classification follows from embedding class-name prompts.</p>
+<p>SigLIP scores every pair as an independent binary classification:</p>
+<p><span class="math display">
+\mathcal{L} = -\frac{1}{|B|}\sum_{i=1}^{|B|}\sum_{j=1}^{|B|} \log \sigma\big(z_{ij}\,(t\, x_i^\top y_j + b)\big), \qquad z_{ij} = +1 \text{ if } i=j, \ -1 \text{ otherwise},
+</span></p>
+<p>with <span class="math inline">t = e^{t&#39;}</span>, <span class="math inline">t&#39;</span> initialized to <span class="math inline">\log 10</span>, and <span class="math inline">b</span> initialized to <span class="math inline">-10</span>. This follows the paper’s pseudocode (logits <span class="math inline">= t\,x_i^\top y_j + b</span>); its displayed equation, <span class="math inline">\log\big(1/(1+e^{z_{ij}(-t\,x_i^\top y_j + b)})\big)</span>, has the opposite sign on <span class="math inline">b</span>, which does not fit the <span class="math inline">-10</span> initialization. Minimizing the loss raises <span class="math inline">x_i^\top y_i</span> for matching pairs and lowers <span class="math inline">x_i^\top y_j</span> for the rest. A batch has <span class="math inline">|B|</span> positives and <span class="math inline">|B|^2-|B|</span> negatives, so the negative bias starts the model near this prior instead of spending early steps correcting it. With no batch-wide normalization, devices can exchange text embeddings in turn and accumulate the loss in chunks, never holding the full matrix. Sigmoid beat softmax below about 16k batch, and both saturated around 32k. SigLIP 2 adds objectives aimed at localization and dense features.</p>
+<h3 id="self-distillation-the-dino-family">Self-distillation: the DINO family</h3>
+<p><strong>DINO</strong> trains a student and an EMA teacher (momentum 0.996 rising to 1) with no labels and no negatives. Both output <span class="math inline">K</span>-way softmaxes, with student temperature <span class="math inline">\tau_s = 0.1</span> and teacher <span class="math inline">\tau_t</span> warmed from 0.04 to 0.07. The teacher sees only two global 224² crops; the student also sees several local 96² crops:</p>
+<p><span class="math display">
+\min_{\theta_s} \sum_{x\in\{x^g_1,x^g_2\}}\ \sum_{x&#39;\ne x} H\big(P_t(x), P_s(x&#39;)\big), \qquad H(a,b) = -\sum_k a_k\log b_k ,
+</span></p>
+<p>forcing local-to-global correspondence. <em>Centering</em> (subtracting an EMA of the teacher’s mean output) stops one dimension from dominating but pushes toward uniform; <em>sharpening</em> (the low <span class="math inline">\tau_t</span>) does the opposite; balanced, with the EMA teacher, they prevent collapse. The CLS attention maps end up segmenting foreground objects.</p>
+<p><strong>DINOv2</strong> curated LVD-142M and combined the DINO loss with iBOT’s masked patch loss (the student predicts the teacher’s patch tokens at masked positions), Sinkhorn-Knopp centering and a KoLeo term that spreads features, then distilled a 1.1B ViT-g/14 into smaller models.</p>
+<p><strong>Registers.</strong> Darcet et al. found that DINOv2 models of size ViT-L and up, after about a third of training, turn roughly 2% of patch tokens in redundant background regions into high-norm tokens (2.37% above norm 150 in ViT-g) that hold global rather than local information and corrupt attention maps. DINO v1 does not show them; supervised DeiT-III and OpenCLIP do, already at ViT-B. Appending a few learnable tokens (commonly 4), discarded at the output, removes the artifacts and improves dense prediction and object discovery.</p>
+<p><strong>DINOv3</strong> (2025) scales to a 7B ViT (patch 16, 4 registers, RoPE) on LVD-1689M, curated from about 17B images. In long runs its global metrics kept improving while dense features degraded: segmentation peaked around 200k iterations as patch features drifted toward the CLS token. <em>Gram anchoring</em>, switched on after 1M iterations, adds</p>
+<p><span class="math display">
+\mathcal{L}_{\text{Gram}} = \big\lVert X_S X_S^\top - X_G X_G^\top \big\rVert_F^2 ,
+</span></p>
+<p>where <span class="math inline">X_S, X_G \in \mathbb{R}^{P\times d}</span> hold <span class="math inline">\ell_2</span>-normalized patch features of the student and of an earlier “Gram teacher” checkpoint. It constrains the patch-to-patch similarity structure, not the features themselves. Distillation into smaller ViT and ConvNeXt students follows.</p>
+<h3 id="masked-image-modeling-and-jepa">Masked image modeling and JEPA</h3>
+<p><strong>MAE</strong> masks a random 75% of patches. The encoder sees only the visible 25%, with no mask tokens, which speeds pretraining 3× or more. A lightweight decoder (8 blocks, width 512 by default) adds mask tokens and reconstructs, with MSE on masked patches only; per-patch normalized pixel targets work better. <strong>I-JEPA</strong> predicts representations instead of pixels. A context encoder sees a large block (scale 0.85–1.0) with targets removed; an EMA target encoder sees the full image, and 4 target blocks (scale 0.15–0.2, aspect 0.75–1.5) are cut from its output; a narrow predictor regresses them with an L2 loss. It needs no hand-crafted augmentations and can ignore unpredictable pixel detail.</p>
+<h3 id="what-different-features-capture">What different features capture</h3>
+<p>Early layers are local and low-level (edges, color, texture); later layers are more semantic and invariant. The objective matters as much as depth. Invariance objectives (contrastive, DINO, CLIP) discard what the augmentations vary (color, exact position, fine texture) and give linearly separable features; reconstruction objectives (MAE, autoencoders) keep layout and detail but probe worse. CLIP features align with text but localize less well; DINOv2 and DINOv3 give the strongest frozen dense features (correspondence, segmentation, depth probes). Intermediate diffusion-model features also carry semantic correspondence.</p>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">Derive why minimizing InfoNCE maximizes a lower bound on mutual information. What limits the bound?</span>
+</summary><div class="qa-body">
+<p>The loss is <span class="math inline">N</span>-way classification of the positive among samples from the marginal, and its optimal critic is the density ratio <span class="math inline">p(y\mid x)/p(y)</span>. Substituting it, replacing the negatives’ sum by <span class="math inline">N-1</span> times its mean, and using <span class="math inline">1+(N-1)a \approx Na</span> gives CPC’s approximate result <span class="math inline">\mathcal{L}^{\text{opt}}_N \gtrsim \log N - I(x;y)</span>. The exact statement, proved by Poole et al., is <span class="math inline">I(x;y) \ge \log N - \mathcal{L}_N</span> for any critic. The bound saturates at <span class="math inline">\log N</span>, so large MI needs many negatives, and maximizing it is not the same as learning good features: the choice of views matters more.</p>
+</div></details>
+<details class="qa qa-asked" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Explain contrastive learning. How does it handle the imbalance between positive and negative samples?</span><span class="qa-badge" title="Reported in a real interview">Asked · TikTok algorithm intern, Glassdoor 2025</span>
+</summary><div class="qa-body">
+<p>It trains an encoder so that views sharing content (augmentations of one image, or an image and its caption) land close together and other samples land far apart, usually with InfoNCE. The softmax form handles the imbalance by construction: each anchor contributes one <span class="math inline">N</span>-way cross-entropy, and the total gradient on all negatives, <span class="math inline">\sum_j p_j/\tau = (1-p^+)/\tau</span>, exactly matches the gradient on the positive however many negatives there are. The temperature decides how that push is shared among negatives. In pairwise sigmoid losses like SigLIP the imbalance is real, and a bias initialized at <span class="math inline">-10</span> absorbs it. Also raise false negatives.</p>
+</div></details>
+<details class="qa qa-asked" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">How does CLIP build a shared image-text representation, and what changes in SigLIP?</span><span class="qa-badge" title="Reported in a real interview">Asked · Coactive AI applied ML RS, Glassdoor 2025</span>
+</summary><div class="qa-body">
+<p>Two encoders project into one normalized space. In a batch of <span class="math inline">N</span> pairs, a symmetric cross-entropy over the <span class="math inline">N\times N</span> cosine matrix makes each image pick its caption among <span class="math inline">N</span> and vice versa, with a learned temperature. The embeddings capture what distinguishes web captions (categories, attributes, scene type, rendered text) and capture localization and counting less well. SigLIP replaces the batch softmax with an independent sigmoid per pair plus a learned bias. That removes batch-wide normalization, makes chunked multi-device training cheap in memory, and works better at small batches; the advantage fades above about 16k.</p>
+</div></details>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">How does DINO avoid collapse without negatives?</span>
+</summary><div class="qa-body">
+<p>There are two collapse modes: every image mapping to the same one-hot output, or to a uniform one. Centering stops any single dimension from dominating but drifts toward uniform; sharpening, through a teacher temperature of 0.04–0.07 against 0.1 for the student, pushes toward peaked outputs. The two balance. The EMA teacher adds stability (without momentum the method fails), and multi-crop gives the student a real local-to-global prediction task.</p>
+</div></details>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">Why does MAE mask 75% of patches, and how do its features differ from DINO’s?</span>
+</summary><div class="qa-body">
+<p>Images are redundant, so at low masking ratios a patch can be inpainted from its neighbors with little understanding; 75% forces holistic reasoning, and skipping masked patches in the encoder makes pretraining 3× or more faster. Pixel reconstruction keeps layout and low-level information, so MAE fine-tunes well but linear-probes worse. DINO’s invariance objective gives semantically separable features and clean attention maps while discarding some low-level detail. DINOv2 combines both ideas with an image-level DINO loss and a masked patch-level iBOT loss.</p>
+</div></details>
+<h2 id="representations-for-generation">Representations for generation</h2>
+<p>The premise: a diffusion transformer must learn both a good internal representation and a denoiser, and the first part is slow. There are three ways to bring in a pretrained encoder.</p>
+<p><strong>REPA</strong> adds a regularizer. Let <span class="math inline">y^*</span> be frozen encoder patch features of the clean image, <span class="math inline">h_t</span> an early hidden state for the noisy input, <span class="math inline">h_\phi</span> a trainable MLP and sim the cosine similarity:</p>
+<p><span class="math display">
+\mathcal{L}_{\text{REPA}} = -\,\mathbb{E}_{x^*,\epsilon,t}\left[\frac1N\sum_{n=1}^{N} \text{sim}\big(y^{*[n]}, h_\phi(h_t^{[n]})\big)\right], \qquad \mathcal{L} = \mathcal{L}_{\text{velocity}} + \lambda\,\mathcal{L}_{\text{REPA}}, \ \ \lambda = 0.5 .
+</span></p>
+<p>DINOv2 worked best among the encoders tested, and aligning around layer 8 of SiT-XL/2 was best. Without guidance, SiT-XL/2 with REPA reaches FID 7.9 at 400K iterations against 8.3 for the vanilla model at 7M (over 17.5× faster), and 1.42 with CFG and a guidance interval. The motivation: vanilla DiT/SiT hidden states align only weakly with DINOv2.</p>
+<p><strong>VA-VAE</strong> aligns the tokenizer. More latent channels improve reconstruction but hurt generation at a fixed budget; for LightningDiT-XL without CFG (FID-10K), f16d16 gets rFID 0.49 and gFID 8.28, f16d32 0.26 and 10.92, f16d64 0.17 and 17.24. The fix is a vision-foundation loss that projects the latent to DINOv2’s feature dimension and adds two margin terms:</p>
+<p><span class="math display">
+\mathcal{L}_{\text{mcos}} = \frac{1}{hw}\sum_{i,j}\mathrm{ReLU}\big(1 - m_1 - \cos(z&#39;_{ij}, f_{ij})\big), \quad
+\mathcal{L}_{\text{mdms}} = \frac{1}{N^2}\sum_{i,j}\mathrm{ReLU}\big(\lvert\cos(z_i,z_j) - \cos(f_i,f_j)\rvert - m_2\big),
+</span></p>
+<p>with <span class="math inline">m_1=0.5</span>, <span class="math inline">m_2=0.25</span> and an adaptive weight. f16d32 with this loss gets rFID 0.28 and gFID 8.22. With the improved LightningDiT, the system reaches FID 1.35 at 800 epochs and 2.11 at 64 epochs, which the paper calls over 21× faster convergence than the original DiT.</p>
+<p><strong>RAE</strong> (representation autoencoder) removes the VAE. A frozen encoder (default DINOv2-B with registers; inputs resized to 224, giving a <span class="math inline">16\times16\times768</span> latent) is paired with a trained ViT-XL decoder (L1, LPIPS and GAN losses) that outputs 256². Reconstruction rFID is 0.49, against 0.62 for the SD-VAE. Diffusing in this latent needs three changes: transformer width at least the token dimension (narrower models fail even to overfit one image); a dimension-dependent schedule shift <span class="math inline">t_m = \alpha t_n / (1 + (\alpha-1)t_n)</span> with <span class="math inline">\alpha = \sqrt{m/n}</span>, where <span class="math inline">m</span> is tokens × channels and <span class="math inline">n = 4096</span>; and a decoder trained on noise-perturbed latents. A shallow, wide head (DiT<span class="math inline">^{\text{DH}}</span>, 2 layers of width 2048) adds width cheaply. Results: FID 1.51 without guidance (800 epochs) and 1.13 with AutoGuidance at both 256 and 512, with no auxiliary alignment loss.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>REPA aligns the generator’s hidden states to a pretrained encoder, VA-VAE aligns the tokenizer’s latent to one, and RAE uses the encoder’s feature space as the latent itself. All three bet that semantic structure, not reconstruction fidelity alone, makes a latent space easy to model.</p>
+</aside>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">Why does REPA speed up diffusion training, and why align an early layer?</span>
+</summary><div class="qa-body">
+<p>A denoiser must infer what is in the noisy image before predicting the clean signal, and learning that representation from the denoising loss alone is slow. REPA supplies it by pulling early hidden states, through a small MLP, toward DINOv2 features of the <em>clean</em> image at every noise level. Aligning an early layer (about 8 of 28 in SiT-XL/2) leaves later layers free to model detail; later layers worked worse in the ablation, plausibly because they must specialize in predicting the output.</p>
+</div></details>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">What goes wrong when you run diffusion in a high-dimensional encoder latent, as RAE does, and how is it fixed?</span>
+</summary><div class="qa-body">
+<p>Three things. A transformer narrower than the token dimension cannot fit the data, so width must be at least the token dimension. With more total dimensions, signal survives more noise, so the usual schedule under-noises; a shift scaling with <span class="math inline">\sqrt{\text{dim}/4096}</span> moves training toward higher noise. Generated latents land slightly off the encoder’s output manifold, so the decoder is trained on noise-augmented latents. A wide, shallow head adds width cheaply.</p>
+</div></details>
+<h2 id="optical-flow">Optical flow</h2>
+<p>Optical flow assigns each pixel a displacement <span class="math inline">(u, v)</span> between frames; video pipelines use it to filter static clips, measure motion and condition on it (see <a href="video-generation.html">video generation</a>).</p>
+<p><strong>Brightness constancy</strong>, <span class="math inline">I(x+u, y+v, t+1) = I(x, y, t)</span>, linearizes to</p>
+<p><span class="math display">
+I_x u + I_y v + I_t = 0 ,
+</span></p>
+<p>one equation in two unknowns per pixel. This is the <em>aperture problem</em>: only the component along the gradient, <span class="math inline">-I_t/\lVert\nabla I\rVert</span>, is determined. Lucas–Kanade assumes constant flow in a window and solves <span class="math inline">\big(\sum \nabla I\,\nabla I^\top\big)[u, v]^\top = -\sum \nabla I\, I_t</span>, well-posed only where the structure tensor is well-conditioned (corners). Horn–Schunck adds global smoothness, minimizing <span class="math inline">\int (I_xu + I_yv + I_t)^2 + \alpha^2(\lVert\nabla u\rVert^2 + \lVert\nabla v\rVert^2)</span>. Coarse-to-fine pyramids handle larger motions.</p>
+<p><strong>RAFT</strong> (1) encodes both frames at 1/8 resolution (<span class="math inline">D=256</span>) plus a context encoding of frame 1; (2) builds an all-pairs correlation volume <span class="math inline">C_{ijkl} = \sum_h g^1_{ijh} g^2_{klh}</span> of shape <span class="math inline">H\times W\times H\times W</span> and average-pools its last two dimensions into a 4-level pyramid; (3) starting from <span class="math inline">f_0 = 0</span>, a convolutional GRU looks up correlations within radius 4 around <span class="math inline">x + f_k(x)</span> at every level and outputs <span class="math inline">\Delta f</span>, so <span class="math inline">f_{k+1} = f_k + \Delta f</span>. It unrolls 12 iterations in training (more at test time), upsamples with learned convex combinations, and trains with <span class="math inline">\sum_{i}\gamma^{N-i}\lVert f_{\text{gt}} - f_i\rVert_1</span>, <span class="math inline">\gamma = 0.8</span>. The full volume keeps every candidate match, so small fast objects are not lost at coarse levels.</p>
+<details class="qa qa-asked" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">What is optical flow, where is it used, and what are its limitations?</span><span class="qa-badge" title="Reported in a real interview">Asked · NVIDIA phone screen, Glassdoor 2020</span>
+</summary><div class="qa-body">
+<p>It is the apparent per-pixel motion between frames, estimated classically from linearized brightness constancy, <span class="math inline">I_xu + I_yv + I_t = 0</span>, or by learned models like RAFT. Uses: stabilization, frame interpolation, tracking, and in generative video, data filtering, motion metrics and conditioning. Limitations: the aperture problem, large displacements that break linearization, occlusions with no correspondence, illumination changes, textureless regions, and blurred motion boundaries. It measures 2D image motion, not 3D scene motion.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">How many parameters and buffers does BatchNorm2d with <span class="math inline">C</span> channels have?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">2C</span> learned (<span class="math inline">\gamma, \beta</span>) and <span class="math inline">2C</span> buffers (running mean and variance), plus a batch counter in PyTorch.</p>
+</div></details>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">How do you fold BN into the preceding conv for inference?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">W&#39; = \gamma W/\sqrt{\sigma^2+\epsilon}</span> per output channel and <span class="math inline">b&#39; = \gamma(b-\mu)/\sqrt{\sigma^2+\epsilon} + \beta</span>, with the running statistics; exact at evaluation.</p>
+</div></details>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">What extent does a <span class="math inline">3\times3</span> conv with dilation 2 cover?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">d(k-1)+1 = 5</span> pixels per side with 9 weights; padding 2 keeps the size.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">How do you avoid checkerboard artifacts when upsampling?</span>
+</summary><div class="qa-body">
+<p>Upsample with nearest-neighbor or bilinear interpolation, then apply a regular conv, so every output pixel receives the same number of contributions.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">Post-LN vs pre-LN transformers?</span>
+</summary><div class="qa-body">
+<p>Post-LN normalizes after the residual sum, giving large gradients near the output at initialization and needing warmup; pre-LN keeps a clean identity path and trains more stably (Xiong et al.).</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">What does linear attention give up?</span>
+</summary><div class="qa-body">
+<p>Sharpness: kernelized scores make the attention matrix low-rank, so it cannot focus as precisely as softmax, in exchange for <span class="math inline">O(Nd^2)</span> cost.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">Why does Swin shift its windows?</span>
+</summary><div class="qa-body">
+<p>Without shifts, attention never crosses window borders within a stage; alternating shifted windows connect neighboring windows at almost no extra cost.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">Why does SimCLR evaluate the layer before the projection head?</span>
+</summary><div class="qa-body">
+<p>The head becomes invariant to the augmentations and discards information such as color; the layer below keeps it and probes more than 10% better.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">What are registers in ViTs?</span>
+</summary><div class="qa-body">
+<p>Extra learnable tokens, discarded at the output, that give large ViTs a place for global computation, so background patch tokens are not repurposed into high-norm artifacts.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">What does DINOv3’s Gram anchoring constrain?</span>
+</summary><div class="qa-body">
+<p>The Gram matrix of normalized patch features, matched to an earlier checkpoint, which keeps the patch similarity structure and stops dense features degrading in long training.</p>
+</div></details>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">ResNet skips vs U-Net skips?</span>
+</summary><div class="qa-body">
+<p>ResNet skips add a block’s input to its output to ease optimization; U-Net skips concatenate encoder features into the decoder to restore spatial detail.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>He et al., “Deep Residual Learning for Image Recognition,” 2015. <a href="https://arxiv.org/abs/1512.03385" target="_blank" rel="noopener">arXiv:1512.03385</a></li>
+<li>He et al., “Identity Mappings in Deep Residual Networks,” 2016. <a href="https://arxiv.org/abs/1603.05027" target="_blank" rel="noopener">arXiv:1603.05027</a></li>
+<li>Ronneberger et al., “U-Net: Convolutional Networks for Biomedical Image Segmentation,” 2015. <a href="https://arxiv.org/abs/1505.04597" target="_blank" rel="noopener">arXiv:1505.04597</a></li>
+<li>Simonyan and Zisserman, “Very Deep Convolutional Networks for Large-Scale Image Recognition,” 2014. <a href="https://arxiv.org/abs/1409.1556" target="_blank" rel="noopener">arXiv:1409.1556</a></li>
+<li>Dumoulin and Visin, “A guide to convolution arithmetic for deep learning,” 2016. <a href="https://arxiv.org/abs/1603.07285" target="_blank" rel="noopener">arXiv:1603.07285</a></li>
+<li>Luo et al., “Understanding the Effective Receptive Field in Deep Convolutional Neural Networks,” 2016. <a href="https://arxiv.org/abs/1701.04128" target="_blank" rel="noopener">arXiv:1701.04128</a></li>
+<li>Yu and Koltun, “Multi-Scale Context Aggregation by Dilated Convolutions,” 2015. <a href="https://arxiv.org/abs/1511.07122" target="_blank" rel="noopener">arXiv:1511.07122</a></li>
+<li>Lin et al., “Network In Network,” 2013. <a href="https://arxiv.org/abs/1312.4400" target="_blank" rel="noopener">arXiv:1312.4400</a></li>
+<li>Chollet, “Xception: Deep Learning with Depthwise Separable Convolutions,” 2016. <a href="https://arxiv.org/abs/1610.02357" target="_blank" rel="noopener">arXiv:1610.02357</a></li>
+<li>Howard et al., “MobileNets,” 2017. <a href="https://arxiv.org/abs/1704.04861" target="_blank" rel="noopener">arXiv:1704.04861</a></li>
+<li>Odena, Dumoulin and Olah, “Deconvolution and Checkerboard Artifacts,” Distill, 2016. <a href="https://distill.pub/2016/deconv-checkerboard/" target="_blank" rel="noopener">distill.pub</a></li>
+<li>Li et al., “Visualizing the Loss Landscape of Neural Nets,” 2017. <a href="https://arxiv.org/abs/1712.09913" target="_blank" rel="noopener">arXiv:1712.09913</a></li>
+<li>Ioffe and Szegedy, “Batch Normalization,” 2015. <a href="https://arxiv.org/abs/1502.03167" target="_blank" rel="noopener">arXiv:1502.03167</a></li>
+<li>Santurkar et al., “How Does Batch Normalization Help Optimization?,” 2018. <a href="https://arxiv.org/abs/1805.11604" target="_blank" rel="noopener">arXiv:1805.11604</a></li>
+<li>Ba, Kiros and Hinton, “Layer Normalization,” 2016. <a href="https://arxiv.org/abs/1607.06450" target="_blank" rel="noopener">arXiv:1607.06450</a></li>
+<li>Ulyanov, Vedaldi and Lempitsky, “Instance Normalization: The Missing Ingredient for Fast Stylization,” 2016. <a href="https://arxiv.org/abs/1607.08022" target="_blank" rel="noopener">arXiv:1607.08022</a></li>
+<li>Huang and Belongie, “Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization,” 2017. <a href="https://arxiv.org/abs/1703.06868" target="_blank" rel="noopener">arXiv:1703.06868</a></li>
+<li>Karras et al., “A Style-Based Generator Architecture for Generative Adversarial Networks,” 2018. <a href="https://arxiv.org/abs/1812.04948" target="_blank" rel="noopener">arXiv:1812.04948</a></li>
+<li>Wu and He, “Group Normalization,” 2018. <a href="https://arxiv.org/abs/1803.08494" target="_blank" rel="noopener">arXiv:1803.08494</a></li>
+<li>Zhang and Sennrich, “Root Mean Square Layer Normalization,” 2019. <a href="https://arxiv.org/abs/1910.07467" target="_blank" rel="noopener">arXiv:1910.07467</a></li>
+<li>Perez et al., “FiLM: Visual Reasoning with a General Conditioning Layer,” 2017. <a href="https://arxiv.org/abs/1709.07871" target="_blank" rel="noopener">arXiv:1709.07871</a></li>
+<li>Peebles and Xie, “Scalable Diffusion Models with Transformers,” 2022. <a href="https://arxiv.org/abs/2212.09748" target="_blank" rel="noopener">arXiv:2212.09748</a></li>
+<li>Xiong et al., “On Layer Normalization in the Transformer Architecture,” 2020. <a href="https://arxiv.org/abs/2002.04745" target="_blank" rel="noopener">arXiv:2002.04745</a></li>
+<li>Vaswani et al., “Attention Is All You Need,” 2017. <a href="https://arxiv.org/abs/1706.03762" target="_blank" rel="noopener">arXiv:1706.03762</a></li>
+<li>Dosovitskiy et al., “An Image is Worth 16x16 Words,” 2020. <a href="https://arxiv.org/abs/2010.11929" target="_blank" rel="noopener">arXiv:2010.11929</a></li>
+<li>Touvron et al., “Training data-efficient image transformers &amp; distillation through attention,” 2020. <a href="https://arxiv.org/abs/2012.12877" target="_blank" rel="noopener">arXiv:2012.12877</a></li>
+<li>Raghu et al., “Do Vision Transformers See Like Convolutional Neural Networks?,” 2021. <a href="https://arxiv.org/abs/2108.08810" target="_blank" rel="noopener">arXiv:2108.08810</a></li>
+<li>Su et al., “RoFormer: Enhanced Transformer with Rotary Position Embedding,” 2021. <a href="https://arxiv.org/abs/2104.09864" target="_blank" rel="noopener">arXiv:2104.09864</a></li>
+<li>Heo et al., “Rotary Position Embedding for Vision Transformer,” 2024. <a href="https://arxiv.org/abs/2403.13298" target="_blank" rel="noopener">arXiv:2403.13298</a></li>
+<li>Liu et al., “Swin Transformer,” 2021. <a href="https://arxiv.org/abs/2103.14030" target="_blank" rel="noopener">arXiv:2103.14030</a></li>
+<li>Liu et al., “A ConvNet for the 2020s,” 2022. <a href="https://arxiv.org/abs/2201.03545" target="_blank" rel="noopener">arXiv:2201.03545</a></li>
+<li>Dehghani et al., “Scaling Vision Transformers to 22 Billion Parameters,” 2023. <a href="https://arxiv.org/abs/2302.05442" target="_blank" rel="noopener">arXiv:2302.05442</a></li>
+<li>Katharopoulos et al., “Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention,” 2020. <a href="https://arxiv.org/abs/2006.16236" target="_blank" rel="noopener">arXiv:2006.16236</a></li>
+<li>Milakov and Gimelshein, “Online normalizer calculation for softmax,” 2018. <a href="https://arxiv.org/abs/1805.02867" target="_blank" rel="noopener">arXiv:1805.02867</a></li>
+<li>Dao et al., “FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness,” 2022. <a href="https://arxiv.org/abs/2205.14135" target="_blank" rel="noopener">arXiv:2205.14135</a></li>
+<li>Dao, “FlashAttention-2,” 2023. <a href="https://arxiv.org/abs/2307.08691" target="_blank" rel="noopener">arXiv:2307.08691</a></li>
+<li>van den Oord, Li and Vinyals, “Representation Learning with Contrastive Predictive Coding,” 2018. <a href="https://arxiv.org/abs/1807.03748" target="_blank" rel="noopener">arXiv:1807.03748</a></li>
+<li>Poole et al., “On Variational Bounds of Mutual Information,” 2019. <a href="https://arxiv.org/abs/1905.06922" target="_blank" rel="noopener">arXiv:1905.06922</a></li>
+<li>Wang and Isola, “Understanding Contrastive Representation Learning through Alignment and Uniformity on the Hypersphere,” 2020. <a href="https://arxiv.org/abs/2005.10242" target="_blank" rel="noopener">arXiv:2005.10242</a></li>
+<li>Wang and Liu, “Understanding the Behaviour of Contrastive Loss,” 2020. <a href="https://arxiv.org/abs/2012.09740" target="_blank" rel="noopener">arXiv:2012.09740</a></li>
+<li>Chen et al., “A Simple Framework for Contrastive Learning of Visual Representations (SimCLR),” 2020. <a href="https://arxiv.org/abs/2002.05709" target="_blank" rel="noopener">arXiv:2002.05709</a></li>
+<li>He et al., “Momentum Contrast for Unsupervised Visual Representation Learning,” 2019. <a href="https://arxiv.org/abs/1911.05722" target="_blank" rel="noopener">arXiv:1911.05722</a></li>
+<li>Radford et al., “Learning Transferable Visual Models From Natural Language Supervision (CLIP),” 2021. <a href="https://arxiv.org/abs/2103.00020" target="_blank" rel="noopener">arXiv:2103.00020</a></li>
+<li>Zhai et al., “Sigmoid Loss for Language Image Pre-Training,” 2023. <a href="https://arxiv.org/abs/2303.15343" target="_blank" rel="noopener">arXiv:2303.15343</a></li>
+<li>Tschannen et al., “SigLIP 2,” 2025. <a href="https://arxiv.org/abs/2502.14786" target="_blank" rel="noopener">arXiv:2502.14786</a></li>
+<li>Caron et al., “Emerging Properties in Self-Supervised Vision Transformers (DINO),” 2021. <a href="https://arxiv.org/abs/2104.14294" target="_blank" rel="noopener">arXiv:2104.14294</a></li>
+<li>Oquab et al., “DINOv2: Learning Robust Visual Features without Supervision,” 2023. <a href="https://arxiv.org/abs/2304.07193" target="_blank" rel="noopener">arXiv:2304.07193</a></li>
+<li>Darcet et al., “Vision Transformers Need Registers,” 2023. <a href="https://arxiv.org/abs/2309.16588" target="_blank" rel="noopener">arXiv:2309.16588</a></li>
+<li>Siméoni et al., “DINOv3,” 2025. <a href="https://arxiv.org/abs/2508.10104" target="_blank" rel="noopener">arXiv:2508.10104</a></li>
+<li>He et al., “Masked Autoencoders Are Scalable Vision Learners,” 2021. <a href="https://arxiv.org/abs/2111.06377" target="_blank" rel="noopener">arXiv:2111.06377</a></li>
+<li>Assran et al., “Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture (I-JEPA),” 2023. <a href="https://arxiv.org/abs/2301.08243" target="_blank" rel="noopener">arXiv:2301.08243</a></li>
+<li>Tang et al., “Emergent Correspondence from Image Diffusion,” 2023. <a href="https://arxiv.org/abs/2306.03881" target="_blank" rel="noopener">arXiv:2306.03881</a></li>
+<li>Yu et al., “Representation Alignment for Generation: Training Diffusion Transformers Is Easier Than You Think (REPA),” 2024. <a href="https://arxiv.org/abs/2410.06940" target="_blank" rel="noopener">arXiv:2410.06940</a></li>
+<li>Yao, Yang and Wang, “Reconstruction vs. Generation: Taming Optimization Dilemma in Latent Diffusion Models (VA-VAE),” 2025. <a href="https://arxiv.org/abs/2501.01423" target="_blank" rel="noopener">arXiv:2501.01423</a></li>
+<li>Zheng et al., “Diffusion Transformers with Representation Autoencoders,” 2025. <a href="https://arxiv.org/abs/2510.11690" target="_blank" rel="noopener">arXiv:2510.11690</a></li>
+<li>Teed and Deng, “RAFT: Recurrent All-Pairs Field Transforms for Optical Flow,” 2020. <a href="https://arxiv.org/abs/2003.12039" target="_blank" rel="noopener">arXiv:2003.12039</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="restoration-super-resolution.html"><span class="pager-dir">Previous</span><span class="pager-title">Image and Video Restoration</span></a>
+        <a class="pager-next" href="text-to-image-multimodal.html"><span class="pager-dir">Next</span><span class="pager-title">Text-to-Image and Multimodal Generation</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

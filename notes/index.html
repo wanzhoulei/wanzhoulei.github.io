@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes · Wanzhou Lei</title>
+  <meta name="description" content="Notes on generative modeling, computer vision and deep learning, with derivations and practice questions.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="notes-head">
+    <h1 class="page-title">Notes</h1>
+    <p class="page-lede">Notes on generative modeling, computer vision and deep learning. Each page builds the core ideas from first principles, derives the key equations, and ends with practice questions you can expand one at a time.</p>
+    <p class="note-meta"><span>9 topics</span><span>432 practice questions</span><span>Updated 2026-11-08</span></p>
+  </div>
+  <a class="note-card featured" href="interview-question-bank.html"><span class="note-card-title">Research Interview Question Bank</span><span class="note-card-sub">Questions reported in research-scientist-intern interviews for generative modeling and computer vision, across companies, with short answers.</span><span class="note-card-stats">130 questions · 97 min read</span></a>
+  <div class="note-grid">
+      <a class="note-card" href="diffusion-models.html"><span class="note-num">01</span><span class="note-card-title">Diffusion Models</span><span class="note-card-sub">DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, derived in one notation.</span><span class="note-card-stats">37 questions · 30 min read</span></a>
+      <a class="note-card" href="flow-matching.html"><span class="note-num">02</span><span class="note-card-title">Flow Matching and Few-Step Generation</span><span class="note-card-sub">Continuous flows, flow matching and rectified flow, why they coincide with diffusion, and the distillation and consistency methods that cut sampling to one to four steps.</span><span class="note-card-stats">31 questions · 31 min read</span></a>
+      <a class="note-card" href="gans-vaes-autoregressive.html"><span class="note-num">03</span><span class="note-card-title">GANs, VAEs and Autoregressive Models</span><span class="note-card-sub">Adversarial, variational, quantized, autoregressive and flow-based generators: their objectives, failure modes, and where each one still appears in modern image generation.</span><span class="note-card-stats">33 questions · 31 min read</span></a>
+      <a class="note-card" href="evaluation-metrics.html"><span class="note-num">04</span><span class="note-card-title">Evaluating Generative and Restoration Models</span><span class="note-card-sub">What FID and its alternatives, precision/recall, alignment and preference scores, PSNR/SSIM/LPIPS, no-reference IQA and human studies actually measure, and the perception–distortion trade-off that makes them disagree.</span><span class="note-card-stats">33 questions · 31 min read</span></a>
+      <a class="note-card" href="restoration-super-resolution.html"><span class="note-num">05</span><span class="note-card-title">Image and Video Restoration</span><span class="note-card-sub">Super-resolution and restoration as inverse problems: signal-processing basics, degradation models, regression, GAN and diffusion restorers, posterior samplers, and video SR.</span><span class="note-card-stats">32 questions · 31 min read</span></a>
+      <a class="note-card" href="vision-backbones.html"><span class="note-num">06</span><span class="note-card-title">Vision Backbones and Representations</span><span class="note-card-sub">Convolution and attention arithmetic, residual and normalization layers, ViTs, self-supervised features, and how pretrained encoders now feed into generative models.</span><span class="note-card-stats">31 questions · 31 min read</span></a>
+      <a class="note-card" href="text-to-image-multimodal.html"><span class="note-num">07</span><span class="note-card-title">Text-to-Image and Multimodal Generation</span><span class="note-card-sub">How text gets into an image generator: conditioning blocks, text encoders, captions, guidance, adapters, editing, unified models, and post-training.</span><span class="note-card-stats">30 questions · 31 min read</span></a>
+      <a class="note-card" href="video-generation.html"><span class="note-num">08</span><span class="note-card-title">Video Generation</span><span class="note-card-sub">How text- and image-to-video models compress, model, condition, train, speed up and evaluate spacetime data, from 3D U-Nets to video DiTs and autoregressive world models.</span><span class="note-card-stats">32 questions · 32 min read</span></a>
+      <a class="note-card" href="deep-learning-training.html"><span class="note-num">09</span><span class="note-card-title">Deep Learning Training Essentials</span><span class="note-card-sub">Losses as likelihoods, gradient flow, initialization, optimizers, schedules, numerics, EMA, regularization, scale and debugging, with the derivations interviewers ask for.</span><span class="note-card-stats">43 questions · 32 min read</span></a>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="../index.html">Home</a></div>
+</footer>
+</body>
+</html>

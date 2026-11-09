@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image and Video Restoration · Notes · Wanzhou Lei</title>
+  <meta name="description" content="Super-resolution and restoration as inverse problems: signal-processing basics, degradation models, regression, GAN and diffusion restorers, posterior samplers, and video SR.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Image and Video Restoration</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#restoration-as-an-inverse-problem" id="toc-restoration-as-an-inverse-problem">Restoration as an inverse problem</a></li>
+      <li><a href="#signal-processing-basics" id="toc-signal-processing-basics">Signal-processing basics</a></li>
+      <li><a href="#degradation-modeling-from-bicubic-to-real-world-sr" id="toc-degradation-modeling-from-bicubic-to-real-world-sr">Degradation modeling: from bicubic to real-world SR</a></li>
+      <li><a href="#architectures-and-losses" id="toc-architectures-and-losses">Architectures and losses</a></li>
+      <li><a href="#gan-based-sr" id="toc-gan-based-sr">GAN-based SR</a></li>
+      <li><a href="#diffusion-based-sr" id="toc-diffusion-based-sr">Diffusion-based SR</a></li>
+      <li><a href="#training-free-posterior-samplers" id="toc-training-free-posterior-samplers">Training-free posterior samplers</a></li>
+      <li><a href="#video-restoration-and-video-sr" id="toc-video-restoration-and-video-sr">Video restoration and video SR</a></li>
+      <li><a href="#face-and-blind-restoration" id="toc-face-and-blind-restoration">Face and blind restoration</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Image and Video Restoration</h1>
+        <p class="page-lede">Super-resolution and restoration as inverse problems: signal-processing basics, degradation models, regression, GAN and diffusion restorers, posterior samplers, and video SR.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>32 practice questions</span><span>31 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#restoration-as-an-inverse-problem">Restoration as an inverse problem</a></li>
+<li><a href="#signal-processing-basics">Signal-processing basics</a></li>
+<li><a href="#degradation-modeling-from-bicubic-to-real-world-sr">Degradation modeling: from bicubic to real-world SR</a></li>
+<li><a href="#architectures-and-losses">Architectures and losses</a></li>
+<li><a href="#gan-based-sr">GAN-based SR</a></li>
+<li><a href="#diffusion-based-sr">Diffusion-based SR</a></li>
+<li><a href="#training-free-posterior-samplers">Training-free posterior samplers</a></li>
+<li><a href="#video-restoration-and-video-sr">Video restoration and video SR</a></li>
+<li><a href="#face-and-blind-restoration">Face and blind restoration</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>Image restoration recovers a clean image from a low-resolution, blurry, noisy or compressed observation. Super-resolution (SR) is the flagship task and contains most of the field’s ideas: the inverse map is not unique, the true degradation is unknown, and the best answer depends on whether you are scored on pixel error or on realism. Interviewers use it to check whether you can connect estimation theory (MMSE, MAP, posterior sampling), signal processing (sampling, aliasing, blur) and generative priors (GANs, diffusion). Metric definitions are in <a href="evaluation-metrics.html">evaluation metrics</a>, diffusion basics in <a href="diffusion-models.html">diffusion models</a>, GAN theory in <a href="gans-vaes-autoregressive.html">GANs, VAEs and autoregressive models</a>.</p>
+<h2 id="restoration-as-an-inverse-problem">Restoration as an inverse problem</h2>
+<h3 id="forward-model-and-ill-posedness">Forward model and ill-posedness</h3>
+<p>Write the observation as</p>
+<p><span class="math display">y = A(x) + n,</span></p>
+<p>with <span class="math inline">x</span> the clean image, <span class="math inline">A</span> the degradation and <span class="math inline">n</span> noise. Denoising has <span class="math inline">A = I</span>, deblurring <span class="math inline">Ax = k * x</span>, inpainting a mask, SR <span class="math inline">Ax = (k * x)\downarrow_s</span> (blur, then keep every <span class="math inline">s</span>-th pixel), and JPEG artifact removal a nonlinear <span class="math inline">A</span>. In the diffusion sections <span class="math inline">x_0</span> is the clean image and <span class="math inline">x_t</span> the noisy state.</p>
+<p>A problem is well-posed if a solution exists, is unique and depends continuously on the data. SR fails uniqueness: for <span class="math inline">\times s</span> SR of <span class="math inline">N</span> pixels, <span class="math inline">y</span> has <span class="math inline">N/s^2</span> entries, so the null space of <span class="math inline">A</span> has dimension at least <span class="math inline">N(1-1/s^2)</span>, which is 15/16 of all directions at <span class="math inline">\times 4</span>. Deblurring fails stability. For linear <span class="math inline">A = U\Sigma V^\top</span> with singular values <span class="math inline">s_i</span>,</p>
+<p><span class="math display">A^{+}y=\sum_{i:\,s_i&gt;0}(v_i^\top x)\,v_i+\sum_{i:\,s_i&gt;0}\frac{u_i^\top n}{s_i}\,v_i .</span></p>
+<p>The first sum is the row-space projection of <span class="math inline">x</span>, so null-space content is lost; the second divides noise by small singular values. Any restorer needs a prior to fill the null space and to regularize ill-conditioned directions.</p>
+<h3 id="map-mmse-and-posterior-sampling">MAP, MMSE and posterior sampling</h3>
+<p>From <span class="math inline">p(x\mid y) \propto p(y\mid x)\,p(x)</span> there are three standard outputs. <strong>MAP</strong> maximizes <span class="math inline">\log p(y\mid x) + \log p(x)</span>; with Gaussian noise this is the classical <span class="math inline">\frac{1}{2\sigma^2}\|y - A(x)\|^2 + R(x)</span>. <strong>MMSE</strong> returns <span class="math inline">\mathbb{E}[x\mid y]</span> and minimizes expected squared error, the quantity PSNR scores. <strong>Posterior sampling</strong> draws <span class="math inline">\hat x \sim p(x\mid y)</span>, a plausible image whose null-space content varies between draws. If <span class="math inline">x \sim \mathcal{N}(\mu, \Sigma)</span>, <span class="math inline">A</span> is linear and <span class="math inline">n \sim \mathcal{N}(0, \sigma^2 I)</span>, the posterior is Gaussian and MAP equals MMSE:</p>
+<p><span class="math display">\hat x=\mu+\Sigma A^\top(A\Sigma A^\top+\sigma^2 I)^{-1}(y-A\mu).</span></p>
+<p>For convolutions with a stationary prior this becomes the Wiener filter below. Natural images are far from Gaussian, which is where the three estimators separate.</p>
+<h3 id="regression-to-the-mean">Regression to the mean</h3>
+<p>For any <span class="math inline">f</span>, insert <span class="math inline">\mu(y) = \mathbb{E}[x\mid y]</span>:</p>
+<p><span class="math display">\mathbb{E}\|x-f(y)\|^2=\mathbb{E}\|x-\mu(y)\|^2+\mathbb{E}\|\mu(y)-f(y)\|^2+2\,\mathbb{E}\big[(x-\mu(y))^\top(\mu(y)-f(y))\big].</span></p>
+<p>Given <span class="math inline">y</span>, <span class="math inline">\mu(y)-f(y)</span> is fixed and <span class="math inline">\mathbb{E}[x-\mu(y)\mid y]=0</span>, so the cross term vanishes and the L2 optimum is <span class="math inline">f^*=\mu(y)</span>. Now take a frequency <span class="math inline">\omega</span> whose phase the input does not determine (say, the sub-pixel position of a fine texture), <span class="math inline">X(\omega) = a\,e^{i\varphi}</span> with <span class="math inline">\varphi</span> uniform given <span class="math inline">y</span>:</p>
+<p><span class="math display">\mathbb{E}[X(\omega)\mid y]=a\,\mathbb{E}[e^{i\varphi}]=0,</span></p>
+<p>although every plausible image has energy <span class="math inline">a^2</span> there. The mean cancels undetermined detail. L1 training gives the per-pixel conditional median, which also suppresses undetermined detail.</p>
+<h3 id="the-perceptiondistortion-trade-off-in-practice">The perception–distortion trade-off in practice</h3>
+<p>Blau and Michaeli showed that low distortion and natural-looking output statistics conflict for ill-posed problems (theorem in <a href="evaluation-metrics.html">evaluation metrics</a>). One consequence takes two lines: draw <span class="math inline">\hat x \sim p(\cdot\mid y)</span> independently of <span class="math inline">x</span> given <span class="math inline">y</span>, with <span class="math inline">\mu = \mathbb{E}[x\mid y]</span>:</p>
+<p><span class="math display">\mathbb{E}\|x-\hat x\|^2=\mathbb{E}\|x-\mu\|^2+\mathbb{E}\|\hat x-\mu\|^2=2\,\mathbb{E}\|x-\mu\|^2 .</span></p>
+<p>The cross term vanishes by conditional independence, and <span class="math inline">\hat x</span> has the same conditional law as <span class="math inline">x</span>. Posterior sampling costs exactly twice the MMSE (<span class="math inline">10\log_{10}2 \approx 3</span> dB of PSNR), and Blau and Michaeli prove that perfect perceptual quality never requires more than this factor. In practice: PSNR-oriented and perceptual models are different products; good systems expose a knob along the curve (ESRGAN network interpolation, CodeFormer’s <span class="math inline">w</span>, the starting noise level in diffusion SR); and the lowest MSE at perfect realism comes from estimating the posterior mean and transporting it to the image distribution (Freirich et al.; approximated by PMRF).</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>An L2-trained restorer outputs the average of all plausible answers, and averaging cancels whatever the input does not determine. Generative restorers pay a bounded MSE cost (exactly 2x MMSE for posterior sampling) for outputs that look real.</p>
+</aside>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“Diffusion SR hallucinates because it is broken.” A posterior sampler must invent null-space content; that is what separates it from the posterior mean. The real questions are whether the invention is consistent with <span class="math inline">y</span> and whether the user can control how much is invented.</p>
+</aside>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Why does an SR network trained with MSE produce blurry images, and why doesn’t a bigger network fix it?</span>
+</summary><div class="qa-body">
+<p>The MSE minimizer is the posterior mean <span class="math inline">\mathbb{E}[x\mid y]</span>, so even a perfect, unlimited network outputs the average of all high-resolution images consistent with the input. Where the input does not determine a detail (texture phase, exact edge position), candidates disagree and averaging suppresses that band; with uniformly uncertain phase the conditional mean at that frequency is zero. Capacity only improves the estimate of the same mean. The fix is a different objective: adversarial or perceptual losses, or sampling from <span class="math inline">p(x\mid y)</span>.</p>
+</div></details>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">Compare MAP, MMSE and posterior sampling. Which maximizes PSNR, and what does sampling cost?</span>
+</summary><div class="qa-body">
+<p>MMSE minimizes expected MSE, so it is the PSNR-oriented choice, but it blurs when the posterior is spread over many images. MAP is the posterior mode; with a Gaussian prior, linear operator and Gaussian noise it equals MMSE, and with other priors it is often an atypical image (Blau and Michaeli show its output distribution is also wrong). Posterior sampling returns typical images with natural statistics, at exactly twice the MMSE, about 3 dB lower PSNR.</p>
+</div></details>
+<h2 id="signal-processing-basics">Signal-processing basics</h2>
+<h3 id="sampling-and-aliasing">Sampling and aliasing</h3>
+<p>Sampling with period <span class="math inline">T</span> multiplies by an impulse train, whose Fourier transform is an impulse train with spacing <span class="math inline">1/T</span>, so</p>
+<p><span class="math display">X_s(f)=\frac{1}{T}\sum_{k\in\mathbb{Z}}X\!\left(f-\frac{k}{T}\right).</span></p>
+<p>The spectrum is copied every <span class="math inline">f_s = 1/T</span>. If <span class="math inline">X</span> is band-limited to <span class="math inline">|f| &lt; B</span> and <span class="math inline">f_s &gt; 2B</span>, the copies do not overlap and sinc interpolation recovers <span class="math inline">x</span>; <span class="math inline">f_s/2</span> is the Nyquist frequency. Content above it lands on <span class="math inline">|f - kf_s|</span>: aliasing, seen as moiré and jagged edges.</p>
+<h3 id="downsampling-blur-and-the-fourier-domain">Downsampling, blur and the Fourier domain</h3>
+<p>For decimation <span class="math inline">y[n] = x[sn]</span>, multiply by the comb <span class="math inline">c[m] = \frac{1}{s}\sum_{k=0}^{s-1}e^{i2\pi km/s}</span> (1 when <span class="math inline">s</span> divides <span class="math inline">m</span>, else 0), which adds spectral copies shifted by <span class="math inline">2\pi k/s</span>, then drop zeros, which stretches frequency by <span class="math inline">s</span>:</p>
+<p><span class="math display">Y(e^{i\omega})=\frac{1}{s}\sum_{k=0}^{s-1}X\!\left(e^{i(\omega-2\pi k)/s}\right).</span></p>
+<p>The band <span class="math inline">\pi/s \le |\omega| \le \pi</span> folds onto the retained band. An anti-aliasing filter low-passes near <span class="math inline">\pi/s</span> first, trading aliasing for blur.</p>
+<p>Blur multiplies the spectrum: <span class="math inline">Y = KX + N</span>. A Gaussian with standard deviation <span class="math inline">\sigma</span> pixels has <span class="math inline">K(f) = e^{-2\pi^2\sigma^2 f^2}</span> (<span class="math inline">f</span> in cycles per pixel; at <span class="math inline">\sigma=1.5</span>, <span class="math inline">f=0.25</span> the gain is about 0.06), and disk or motion kernels have exact zeros. The inverse <span class="math inline">Y/K = X + N/K</span> explodes where <span class="math inline">|K|</span> is small. Minimizing <span class="math inline">\mathbb{E}|X - GY|^2</span> per frequency gives the Wiener filter</p>
+<p><span class="math display">G(\omega)=\frac{K^*(\omega)\,S_x(\omega)}{|K(\omega)|^2S_x(\omega)+S_n(\omega)},</span></p>
+<p>which inverts only where signal power beats noise power. It is the Fourier form of the Gaussian posterior mean, hence soft. The SR model <span class="math inline">y = (k*x)\downarrow_s + n</span> does both: the kernel attenuates, decimation folds what remains above <span class="math inline">\pi/s</span>.</p>
+<h3 id="interpolation-kernels-and-resizers">Interpolation kernels and resizers</h3>
+<p>Nearest neighbor is a box kernel (sinc response, blocky), bilinear a triangle (<span class="math inline">\mathrm{sinc}^2</span>, blurrier), bicubic Keys’ cubic convolution, whose negative lobes approximate sinc better and overshoot slightly. MATLAB’s <code>imresize</code> uses <span class="math inline">a=-0.5</span>; PyTorch’s <code>F.interpolate</code> and OpenCV’s <code>INTER_CUBIC</code> use <span class="math inline">a=-0.75</span>. When shrinking, <code>imresize</code> also stretches the kernel by the scale factor by default, an antialiasing prefilter; <code>F.interpolate</code> does not unless <code>antialias=True</code>, and OpenCV’s cubic mode does not either. DIV2K’s bicubic LR images were made with <code>imresize</code> at default settings, and the usual Set5/Set14/B100/Urban100 LR inputs are, by common practice, generated the same way, so LR made by another resizer is a different degradation and shifts the reported PSNR.</p>
+<h3 id="real-cameras-are-not-bicubic">Real cameras are not bicubic</h3>
+<p>A real image passes through the optics’ point-spread function (often spatially varying), motion blur, pixel-area integration, a Bayer filter and demosaicing, shot noise (Poisson) plus read noise (roughly Gaussian), an ISP (denoising, sharpening, tone curve) that makes noise correlated and signal-dependent, JPEG, and often resizing and recompression when shared. A bicubic-trained network inverts one known, noise-free kernel. If the true kernel is wider the output is over-smoothed, if narrower over-sharpened (the IKC observation), and noise or JPEG blocks get upscaled into structured artifacts.</p>
+<p>Aliasing is also why multi-frame SR works: perfectly anti-aliased frames would carry nothing above Nyquist, but real frames alias differently under sub-pixel shifts, so aligned frames jointly constrain the high-resolution content.</p>
+<details class="qa qa-asked" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">Hand-write nearest-neighbor and bilinear image interpolation.</span><span class="qa-badge" title="Reported in a real interview">Asked · Megvii CV algorithm campus interview, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>Map each output pixel center back to the input: <span class="math inline">u = (j + 0.5)\,W_{in}/W_{out} - 0.5</span> (PyTorch <code>align_corners=False</code>). Nearest neighbor rounds <span class="math inline">u</span> (PyTorch’s <code>nearest-exact</code>; the legacy <code>nearest</code> mode takes <span class="math inline">\lfloor j\,W_{in}/W_{out}\rfloor</span>); bilinear blends neighbors separably. This matches <code>F.interpolate(mode="bilinear")</code>. When shrinking a lot, pre-filter or area-average to avoid aliasing.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> bilinear_resize(img, out_h, out_w):</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    H, W <span class="op">=</span> img.shape[:<span class="dv">2</span>]</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    ys <span class="op">=</span> np.clip((np.arange(out_h) <span class="op">+</span> <span class="fl">0.5</span>) <span class="op">*</span> H <span class="op">/</span> out_h <span class="op">-</span> <span class="fl">0.5</span>, <span class="dv">0</span>, H <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    xs <span class="op">=</span> np.clip((np.arange(out_w) <span class="op">+</span> <span class="fl">0.5</span>) <span class="op">*</span> W <span class="op">/</span> out_w <span class="op">-</span> <span class="fl">0.5</span>, <span class="dv">0</span>, W <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    y0, x0 <span class="op">=</span> np.floor(ys).astype(<span class="bu">int</span>), np.floor(xs).astype(<span class="bu">int</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    y1, x1 <span class="op">=</span> np.minimum(y0 <span class="op">+</span> <span class="dv">1</span>, H <span class="op">-</span> <span class="dv">1</span>), np.minimum(x0 <span class="op">+</span> <span class="dv">1</span>, W <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    wy, wx <span class="op">=</span> (ys <span class="op">-</span> y0)[:, <span class="va">None</span>], (xs <span class="op">-</span> x0)[<span class="va">None</span>, :]</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> img.ndim <span class="op">==</span> <span class="dv">3</span>: wy, wx <span class="op">=</span> wy[..., <span class="va">None</span>], wx[..., <span class="va">None</span>]</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    top <span class="op">=</span> img[y0][:, x0] <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> wx) <span class="op">+</span> img[y0][:, x1] <span class="op">*</span> wx</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    bot <span class="op">=</span> img[y1][:, x0] <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> wx) <span class="op">+</span> img[y1][:, x1] <span class="op">*</span> wx</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> top <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> wy) <span class="op">+</span> bot <span class="op">*</span> wy</span></code></pre></div>
+</div></details>
+<details class="qa" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">What is aliasing, why low-pass before downsampling, and what does that cost?</span>
+</summary><div class="qa-body">
+<p>Sampling copies the spectrum at multiples of the rate, so content above half the new rate shows up at a false lower frequency. After decimation by <span class="math inline">s</span>, the band above <span class="math inline">\pi/s</span> folds into the kept band and cannot be separated from true content without a prior. A low-pass near <span class="math inline">\pi/s</span> removes it first. The cost is blur: real filters roll off early and sharp cutoffs ring, so resizers choose different compromises.</p>
+</div></details>
+<details class="qa qa-asked" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">What noise is in RAW images, how do you model or estimate it, and what loss would you use for denoising?</span><span class="qa-badge" title="Reported in a real interview">Asked · vivo CV algorithm written test, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>Mainly shot noise (Poisson, variance proportional to signal) and read noise (Gaussian), plus fixed-pattern noise, hot pixels and quantization. A standard model is <span class="math inline">y \sim \mathcal{N}(x,\ \lambda_{\text{read}} + \lambda_{\text{shot}}x)</span>, with both parameters set by gain (ISO); estimate them from dark frames and flat fields or from flat image patches. Denoise in RAW, where noise is still pixel-independent. Use L1 or Charbonnier, ideally computed after a simulated ISP so errors are weighted as in the final image. The Anscombe transform <span class="math inline">2\sqrt{y+3/8}</span> makes Poisson noise roughly unit-variance Gaussian.</p>
+</div></details>
+<h2 id="degradation-modeling-from-bicubic-to-real-world-sr">Degradation modeling: from bicubic to real-world SR</h2>
+<p>The classical blind-SR model is</p>
+<p><span class="math display">y=\big[(x\otimes k)\downarrow_s+n\big]_{\mathrm{JPEG}}.</span></p>
+<p>Early approaches fed a known kernel and noise level to the network (SRMD), estimated the kernel first (KernelGAN with an internal GAN; IKC by iterative correction from artifacts), or trained on the test image itself (ZSSR). What worked best in the wild was synthesizing training pairs from a broad degradation distribution.</p>
+<p><strong>BSRGAN</strong> randomly shuffles the order of its operations: two blurs (isotropic and anisotropic Gaussian), downsampling chosen from nearest, bilinear and bicubic, Gaussian noise, JPEG at random quality, and camera-sensor noise made by running an image backward through an ISP model, adding RAW noise and running it forward.</p>
+<p><strong>Real-ESRGAN</strong> uses a second-order model, <span class="math inline">x_{LR} = D_2(D_1(x))</span>, each stage with its own parameters, to imitate capture followed by editing and re-sharing. Each stage applies blur (Gaussian, generalized Gaussian, plateau or sinc kernels), a random up or down resize, Gaussian or Poisson noise, and JPEG. A final 2D sinc filter, <span class="math inline">k(i,j)=\frac{\omega_c}{2\pi\sqrt{i^2+j^2}}J_1\big(\omega_c\sqrt{i^2+j^2}\big)</span>, imitates ringing and overshoot; its order relative to the last JPEG is random. Training is L1 first (Real-ESRNet), then L1 plus perceptual plus adversarial losses with a U-Net discriminator under spectral normalization.</p>
+<p><strong>The domain gap</strong> is the mismatch between synthetic and real degradations. Too mild, and real noise gets amplified; too strong, and real texture (grass, skin, film grain) is removed as noise. Real paired sets such as RealSR and DRealSR, captured by changing focal length, are physically real but small and camera-specific.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>For real-world SR the training-pair generator is a model component: it decides what the network treats as signal and what as degradation.</p>
+</aside>
+<details class="qa" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">Compare the BSRGAN and Real-ESRGAN pipelines. Why does Real-ESRGAN add a sinc filter?</span>
+</summary><div class="qa-body">
+<p>Both use blur, resize, noise and JPEG. BSRGAN randomly shuffles their order and adds ISP-processed sensor noise; Real-ESRGAN applies the whole chain twice with independent parameters, imitating repeated processing. The sinc filter, an ideal low-pass, creates the ringing and overshoot bands near edges that over-sharpening and band-limiting produce and that blur or noise do not imitate. Without it, models tend to amplify such halos.</p>
+</div></details>
+<details class="qa" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">A model trained on bicubic pairs looks bad on real phone photos. Why, and how do you close the gap?</span>
+</summary><div class="qa-body">
+<p>It learned to invert one clean, known kernel, while real photos have a different and often varying point-spread function, correlated ISP noise, JPEG blocks and halos; a wider true kernel gives over-smoothing, and noise becomes fake texture. Train on a broad realistic pipeline (BSRGAN- or Real-ESRGAN-style with the target camera’s noise model), tune its strength on held-out real captures rather than synthetic PSNR, add real pairs if possible, and inspect failures by type.</p>
+</div></details>
+<details class="qa qa-asked" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">How would you do super-resolution at arbitrary, non-integer scales?</span><span class="qa-badge" title="Reported in a real interview">Asked · Hikvision CV algorithm campus interview, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>The baseline is a fixed-scale model plus a bicubic resize. Meta-SR predicts upscaling filter weights from the scale factor and each output pixel’s sub-pixel offset. LIIF treats the image as a continuous function: an MLP maps a nearby latent code, the relative coordinate and the output cell size to RGB, so it can be queried at any resolution, extrapolating beyond training scales with falling quality. Sample training scales to match deployment and blend neighboring codes to avoid seams.</p>
+</div></details>
+<h2 id="architectures-and-losses">Architectures and losses</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Model</th>
+<th>Year</th>
+<th>Key idea</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SRCNN</td>
+<td>2014</td>
+<td>Three conv layers on a bicubic-upsampled input</td>
+</tr>
+<tr>
+<td>VDSR</td>
+<td>2016</td>
+<td>20 layers, global residual learning, gradient clipping</td>
+</tr>
+<tr>
+<td>ESPCN</td>
+<td>2016</td>
+<td>Compute at low resolution; sub-pixel convolution (pixel shuffle)</td>
+</tr>
+<tr>
+<td>EDSR</td>
+<td>2017</td>
+<td>Residual blocks without BatchNorm, residual scaling 0.1, L1 loss</td>
+</tr>
+<tr>
+<td>RCAN</td>
+<td>2018</td>
+<td>Residual-in-residual with long and short skips; channel attention</td>
+</tr>
+<tr>
+<td>SwinIR</td>
+<td>2021</td>
+<td>Residual Swin Transformer blocks (shifted-window attention)</td>
+</tr>
+<tr>
+<td>HAT</td>
+<td>2022</td>
+<td>Channel plus window attention, overlapping cross-attention, same-task pretraining</td>
+</tr>
+</tbody>
+</table>
+<p>The common skeleton is a shallow convolution, a deep body at low resolution, a pixel-shuffle upsampler and a global skip, so the body predicts only the missing high frequencies. RCAN’s channel attention is squeeze-and-excitation, <span class="math inline">s = \sigma(W_U\,\delta(W_D\,\mathrm{GAP}(F)))</span>, <span class="math inline">F&#39; = s\odot F</span>. SwinIR beat CNN baselines with up to 67% fewer parameters; HAT’s attribution analysis showed SwinIR still used a limited range of input pixels, and HAT added channel attention and overlapping cross-attention to use more. For general restoration, Restormer attends across channels (linear in pixel count) and NAFNet shows that a simple gated network without nonlinear activations is competitive.</p>
+<p><strong>Losses.</strong> L2 targets the posterior mean, L1 the median; Charbonnier <span class="math inline">\sqrt{(\hat x-x)^2+\epsilon^2}</span> is a smooth L1. The perceptual loss compares fixed-network features, <span class="math inline">\frac{1}{C_jH_jW_j}\|\phi_j(\hat x)-\phi_j(x)\|_2^2</span> with VGG features <span class="math inline">\phi_j</span>, matching structure without pinning pixels; alone it can leave grid artifacts and color shifts. Adversarial losses push toward the image distribution. LPIPS is now a common training loss, especially for fine-tuning diffusion SR; a model trained on LPIPS should not be judged by LPIPS alone.</p>
+<details class="qa" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">Why do SR networks such as EDSR and ESRGAN remove BatchNorm?</span>
+</summary><div class="qa-body">
+<p>EDSR argues BN removes the range flexibility of features, which a regression task that must preserve absolute intensity needs, and dropping it saved about 40% of training memory. ESRGAN adds that BN causes artifacts when train and test statistics differ and in deep GAN training. Small patch batches also give noisy statistics that couple unrelated images. Residual scaling and careful initialization keep BN-free networks stable.</p>
+</div></details>
+<details class="qa" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Should you train with L1 or L2 if you are evaluated on PSNR?</span>
+</summary><div class="qa-body">
+<p>Often L1, although PSNR is a function of MSE. Zhao et al. found L1-trained networks reached higher PSNR and SSIM than L2-trained ones and attributed it to optimization: the L2 networks settled in worse minima. A common intuition is that L2 gradients shrink with the error while L1 gradients keep constant size. EDSR also chose L1 after finding it converged better in its own experiments. L1 is also robust to outliers such as misaligned regions in real pairs; both losses still blur texture.</p>
+</div></details>
+<details class="qa" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Pixel shuffle or transposed convolution? Where do checkerboard artifacts come from?</span>
+</summary><div class="qa-body">
+<p>A transposed convolution whose kernel size is not divisible by its stride covers output pixels unevenly and prints a checkerboard. Pixel shuffle predicts <span class="math inline">s^2C</span> channels at low resolution and rearranges them, so convolutions stay cheap; its <span class="math inline">s^2</span> sub-pixel filters can still disagree at initialization, which ICNR fixes by initializing them identically (equivalent to nearest-neighbor upsampling then convolution). Resize-then-convolve avoids the artifact at higher compute.</p>
+</div></details>
+<h2 id="gan-based-sr">GAN-based SR</h2>
+<p><strong>SRGAN</strong> combines a residual generator with a VGG feature content loss and an adversarial term weighted <span class="math inline">10^{-3}</span>; its PSNR was lower than the MSE baseline but its mean opinion scores were much higher. <strong>ESRGAN</strong> made four changes: RRDB blocks without BatchNorm; a relativistic average discriminator, <span class="math inline">D_{Ra}(x_r,x_f)=\sigma\big(C(x_r)-\mathbb{E}_{x_f}[C(x_f)]\big)</span>, so generator gradients come from real and fake samples; a perceptual loss on VGG features before activation (post-activation features are sparse and shifted brightness); and network interpolation, <span class="math inline">\theta=(1-\alpha)\theta_{\text{PSNR}}+\alpha\theta_{\text{GAN}}</span>, as a realism knob. Its generator loss is <span class="math inline">\mathcal{L}_{\text{percep}}+\lambda\mathcal{L}^{Ra}_G+\eta\mathcal{L}_1</span> with <span class="math inline">\lambda=5\times10^{-3}</span>, <span class="math inline">\eta=10^{-2}</span>. <strong>Real-ESRGAN</strong> keeps that generator and adds the synthetic pipeline and a U-Net discriminator.</p>
+<p>GAN-SR artifacts are plausible but wrong high frequencies: texture on flat areas, wavy strokes on text, color speckle, halos. The discriminator rewards local texture statistics rather than correctness. LDL penalizes regions flagged by local statistics of the residual during training; DeSRA detects artifacts at test time by comparing local variance of GAN and MSE outputs, then fine-tunes on a few examples.</p>
+<details class="qa" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">What did ESRGAN change relative to SRGAN, and why does each change help?</span>
+</summary><div class="qa-body">
+<p>RRDB blocks without BN give a deeper, denser generator without BN artifacts. The relativistic discriminator judges whether real images look more realistic than the average fake, giving the generator gradients from both real and generated data and sharper edges. Pre-activation VGG features give denser supervision and consistent brightness. Network interpolation between PSNR- and GAN-trained weights trades realism for fidelity at inference, and removed artifacts better than blending output images.</p>
+</div></details>
+<h2 id="diffusion-based-sr">Diffusion-based SR</h2>
+<h3 id="sr3-and-ldm-sr">SR3 and LDM-SR</h3>
+<p>SR3 trains <span class="math inline">\epsilon_\theta(x_t,\tilde y,t)</span> with the bicubic-upsampled input <span class="math inline">\tilde y</span> concatenated to <span class="math inline">x_t</span>, using the standard DDPM loss. On 8x face SR it reached a human fool rate close to 50%, against at most 34% for GAN baselines, and it can be cascaded for generation. LDM-SR does the same in a pretrained autoencoder’s latent space. Both main models were trained on bicubic degradation; LDM also reports LDM-BSR, trained on more diverse degradations.</p>
+<h3 id="adapting-text-to-image-priors">Adapting text-to-image priors</h3>
+<p>The Real-ISR line keeps a pretrained text-to-image latent diffusion model and trains an adapter that injects the input.</p>
+<ul>
+<li><strong>StableSR</strong> freezes Stable Diffusion and trains a time-aware encoder that modulates its features. A controllable feature wrapping module with a scalar weight trades quality against fidelity, and progressive aggregation sampling fuses overlapping latent tiles at every step for arbitrary sizes.</li>
+<li><strong>DiffBIR</strong> first removes degradation with a restoration module, then generates lost detail with IRControlNet; region-adaptive restoration guidance balances realness and fidelity.</li>
+<li><strong>PASD</strong> adds pixel-aware cross-attention, a degradation removal module, high-level semantic conditioning and an adjustable noise schedule.</li>
+<li><strong>SeeSR</strong> trains a degradation-aware prompt extractor that outputs tags (hard prompts) and embeddings (soft prompts), and mixes the low-resolution latent into the initial noise.</li>
+<li><strong>SUPIR</strong> uses SDXL (2.6B parameters), a large adaptor with a ZeroSFT connector, 20 million captioned high-quality images, negative-quality prompts, and restoration-guided sampling.</li>
+</ul>
+<h3 id="residual-shifting-resshift">Residual shifting (ResShift)</h3>
+<p>Starting from pure noise wastes steps when the answer is close to the input. ResShift builds a chain from <span class="math inline">x_0</span> to the upsampled input <span class="math inline">y_0</span> (in VQGAN latent space). With <span class="math inline">e_0 = y_0 - x_0</span>, an increasing schedule <span class="math inline">\eta_1 \approx 0,\dots,\eta_T \approx 1</span> and <span class="math inline">\alpha_t = \eta_t - \eta_{t-1}</span>:</p>
+<p><span class="math display">q(x_t\mid x_{t-1},y_0)=\mathcal{N}\big(x_t;\ x_{t-1}+\alpha_t e_0,\ \kappa^2\alpha_t I\big).</span></p>
+<p>Independent increments sum to the marginal</p>
+<p><span class="math display">q(x_t\mid x_0,y_0)=\mathcal{N}\big(x_t;\ x_0+\eta_t e_0,\ \kappa^2\eta_t I\big),</span></p>
+<p>whose mean <span class="math inline">(1-\eta_t)x_0+\eta_t y_0</span> slides from HR to LR, so <span class="math inline">x_T \approx \mathcal{N}(y_0,\kappa^2 I)</span>. Gaussian conditioning gives</p>
+<p><span class="math display">q(x_{t-1}\mid x_t,x_0,y_0)=\mathcal{N}\Big(x_{t-1};\ \tfrac{\eta_{t-1}}{\eta_t}x_t+\tfrac{\alpha_t}{\eta_t}x_0,\ \kappa^2\tfrac{\eta_{t-1}}{\eta_t}\alpha_t I\Big),</span></p>
+<p>and a network predicts <span class="math inline">x_0</span>. The reported model uses <span class="math inline">T = 15</span> and <span class="math inline">\kappa = 2</span>.</p>
+<h3 id="one-step-methods">One-step methods</h3>
+<p><strong>SinSR</strong> distills a deterministic ResShift sampler into one step, with a consistency-preserving loss on ground truth. <strong>OSEDiff</strong> starts from the low-quality latent rather than noise, fine-tunes SD’s encoder and UNet with LoRA, and trains with MSE and LPIPS plus variational score distillation (VSD) in latent space, reporting more than 100x speedup over StableSR. <strong>AddSR</strong> adapts adversarial diffusion distillation; <strong>S3Diff</strong> uses a degradation-guided LoRA; <strong>PiSA-SR</strong> trains a pixel-fidelity LoRA (<span class="math inline">\ell_2</span>) and a semantic LoRA (LPIPS and classifier score distillation) with separate inference scales; <strong>TSD-SR</strong> uses target score distillation; <strong>InvSR</strong> inverts the input into an intermediate diffusion state and runs one to five steps. A common pattern since OSEDiff: start from the input, adapt a large prior with LoRA, and replace the trajectory with a distribution-matching loss.</p>
+<h3 id="hallucination-fidelity-and-cost">Hallucination, fidelity and cost</h3>
+<p>Hallucination comes from filling the null space, wrong semantics on ambiguous inputs, prompts and classifier-free guidance, and the SD autoencoder (<span class="math inline">f=8</span>) failing on fine structures such as small text. Knobs: start from a noised input and lower that noise; raise conditioning strength (feature-wrapping weight, ControlNet scale, fidelity LoRA); add measurement-consistency guidance; extract correct tags; lower CFG; restore low frequencies or color from the input afterward. Cost is roughly steps times one denoiser pass, plus VAE encoding and decoding, which take a large share at 4K, especially for one-step models; large images need overlapping tiles. One-step models remove the step factor (multi-step samplers use tens to hundreds), but backbone and VAE size set the floor.</p>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">Why do diffusion SR models hallucinate, and what knobs reduce it?</span>
+</summary><div class="qa-body">
+<p>They sample a learned posterior, so they fill the null space with plausible content, and severe degradation makes even semantics ambiguous. Prompts and CFG push toward what the prior finds likely, and the latent autoencoder cannot represent some fine structures. Reduce it by starting from a less-noised input, strengthening conditioning, adding measurement-consistency guidance, using degradation-robust tags, lowering CFG, and correcting low frequencies from the input. Each knob moves along the perception–distortion curve; none removes it.</p>
+</div></details>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Derive ResShift’s forward marginal. Why does it need far fewer steps than LDM-based SR?</span>
+</summary><div class="qa-body">
+<p>Each transition adds <span class="math inline">\alpha_t e_0</span> and independent noise of variance <span class="math inline">\kappa^2\alpha_t</span>. Since <span class="math inline">\sum_{s\le t}\alpha_s=\eta_t</span>, the marginal is <span class="math inline">\mathcal{N}(x_0+\eta_t e_0,\ \kappa^2\eta_t I)</span>, so <span class="math inline">x_T\approx\mathcal{N}(y_0,\kappa^2I)</span>. The chain carries only the HR-LR residual and sampling starts at the input, not white noise, so 15 steps suffice. Too small or too large a <span class="math inline">\kappa</span> gives smooth results.</p>
+</div></details>
+<details class="qa" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">How do one-step methods like OSEDiff work, and what do you give up?</span>
+</summary><div class="qa-body">
+<p>OSEDiff encodes the input, runs the LoRA-tuned UNet once at a fixed timestep, and decodes. Training combines MSE and LPIPS with VSD, which compares the frozen SD score with a score model fitted to the generator’s outputs and pulls the output distribution toward SD’s. You lose stochasticity, the option to spend more compute for quality, and some generative strength on very degraded inputs.</p>
+</div></details>
+<h2 id="training-free-posterior-samplers">Training-free posterior samplers</h2>
+<p>These methods combine an unconditional diffusion prior with a known operator and need no paired training. The conditional score splits as</p>
+<p><span class="math display">\nabla_{x_t}\log p_t(x_t\mid y)=\nabla_{x_t}\log p_t(x_t)+\nabla_{x_t}\log p_t(y\mid x_t),\qquad p_t(y\mid x_t)=\int p(y\mid x_0)\,p(x_0\mid x_t)\,dx_0 ,</span></p>
+<p>and the second term is intractable. <strong>DPS</strong> replaces <span class="math inline">p(x_0\mid x_t)</span> by a point mass at its Tweedie mean (variance-preserving notation):</p>
+<p><span class="math display">\hat x_0(x_t)=\frac{1}{\sqrt{\bar\alpha_t}}\big(x_t+(1-\bar\alpha_t)s_\theta(x_t,t)\big),\qquad \nabla_{x_t}\log p(y\mid x_t)\approx-\frac{1}{2\sigma_y^2}\nabla_{x_t}\big\|y-A(\hat x_0(x_t))\big\|^2 .</span></p>
+<p>Each step takes an unconditional update to <span class="math inline">x&#39;_{t-1}</span>, then <span class="math inline">x_{t-1}=x&#39;_{t-1}-\zeta_t\nabla_{x_t}\|y-A(\hat x_0)\|^2</span> with <span class="math inline">\zeta_t=\zeta&#39;/\|y-A(\hat x_0)\|</span>. It backpropagates through the denoiser, uses 1000 steps, and handles any differentiable <span class="math inline">A</span> (phase retrieval, non-uniform blur). The approximation error is a Jensen gap that shrinks as measurement noise grows.</p>
+<p><strong>ΠGDM</strong> uses <span class="math inline">p(x_0\mid x_t)\approx\mathcal{N}(\hat x_t,r_t^2I)</span>, so for <span class="math inline">y=Hx_0+z</span>, <span class="math inline">p(y\mid x_t)\approx\mathcal{N}(H\hat x_t,\ r_t^2HH^\top+\sigma_y^2I)</span> and</p>
+<p><span class="math display">\nabla_{x_t}\log p_t(y\mid x_t)\approx\Big[(y-H\hat x_t)^\top\big(r_t^2HH^\top+\sigma_y^2I\big)^{-1}H\,\frac{\partial\hat x_t}{\partial x_t}\Big]^\top,</span></p>
+<p>a vector-Jacobian product. With <span class="math inline">\sigma_y=0</span> it needs only a pseudoinverse <span class="math inline">H^\dagger</span>, so it extends to non-differentiable operators such as JPEG. <strong>DDRM</strong> runs diffusion in the SVD basis of <span class="math inline">H</span>: zero-singular-value components come from the prior, the rest are pulled toward the measurement depending on whether <span class="math inline">\sigma_y/s_i</span> is below the diffusion noise; about 20 network evaluations suffice. <strong>DDNM</strong> replaces the denoised estimate with <span class="math inline">A^{+}y+(I-A^{+}A)\hat x_0(x_t)</span> in noise-free problems.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Method</th>
+<th>Operator</th>
+<th>Per-step cost</th>
+<th>Consistency with <span class="math inline">y</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DDRM</td>
+<td>Linear, needs SVD</td>
+<td>Forward pass</td>
+<td>Exact in observed components (noise-free)</td>
+</tr>
+<tr>
+<td>DDNM</td>
+<td>Linear, needs <span class="math inline">A^{+}</span></td>
+<td>Forward pass</td>
+<td>Exact projection (noise-free)</td>
+</tr>
+<tr>
+<td>DPS</td>
+<td>Any differentiable</td>
+<td>Forward + backward</td>
+<td>Soft, step-size dependent</td>
+</tr>
+<tr>
+<td>ΠGDM</td>
+<td>Linear or pseudo-invertible</td>
+<td>Forward + VJP</td>
+<td>Soft, uses noise model</td>
+</tr>
+</tbody>
+</table>
+<p>All need <span class="math inline">A</span> exactly, so they suit known-operator benchmarks and scientific imaging more than blind real-world SR.</p>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Derive the DPS update. What is its key approximation, and when does it break?</span>
+</summary><div class="qa-body">
+<p>Bayes splits the conditional score into the prior score plus <span class="math inline">\nabla_{x_t}\log p_t(y\mid x_t)</span>, with <span class="math inline">p_t(y\mid x_t)=\mathbb{E}_{p(x_0\mid x_t)}[p(y\mid x_0)]</span>. DPS moves the expectation inside, <span class="math inline">p(y\mid x_t)\approx p(y\mid\mathbb{E}[x_0\mid x_t])</span>, using Tweedie’s mean; Gaussian noise gives the squared-residual gradient, computed by backpropagating through the denoiser. It struggles when <span class="math inline">p(x_0\mid x_t)</span> is broad (early steps), is sensitive to step size, costs a backward pass per step, and enforces consistency only softly; for linear problems DDRM or DDNM are faster and, without noise, exactly consistent.</p>
+</div></details>
+<h2 id="video-restoration-and-video-sr">Video restoration and video SR</h2>
+<p>Video adds information, since neighboring frames see the scene with sub-pixel shifts, and a new failure mode: flicker, which viewers notice even when each frame looks fine.</p>
+<p><strong>Alignment.</strong> Flow-based alignment estimates <span class="math inline">F_{t\to t-1}</span> (SpyNet, RAFT) and backward-warps with bilinear sampling, <span class="math inline">\hat h(p)=h_{t-1}\big(p+F_{t\to t-1}(p)\big)</span>; warping features rather than images tolerates flow errors (BasicVSR measured 0.17 dB lost with image warping). Deformable convolution predicts per-tap offsets from both frames, <span class="math inline">y(p)=\sum_{k}w_k\,x(p+p_k+\Delta p_k)\,m_k</span> (<span class="math inline">m_k</span> in DCNv2), as in TDAN and EDVR’s coarse-to-fine pyramid alignment. Chan et al. showed it equals <span class="math inline">K</span> warps with separate offset fields followed by a convolution; flow alignment is the one-field special case. Offset diversity helps, but offsets can diverge in training, so BasicVSR++ predicts them as residuals on optical flow.</p>
+<p><strong>Propagation.</strong> Sliding windows (EDVR) fuse a few frames; forward recurrence (FRVSR) sees only the past. BasicVSR runs two recurrences,</p>
+<p><span class="math display">h^b_i=F_b(x_i,x_{i+1},h^b_{i+1}),\qquad h^f_i=F_f(x_i,x_{i-1},h^f_{i-1}),\qquad y_i=U(h^f_i,h^b_i),</span></p>
+<p>with <span class="math inline">F=R\circ W\circ S</span> (flow, warp, residual blocks). BasicVSR++ adds second-order grid propagation and flow-guided deformable alignment for 0.82 dB at similar size. Bidirectionality needs the whole clip, which costs latency. On real video, long-term propagation amplifies noise and artifacts, so RealBasicVSR cleans frames before propagation.</p>
+<p><strong>Metrics.</strong> The warping error of Lai et al. is</p>
+<p><span class="math display">E_{\text{warp}}(V_t,V_{t+1})=\frac{1}{\sum_i M^{(i)}_t}\sum_i M^{(i)}_t\big\|V^{(i)}_t-\hat V^{(i)}_{t+1}\big\|_2^2,</span></p>
+<p>with <span class="math inline">\hat V_{t+1}</span> the flow-warped next frame and <span class="math inline">M_t</span> a non-occlusion mask, averaged over frame pairs. TecoGAN’s metrics compare the output’s temporal change with the ground truth’s:</p>
+<p><span class="math display">\mathrm{tOF}=\big\|\mathrm{OF}(b_{t-1},b_t)-\mathrm{OF}(g_{t-1},g_t)\big\|_1,\qquad \mathrm{tLP}=\big\|\mathrm{LP}(b_{t-1},b_t)-\mathrm{LP}(g_{t-1},g_t)\big\|_1,</span></p>
+<p>with <span class="math inline">b</span> ground truth, <span class="math inline">g</span> output, OF optical flow and LP the LPIPS distance.</p>
+<p><strong>Diffusion VSR.</strong></p>
+<ul>
+<li><strong>Upscale-A-Video</strong> builds on the SD x4 upscaler, with temporal layers in the U-Net and VAE decoder, a training-free flow-guided recurrent latent propagation, and text and noise-level controls.</li>
+<li><strong>MGLD-VSR</strong> steers the latent sampling path with a motion-guided loss from input optical flow and fine-tunes a temporal decoder.</li>
+<li><strong>STAR</strong> uses a text-to-video prior (I2VGen-XL by default; CogVideoX variants) via ControlNet, a local information enhancement module before global attention, and a dynamic frequency loss.</li>
+<li><strong>SeedVR</strong> is a restoration diffusion transformer (MM-DiT style, about 2.5B parameters) with shifted-window attention on <span class="math inline">64\times64</span> latent windows, variable-size boundary windows, a causal video VAE, and mixed image-video training; it handles arbitrary length and resolution but samples in many steps.</li>
+<li><strong>SeedVR2</strong> is one-step via diffusion adversarial post-training: initialized from SeedVR, progressively distilled, then trained adversarially against real data, with adaptive window attention, RpGAN with approximated R1 and R2 penalties, and a discriminator feature-matching loss in place of LPIPS; a 7B model plus a 3B model distilled from it.</li>
+<li><strong>DOVE</strong> fine-tunes CogVideoX into a one-step VSR model with two-stage latent-then-pixel training.</li>
+</ul>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">Compare flow-based and deformable alignment for video SR.</span>
+</summary><div class="qa-body">
+<p>Flow-based alignment warps with one motion vector per pixel: interpretable and able to use a strong pretrained flow network, but brittle at occlusions and large non-rigid motion. Deformable alignment learns <span class="math inline">K</span> offsets per location, equivalent to <span class="math inline">K</span> warps followed by a convolution, so it can hedge across several candidate correspondences. Its offsets can diverge and destabilize training. BasicVSR++ combines them by predicting deformable offsets as residuals on optical flow.</p>
+</div></details>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">How do you measure temporal consistency in video SR, and why is warping error alone misleading?</span>
+</summary><div class="qa-body">
+<p>Warping error warps frame <span class="math inline">t+1</span> onto frame <span class="math inline">t</span> with optical flow and averages the masked squared difference. tOF and tLP compare the output’s frame-to-frame motion and perceptual change with the ground truth’s. Warping error rewards outputs that barely change, so blurry or static results score well, and it depends on the flow estimator. Pair a temporal metric with a spatial quality metric and watch the clips.</p>
+</div></details>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Why does running an image diffusion SR model frame by frame flicker, and how do video diffusion SR models fix it?</span>
+</summary><div class="qa-body">
+<p>Each frame gets its own noise sample and its own null-space content, so textures change even on static scenes, and tile seams move. Fixes: start from the noised input and correlate noise across frames; add temporal layers or 3D attention to the denoiser (Upscale-A-Video, SeedVR); propagate or fuse latents along optical flow; add motion-guided losses during sampling (MGLD-VSR); add temporal layers to the VAE decoder; or start from a pretrained video prior (STAR, DOVE).</p>
+</div></details>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">How does SeedVR2 achieve one-step video restoration, and how does that differ from distillation?</span>
+</summary><div class="qa-body">
+<p>It initializes from multi-step SeedVR, runs progressive distillation, then fine-tunes the whole network adversarially against real high-quality video. Pure distillation matches a teacher’s samples, so it needs expensive teacher outputs and is capped by the teacher; adversarial training against real data needs no teacher samples and is not bounded by the teacher by construction. For high resolution, SeedVR2 adapts its attention window to the output size, stabilizes training with RpGAN and approximated R1 and R2 penalties, and replaces LPIPS with discriminator feature matching.</p>
+</div></details>
+<h2 id="face-and-blind-restoration">Face and blind restoration</h2>
+<p>Faces have a strong class prior, and viewers notice identity errors. <strong>GFPGAN</strong> drives a pretrained StyleGAN2 from a degradation-removal network; channel-split spatial feature transforms keep some prior channels unchanged (realness) and modulate the rest with input features (fidelity), with facial-component and identity losses. <strong>CodeFormer</strong> learns a VQGAN codebook of high-quality faces, predicts the code sequence with a transformer, and mixes encoder features back with weight <span class="math inline">w\in[0,1]</span> (smaller <span class="math inline">w</span> for quality, larger for fidelity). Pipelines usually restore aligned face crops, paste them back, and upscale the background with a general model. Watch for identity drift and “beautification”.</p>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">Compare GFPGAN and CodeFormer. Why does a discrete codebook help under severe degradation?</span>
+</summary><div class="qa-body">
+<p>GFPGAN uses a continuous StyleGAN2 prior with feature-transform injection and identity losses. CodeFormer turns restoration into predicting discrete codes from a learned codebook. Choosing among finitely many high-quality codes is far more constrained than regressing a continuous latent, so heavily degraded inputs still map to coherent faces, and the transformer uses global context where local evidence is gone.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">What is global residual learning?</span>
+</summary><div class="qa-body">
+<p>The network predicts only the difference from an upsampled input, so low frequencies pass through and capacity goes to missing detail.</p>
+</div></details>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">What does “blind” mean in blind SR?</span>
+</summary><div class="qa-body">
+<p>The degradation is unknown at test time; the model estimates it or is trained to be robust across many degradations.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">Why does Real-ESRGAN use pixel-unshuffle for its x2 and x1 models?</span>
+</summary><div class="qa-body">
+<p>It moves resolution into channels so the heavy RRDB body runs at lower resolution, saving memory and compute.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">Why a U-Net discriminator with spectral normalization in Real-ESRGAN?</span>
+</summary><div class="qa-body">
+<p>It gives per-pixel realness feedback across a wide degradation space; spectral normalization stabilizes it and reduced over-sharpening.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">Why can latent diffusion SR shift colors, and what fixes it?</span>
+</summary><div class="qa-body">
+<p>Low frequencies drift through the VAE and sampler. StableSR and others match channel statistics to the input or swap in the input’s low-frequency wavelet bands.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">Why does SeeSR put the LR latent into the initial noise?</span>
+</summary><div class="qa-body">
+<p>SD’s training schedule never fully turns the image into noise, but sampling starts from pure noise; starting from a noised LR latent closes that gap and reduces spurious random detail.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">Why do tiled diffusion pipelines blend overlapping tiles at every step?</span>
+</summary><div class="qa-body">
+<p>Independent tiles drift apart and leave seams; fusing overlaps at each step (StableSR) keeps neighbors consistent.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">What is DDNM’s range–null-space decomposition?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">x=A^{+}Ax+(I-A^{+}A)x</span>: the first part comes from noise-free measurements (<span class="math inline">A^{+}y</span>), the second from the diffusion prior.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">What is HAT’s same-task pretraining?</span>
+</summary><div class="qa-body">
+<p>Pretraining the SR model on ImageNet for the same SR task before fine-tuning on the target dataset, rather than multi-task pretraining.</p>
+</div></details>
+<details class="qa qa-asked" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">How would you combine super-resolution and semantic segmentation?</span><span class="qa-badge" title="Reported in a real interview">Asked · Horizon Robotics CV campus interview, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>Segmentation can tell SR which texture to generate where (SFT-GAN modulates features with segmentation probability maps; SeeSR uses tags). Conversely, SR can help segment small or low-resolution objects.</p>
+</div></details>
+<details class="qa" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">Why is a diffusion SR model’s PSNR usually below SwinIR’s?</span>
+</summary><div class="qa-body">
+<p>SwinIR regresses toward the posterior mean, the MSE minimizer; an exact posterior sampler has twice that MSE (about 3 dB lower PSNR), and a learned sampler usually loses more, in exchange for realism.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Blau and Michaeli, “The Perception-Distortion Tradeoff,” 2018. <a href="https://arxiv.org/abs/1711.06077" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1711.06077</a></li>
+<li>Freirich, Michaeli, Meir, “A Theory of the Distortion-Perception Tradeoff in Wasserstein Space,” 2021. <a href="https://arxiv.org/abs/2107.02555" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2107.02555</a></li>
+<li>Ohayon, Michaeli, Elad, “Posterior-Mean Rectified Flow: Towards Minimum MSE Photo-Realistic Image Restoration,” 2024. <a href="https://arxiv.org/abs/2410.00418" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2410.00418</a></li>
+<li>Zhao et al., “Loss Functions for Neural Networks for Image Processing,” 2015. <a href="https://arxiv.org/abs/1511.08861" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1511.08861</a></li>
+<li>Dong et al., “Image Super-Resolution Using Deep Convolutional Networks” (SRCNN), 2014. <a href="https://arxiv.org/abs/1501.00092" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1501.00092</a></li>
+<li>Kim, Lee, Lee, “Accurate Image Super-Resolution Using Very Deep Convolutional Networks” (VDSR), 2015. <a href="https://arxiv.org/abs/1511.04587" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1511.04587</a></li>
+<li>Shi et al., “Real-Time Single Image and Video Super-Resolution Using an Efficient Sub-Pixel Convolutional Neural Network” (ESPCN), 2016. <a href="https://arxiv.org/abs/1609.05158" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1609.05158</a></li>
+<li>Odena, Dumoulin, Olah, “Deconvolution and Checkerboard Artifacts,” Distill, 2016. <a href="https://distill.pub/2016/deconv-checkerboard/" class="uri" target="_blank" rel="noopener">https://distill.pub/2016/deconv-checkerboard/</a></li>
+<li>Aitken et al., “Checkerboard artifact free sub-pixel convolution,” 2017. <a href="https://arxiv.org/abs/1707.02937" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1707.02937</a></li>
+<li>Lim et al., “Enhanced Deep Residual Networks for Single Image Super-Resolution” (EDSR), 2017. <a href="https://arxiv.org/abs/1707.02921" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1707.02921</a></li>
+<li>Zhang et al., “Image Super-Resolution Using Very Deep Residual Channel Attention Networks” (RCAN), 2018. <a href="https://arxiv.org/abs/1807.02758" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1807.02758</a></li>
+<li>Liang et al., “SwinIR: Image Restoration Using Swin Transformer,” 2021. <a href="https://arxiv.org/abs/2108.10257" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2108.10257</a></li>
+<li>Chen et al., “Activating More Pixels in Image Super-Resolution Transformer” (HAT), 2022. <a href="https://arxiv.org/abs/2205.04437" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2205.04437</a></li>
+<li>Zamir et al., “Restormer: Efficient Transformer for High-Resolution Image Restoration,” 2021. <a href="https://arxiv.org/abs/2111.09881" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2111.09881</a></li>
+<li>Chen et al., “Simple Baselines for Image Restoration” (NAFNet), 2022. <a href="https://arxiv.org/abs/2204.04676" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2204.04676</a></li>
+<li>Johnson, Alahi, Fei-Fei, “Perceptual Losses for Real-Time Style Transfer and Super-Resolution,” 2016. <a href="https://arxiv.org/abs/1603.08155" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1603.08155</a></li>
+<li>Zhang et al., “The Unreasonable Effectiveness of Deep Features as a Perceptual Metric” (LPIPS), 2018. <a href="https://arxiv.org/abs/1801.03924" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1801.03924</a></li>
+<li>Ledig et al., “Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network” (SRGAN), 2016. <a href="https://arxiv.org/abs/1609.04802" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1609.04802</a></li>
+<li>Wang et al., “ESRGAN: Enhanced Super-Resolution Generative Adversarial Networks,” 2018. <a href="https://arxiv.org/abs/1809.00219" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1809.00219</a></li>
+<li>Wang et al., “Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data,” 2021. <a href="https://arxiv.org/abs/2107.10833" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2107.10833</a></li>
+<li>Zhang et al., “Designing a Practical Degradation Model for Deep Blind Image Super-Resolution” (BSRGAN), 2021. <a href="https://arxiv.org/abs/2103.14006" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2103.14006</a></li>
+<li>Zhang, Zuo, Zhang, “Learning a Single Convolutional Super-Resolution Network for Multiple Degradations” (SRMD), 2017. <a href="https://arxiv.org/abs/1712.06116" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1712.06116</a></li>
+<li>Gu et al., “Blind Super-Resolution With Iterative Kernel Correction” (IKC), 2019. <a href="https://arxiv.org/abs/1904.03377" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1904.03377</a></li>
+<li>Bell-Kligler, Shocher, Irani, “Blind Super-Resolution Kernel Estimation using an Internal-GAN” (KernelGAN), 2019. <a href="https://arxiv.org/abs/1909.06581" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1909.06581</a></li>
+<li>Shocher, Cohen, Irani, “‘Zero-Shot’ Super-Resolution using Deep Internal Learning,” 2017. <a href="https://arxiv.org/abs/1712.06087" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1712.06087</a></li>
+<li>Cai et al., “Toward Real-World Single Image Super-Resolution: A New Benchmark and A New Model” (RealSR), 2019. <a href="https://arxiv.org/abs/1904.00523" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1904.00523</a></li>
+<li>Wei et al., “Component Divide-and-Conquer for Real-World Image Super-Resolution” (DRealSR), 2020. <a href="https://arxiv.org/abs/2008.01928" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2008.01928</a></li>
+<li>Brooks et al., “Unprocessing Images for Learned Raw Denoising,” 2018. <a href="https://arxiv.org/abs/1811.11127" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1811.11127</a></li>
+<li>Hu et al., “Meta-SR: A Magnification-Arbitrary Network for Super-Resolution,” 2019. <a href="https://arxiv.org/abs/1903.00875" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1903.00875</a></li>
+<li>Chen, Liu, Wang, “Learning Continuous Image Representation with Local Implicit Image Function” (LIIF), 2020. <a href="https://arxiv.org/abs/2012.09161" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2012.09161</a></li>
+<li>Wang et al., “Recovering Realistic Texture in Image Super-resolution by Deep Spatial Feature Transform” (SFT-GAN), 2018. <a href="https://arxiv.org/abs/1804.02815" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1804.02815</a></li>
+<li>Liang, Zeng, Zhang, “Details or Artifacts: A Locally Discriminative Learning Approach to Realistic Image Super-Resolution” (LDL), 2022. <a href="https://arxiv.org/abs/2203.09195" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2203.09195</a></li>
+<li>Xie et al., “DeSRA: Detect and Delete the Artifacts of GAN-based Real-World Super-Resolution Models,” 2023. <a href="https://arxiv.org/abs/2307.02457" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2307.02457</a></li>
+<li>Saharia et al., “Image Super-Resolution via Iterative Refinement” (SR3), 2021. <a href="https://arxiv.org/abs/2104.07636" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2104.07636</a></li>
+<li>Rombach et al., “High-Resolution Image Synthesis with Latent Diffusion Models,” 2021. <a href="https://arxiv.org/abs/2112.10752" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2112.10752</a></li>
+<li>Wang et al., “Exploiting Diffusion Prior for Real-World Image Super-Resolution” (StableSR), 2023. <a href="https://arxiv.org/abs/2305.07015" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.07015</a></li>
+<li>Lin et al., “DiffBIR: Towards Blind Image Restoration with Generative Diffusion Prior,” 2023. <a href="https://arxiv.org/abs/2308.15070" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2308.15070</a></li>
+<li>Yang et al., “Pixel-Aware Stable Diffusion for Realistic Image Super-resolution and Personalized Stylization” (PASD), 2023. <a href="https://arxiv.org/abs/2308.14469" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2308.14469</a></li>
+<li>Wu et al., “SeeSR: Towards Semantics-Aware Real-World Image Super-Resolution,” 2023. <a href="https://arxiv.org/abs/2311.16518" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2311.16518</a></li>
+<li>Yu et al., “Scaling Up to Excellence: Practicing Model Scaling for Photo-Realistic Image Restoration In the Wild” (SUPIR), 2024. <a href="https://arxiv.org/abs/2401.13627" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2401.13627</a></li>
+<li>Yue, Wang, Loy, “ResShift: Efficient Diffusion Model for Image Super-resolution by Residual Shifting,” 2023. <a href="https://arxiv.org/abs/2307.12348" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2307.12348</a></li>
+<li>Wang et al., “SinSR: Diffusion-Based Image Super-Resolution in a Single Step,” 2023. <a href="https://arxiv.org/abs/2311.14760" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2311.14760</a></li>
+<li>Wu et al., “One-Step Effective Diffusion Network for Real-World Image Super-Resolution” (OSEDiff), 2024. <a href="https://arxiv.org/abs/2406.08177" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2406.08177</a></li>
+<li>Xie et al., “AddSR: Accelerating Diffusion-based Blind Super-Resolution with Adversarial Diffusion Distillation,” 2024. <a href="https://arxiv.org/abs/2404.01717" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2404.01717</a></li>
+<li>Zhang et al., “Degradation-Guided One-Step Image Super-Resolution with Diffusion Priors” (S3Diff), 2024. <a href="https://arxiv.org/abs/2409.17058" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2409.17058</a></li>
+<li>Sun et al., “Pixel-level and Semantic-level Adjustable Super-resolution: A Dual-LoRA Approach” (PiSA-SR), 2024. <a href="https://arxiv.org/abs/2412.03017" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2412.03017</a></li>
+<li>Dong et al., “TSD-SR: One-Step Diffusion with Target Score Distillation for Real-World Image Super-Resolution,” 2024. <a href="https://arxiv.org/abs/2411.18263" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2411.18263</a></li>
+<li>Yue, Liao, Loy, “Arbitrary-steps Image Super-resolution via Diffusion Inversion” (InvSR), 2024. <a href="https://arxiv.org/abs/2412.09013" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2412.09013</a></li>
+<li>Kawar et al., “Denoising Diffusion Restoration Models” (DDRM), 2022. <a href="https://arxiv.org/abs/2201.11793" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2201.11793</a></li>
+<li>Chung et al., “Diffusion Posterior Sampling for General Noisy Inverse Problems” (DPS), 2022. <a href="https://arxiv.org/abs/2209.14687" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2209.14687</a></li>
+<li>Song, Vahdat, Mardani, Kautz, “Pseudoinverse-Guided Diffusion Models for Inverse Problems” (ΠGDM), ICLR 2023. <a href="https://iclr.cc/virtual/2023/poster/11030" class="uri" target="_blank" rel="noopener">https://iclr.cc/virtual/2023/poster/11030</a></li>
+<li>Wang, Yu, Zhang, “Zero-Shot Image Restoration Using Denoising Diffusion Null-Space Model” (DDNM), 2022. <a href="https://arxiv.org/abs/2212.00490" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2212.00490</a></li>
+<li>Dai et al., “Deformable Convolutional Networks,” 2017. <a href="https://arxiv.org/abs/1703.06211" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1703.06211</a></li>
+<li>Zhu et al., “Deformable ConvNets v2: More Deformable, Better Results,” 2018. <a href="https://arxiv.org/abs/1811.11168" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1811.11168</a></li>
+<li>Ranjan and Black, “Optical Flow Estimation using a Spatial Pyramid Network” (SpyNet), 2016. <a href="https://arxiv.org/abs/1611.00850" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1611.00850</a></li>
+<li>Teed and Deng, “RAFT: Recurrent All-Pairs Field Transforms for Optical Flow,” 2020. <a href="https://arxiv.org/abs/2003.12039" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2003.12039</a></li>
+<li>Tian et al., “TDAN: Temporally Deformable Alignment Network for Video Super-Resolution,” 2018. <a href="https://arxiv.org/abs/1812.02898" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1812.02898</a></li>
+<li>Wang et al., “EDVR: Video Restoration with Enhanced Deformable Convolutional Networks,” 2019. <a href="https://arxiv.org/abs/1905.02716" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1905.02716</a></li>
+<li>Chan et al., “Understanding Deformable Alignment in Video Super-Resolution,” 2020. <a href="https://arxiv.org/abs/2009.07265" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2009.07265</a></li>
+<li>Sajjadi, Vemulapalli, Brown, “Frame-Recurrent Video Super-Resolution” (FRVSR), 2018. <a href="https://arxiv.org/abs/1801.04590" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1801.04590</a></li>
+<li>Chan et al., “BasicVSR: The Search for Essential Components in Video Super-Resolution and Beyond,” 2020. <a href="https://arxiv.org/abs/2012.02181" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2012.02181</a></li>
+<li>Chan et al., “BasicVSR++: Improving Video Super-Resolution with Enhanced Propagation and Alignment,” 2021. <a href="https://arxiv.org/abs/2104.13371" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2104.13371</a></li>
+<li>Chan et al., “Investigating Tradeoffs in Real-World Video Super-Resolution” (RealBasicVSR), 2021. <a href="https://arxiv.org/abs/2111.12704" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2111.12704</a></li>
+<li>Lai et al., “Learning Blind Video Temporal Consistency,” 2018. <a href="https://arxiv.org/abs/1808.00449" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1808.00449</a></li>
+<li>Chu et al., “Learning Temporal Coherence via Self-Supervision for GAN-based Video Generation” (TecoGAN), 2018. <a href="https://arxiv.org/abs/1811.09393" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1811.09393</a></li>
+<li>Zhou et al., “Upscale-A-Video: Temporal-Consistent Diffusion Model for Real-World Video Super-Resolution,” 2023. <a href="https://arxiv.org/abs/2312.06640" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2312.06640</a></li>
+<li>Yang et al., “Motion-Guided Latent Diffusion for Temporally Consistent Real-world Video Super-resolution” (MGLD-VSR), 2023. <a href="https://arxiv.org/abs/2312.00853" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2312.00853</a></li>
+<li>Xie et al., “STAR: Spatial-Temporal Augmentation with Text-to-Video Models for Real-World Video Super-Resolution,” 2025. <a href="https://arxiv.org/abs/2501.02976" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2501.02976</a></li>
+<li>Wang et al., “SeedVR: Seeding Infinity in Diffusion Transformer Towards Generic Video Restoration,” 2025. <a href="https://arxiv.org/abs/2501.01320" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2501.01320</a></li>
+<li>Wang et al., “SeedVR2: One-Step Video Restoration via Diffusion Adversarial Post-Training,” 2025. <a href="https://arxiv.org/abs/2506.05301" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2506.05301</a></li>
+<li>Lin et al., “Diffusion Adversarial Post-Training for One-Step Video Generation” (APT), 2025. <a href="https://arxiv.org/abs/2501.08316" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2501.08316</a></li>
+<li>Chen et al., “DOVE: Efficient One-Step Diffusion Model for Real-World Video Super-Resolution,” 2025. <a href="https://arxiv.org/abs/2505.16239" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2505.16239</a></li>
+<li>Wang et al., “Towards Real-World Blind Face Restoration with Generative Facial Prior” (GFPGAN), 2021. <a href="https://arxiv.org/abs/2101.04061" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2101.04061</a></li>
+<li>Zhou et al., “Towards Robust Blind Face Restoration with Codebook Lookup Transformer” (CodeFormer), 2022. <a href="https://arxiv.org/abs/2206.11253" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2206.11253</a></li>
+<li>Wang, Chen, Hoi, “Deep Learning for Image Super-resolution: A Survey,” 2019. <a href="https://arxiv.org/abs/1902.06068" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1902.06068</a></li>
+<li>Liu et al., “Blind Image Super-Resolution: A Survey and Beyond,” 2021. <a href="https://arxiv.org/abs/2107.03055" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2107.03055</a></li>
+<li>Li et al., “Diffusion Models for Image Restoration and Enhancement: A Comprehensive Survey,” 2023. <a href="https://arxiv.org/abs/2308.09388" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2308.09388</a></li>
+<li>Interview reports behind the <code>asked=</code> tags (Megvii, vivo, Hikvision, Horizon Robotics), Nowcoder, January 2022. <a href="https://www.nowcoder.com/discuss/353159089435910144" class="uri" target="_blank" rel="noopener">https://www.nowcoder.com/discuss/353159089435910144</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="evaluation-metrics.html"><span class="pager-dir">Previous</span><span class="pager-title">Evaluating Generative and Restoration Models</span></a>
+        <a class="pager-next" href="vision-backbones.html"><span class="pager-dir">Next</span><span class="pager-title">Vision Backbones and Representations</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

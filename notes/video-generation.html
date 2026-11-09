@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Generation · Notes · Wanzhou Lei</title>
+  <meta name="description" content="How text- and image-to-video models compress, model, condition, train, speed up and evaluate spacetime data, from 3D U-Nets to video DiTs and autoregressive world models.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Video Generation</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#why-video-is-hard" id="toc-why-video-is-hard">Why video is hard</a></li>
+      <li><a href="#video-autoencoders" id="toc-video-autoencoders">Video autoencoders</a></li>
+      <li><a href="#architectures" id="toc-architectures">Architectures</a></li>
+      <li><a href="#conditioning" id="toc-conditioning">Conditioning</a></li>
+      <li><a href="#training-recipe" id="toc-training-recipe">Training recipe</a></li>
+      <li><a href="#cascades-and-refiners" id="toc-cascades-and-refiners">Cascades and refiners</a></li>
+      <li><a href="#long-video-and-autoregressive-diffusion" id="toc-long-video-and-autoregressive-diffusion">Long video and autoregressive diffusion</a></li>
+      <li><a href="#efficiency" id="toc-efficiency">Efficiency</a></li>
+      <li><a href="#evaluation" id="toc-evaluation">Evaluation</a></li>
+      <li><a href="#world-models-and-failure-modes" id="toc-world-models-and-failure-modes">World models and failure modes</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Video Generation</h1>
+        <p class="page-lede">How text- and image-to-video models compress, model, condition, train, speed up and evaluate spacetime data, from 3D U-Nets to video DiTs and autoregressive world models.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>32 practice questions</span><span>32 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#why-video-is-hard">Why video is hard</a></li>
+<li><a href="#video-autoencoders">Video autoencoders</a></li>
+<li><a href="#architectures">Architectures</a></li>
+<li><a href="#conditioning">Conditioning</a></li>
+<li><a href="#training-recipe">Training recipe</a></li>
+<li><a href="#cascades-and-refiners">Cascades and refiners</a></li>
+<li><a href="#long-video-and-autoregressive-diffusion">Long video and autoregressive diffusion</a></li>
+<li><a href="#efficiency">Efficiency</a></li>
+<li><a href="#evaluation">Evaluation</a></li>
+<li><a href="#world-models-and-failure-modes">World models and failure modes</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>Video generation extends image diffusion along time. That one extra axis multiplies the token count by one to two orders of magnitude, adds new errors (flicker, morphing, implausible motion), and makes good training data scarcer. Most design choices in modern video models respond to these pressures: spatiotemporal autoencoders, factorized or sparse attention, cascades, staged curricula and step distillation. Interviewers like the topic because it tests reasoning about compute, about train-test gaps, and about evaluation when the standard metric is weak. This page assumes <a href="diffusion-models.html">diffusion models</a> and <a href="flow-matching.html">flow matching</a>; text conditioning is covered in <a href="text-to-image-multimodal.html">text-to-image and multimodal</a>.</p>
+<h2 id="why-video-is-hard">Why video is hard</h2>
+<h3 id="tokens-and-compute">Tokens and compute</h3>
+<p>A latent video DiT sees a sequence whose length is set by the autoencoder and the patch size. With temporal factor <span class="math inline">c_t</span>, spatial factor <span class="math inline">c_s</span>, patch <span class="math inline">p_t\times p\times p</span>, and a causal autoencoder that keeps the first frame separately (explained below), an <span class="math inline">F</span>-frame <span class="math inline">H\times W</span> clip becomes</p>
+<p><span class="math display">
+L \;=\; \frac{1}{p_t}\Big(1+\frac{F-1}{c_t}\Big)\cdot\frac{H}{c_s\,p}\cdot\frac{W}{c_s\,p}.
+</span></p>
+<p>Worked examples at settings used in each report (factors written time x height x width throughout):</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Latent grid <span class="math inline">T\times h\times w</span></th>
+<th>Patch</th>
+<th>Tokens <span class="math inline">L</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1024x1024 image, 8x VAE</td>
+<td><span class="math inline">1\times128\times128</span></td>
+<td><span class="math inline">2\times2</span></td>
+<td>4,096</td>
+</tr>
+<tr>
+<td>Wan 2.1: 81 frames, 1280x720, VAE <span class="math inline">4\times8\times8</span></td>
+<td><span class="math inline">21\times90\times160</span></td>
+<td><span class="math inline">1\times2\times2</span></td>
+<td>75,600</td>
+</tr>
+<tr>
+<td>HunyuanVideo: 129 frames, 1280x720, VAE <span class="math inline">4\times8\times8</span></td>
+<td><span class="math inline">33\times90\times160</span></td>
+<td><span class="math inline">1\times2\times2</span></td>
+<td>118,800</td>
+</tr>
+<tr>
+<td>Movie Gen: 256 frames, 768x768, TAE <span class="math inline">8\times8\times8</span></td>
+<td><span class="math inline">32\times96\times96</span></td>
+<td><span class="math inline">1\times2\times2</span></td>
+<td>73,728</td>
+</tr>
+<tr>
+<td>LTX-Video: 121 frames, 768x512, VAE <span class="math inline">8\times32\times32</span></td>
+<td><span class="math inline">16\times16\times24</span></td>
+<td>none</td>
+<td>6,144</td>
+</tr>
+</tbody>
+</table>
+<p>The Movie Gen row matches the “73K video tokens” context stated in its report [11].</p>
+<p>Why attention dominates: per layer of width <span class="math inline">d</span>, <span class="math inline">QK^\top</span> and <span class="math inline">AV</span> cost about <span class="math inline">2L^2d</span> FLOPs each, so attention costs <span class="math inline">\approx4L^2d</span>, while the QKV/output projections (<span class="math inline">8Ld^2</span>) and a 4x MLP (<span class="math inline">16Ld^2</span>) cost <span class="math inline">\approx24Ld^2</span>. Hence</p>
+<p><span class="math display">
+\frac{\text{attention}}{\text{linear}} \approx \frac{4L^2d}{24Ld^2} = \frac{L}{6d}.
+</span></p>
+<p>For HunyuanVideo (<span class="math inline">d=3072</span>) the crossover is <span class="math inline">L=6d\approx18{,}000</span>. A rough estimate, assuming dense attention over all video tokens, one attention layer plus one 4x MLP per block, and ignoring text tokens, softmax, norms and modulation, puts attention at <span class="math inline">\frac{L/6d}{1+L/6d}\approx87\%</span> of FLOPs for <span class="math inline">L\approx1.2\times10^5</span>. That is in line with the Sliding Tile Attention paper’s measurement that attention took about 800 of 945 seconds of wall-clock time for a 5 s 720p HunyuanVideo clip [21].</p>
+<h3 id="beyond-compute">Beyond compute</h3>
+<ul>
+<li><strong>Temporal consistency.</strong> Identity, texture and lighting must persist; frames sampled independently flicker because each is a separate draw from a wide conditional distribution.</li>
+<li><strong>Motion realism.</strong> Dynamics (gravity, contact, articulation) are weakly constrained by appearance. Nearly static video is a common shortcut that scores well on consistency metrics.</li>
+<li><strong>Data.</strong> Text-video data is smaller and noisier (cuts, watermarks, overlaid text, slideshows) and harder to caption, so most models pre-train on images and train jointly on images and videos.</li>
+</ul>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>Video cost is quadratic in a token count roughly 18-30x larger than a high-resolution image’s. Most architecture choices either shrink <span class="math inline">L</span> (stronger autoencoders, cascades) or avoid the <span class="math inline">L^2</span> term (factorized, local or sparse attention).</p>
+</aside>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Estimate the sequence length for 5 seconds of 720p video, and say what dominates the cost.</span>
+</summary><div class="qa-body">
+<p>Take 81 frames at 16 fps, a causal <span class="math inline">4\times8\times8</span> VAE and a <span class="math inline">1\times2\times2</span> patch: <span class="math inline">1+80/4=21</span> latent frames, a <span class="math inline">90\times160</span> latent grid, <span class="math inline">45\times80=3600</span> tokens per latent frame, so <span class="math inline">L=75{,}600</span>. That is about 18x a 1024px image’s 4,096 tokens, so full attention costs about <span class="math inline">18^2\approx340</span> times more per layer. Since attention/linear FLOPs scale as <span class="math inline">L/(6d)</span>, attention dominates once <span class="math inline">L</span> exceeds about <span class="math inline">6d</span> (roughly 18,000 tokens for <span class="math inline">d=3072</span>). Reducing <span class="math inline">L</span> or making attention sub-quadratic therefore matters more than shrinking the MLPs.</p>
+</div></details>
+<h2 id="video-autoencoders">Video autoencoders</h2>
+<h3 id="from-per-frame-to-causal-3d-vaes">From per-frame to causal 3D VAEs</h3>
+<p>Early latent video models applied an image VAE per frame: no temporal compression, and the decoder flickers because frames are decoded independently (Video LDM fine-tuned its decoder on video for this reason [19]). Current models train 3D VAEs that also downsample time.</p>
+<p>A <strong>temporally causal 3D convolution</strong> pads <span class="math inline">k_t-1</span> frames before the input and none after, so each output depends only on current and past frames [14]. Consequences:</p>
+<ol type="1">
+<li>The first frame is encoded on its own, so an image is a 1-frame video and one autoencoder serves both, enabling joint image-video training of the generator.</li>
+<li>With temporal stride <span class="math inline">s</span>, <span class="math inline">1+sk</span> frames map to <span class="math inline">1+k</span> latents. Hence the default lengths 49 (CogVideoX), 81 (Wan), 129 (HunyuanVideo), and 121 (LTX-Video, <span class="math inline">s=8</span>).</li>
+<li>Encoding can run chunk by chunk: Wan’s VAE processes 4-frame chunks and caches the previous chunk’s convolution inputs, so memory does not grow with length [9].</li>
+</ol>
+<p>Movie Gen’s TAE is not causal; it compresses <span class="math inline">8\times</span> along every axis [11].</p>
+<h3 id="compression-ratios-and-the-trade-off">Compression ratios and the trade-off</h3>
+<p>Pixel values per latent value is <span class="math inline">c_t c_s^2\cdot3/C</span>:</p>
+<ul>
+<li>CogVideoX, HunyuanVideo, Wan 2.1: <span class="math inline">4\times8\times8</span>, <span class="math inline">C=16</span>, so <span class="math inline">\tfrac{256\cdot3}{16}=48</span>, i.e. 1:48.</li>
+<li>Movie Gen: <span class="math inline">8\times8\times8</span>, <span class="math inline">C=16</span>: 1:96.</li>
+<li>LTX-Video: <span class="math inline">8\times32\times32</span>, <span class="math inline">C=128</span>: 1:192, with no transformer patchify [10].</li>
+</ul>
+<p>More compression means fewer tokens but harder reconstruction and often harder generation. In CogVideoX’s ablation, going from 16 to 32 channels at <span class="math inline">4\times8\times8</span> raised reconstruction PSNR from 28.7 to 30.5, while an <span class="math inline">8\times16\times16</span> VAE with 128 channels made diffusion training converge with great difficulty [6]. Higher-capacity latents decode better and are harder to model, the same tension as for image latents (<a href="gans-vaes-autoregressive.html">GANs, VAEs and autoregressive models</a>). LTX-Video compensates for extreme compression by conditioning its decoder on a noise level in <span class="math inline">[0,0.2]</span> so the decoder performs the last denoising step in pixel space [10]. Movie Gen found high-norm latent “dots” that decode to spot artifacts and removed them with a hinge outlier penalty <span class="math inline">\max\big(0,\lVert X_{ij}-\bar X\rVert-r\lVert\mathrm{Std}(X)\rVert\big)</span> averaged over positions, <span class="math inline">r=3</span> [11].</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“Higher compression is better because it saves compute.” Reconstruction PSNR and generation quality can move in opposite directions; judge an autoencoder by the downstream generator at fixed compute.</p>
+</aside>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">Why do video VAEs use causal temporal convolutions and encode the first frame separately?</span>
+</summary><div class="qa-body">
+<p>Causal padding means the latent for frame <span class="math inline">t</span> never depends on later frames, so the first latent depends only on the first frame. An image is then a valid 1-frame video, which lets one autoencoder and one generator train on images and videos together, and it explains the <span class="math inline">1+4k</span> frame counts. Causality also permits chunked encoding and decoding with a feature cache, bounding memory for long clips, and it suits generators that produce latents left to right. The cost is that the first latent has different statistics (no temporal pooling), which can show up later, for example in rolling-cache long-video generation (see Self Forcing).</p>
+</div></details>
+<details class="qa" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">Your new VAE reconstructs better than the old one, but the diffusion model trained on it is worse. Why might that be?</span>
+</summary><div class="qa-body">
+<p>Better reconstruction often comes from more channels or weaker regularization, which makes the latent distribution higher-entropy and harder to model at a fixed budget; CogVideoX saw PSNR improve with channels while very aggressive, wide latents hurt diffusion convergence. Other suspects are latent outliers or badly scaled channels (Movie Gen’s spot artifacts) and a noise schedule tuned for the old latent’s statistics. I would compare generator loss and samples at equal FLOPs, inspect per-channel latent statistics, and check whether a shifted noise schedule closes the gap.</p>
+</div></details>
+<h2 id="architectures">Architectures</h2>
+<h3 id="u-net-era-inflate-an-image-model">U-Net era: inflate an image model</h3>
+<p><strong>Video Diffusion Models</strong> (Ho et al., 2022) factorized a 3D U-Net over space and time: each <span class="math inline">3\times3</span> convolution became <span class="math inline">1\times3\times3</span>, and a temporal attention block with relative position embeddings followed each spatial attention block [1]. For joint image-video training, independent images were appended to each video with temporal attention masked.</p>
+<p>To extend a sample, VDM generates a block <span class="math inline">x^b</span> conditioned on a known block <span class="math inline">x^a</span>. The “replacement” method (noise <span class="math inline">x^a</span> to the current level and let the model fill in <span class="math inline">x^b</span>) produced blocks incoherent with <span class="math inline">x^a</span>. With <span class="math inline">z_t=\alpha_tx+\sigma_t\epsilon</span> and Tweedie’s formula <span class="math inline">\mathbb{E}[x\mid z_t]=(z_t+\sigma_t^2\nabla\log p(z_t))/\alpha_t</span>, conditioning on <span class="math inline">x^a</span> adds <span class="math inline">\log q(x^a\mid z_t)</span> to the log-density:</p>
+<p><span class="math display">
+\mathbb{E}[x^b\mid z_t,x^a] = \mathbb{E}[x^b\mid z_t] + \frac{\sigma_t^2}{\alpha_t}\nabla_{z^b_t}\log q(x^a\mid z_t).
+</span></p>
+<p>Replacement drops the second term. Approximating <span class="math inline">q(x^a\mid z_t)\approx\mathcal{N}\big(\hat x^a_\theta(z_t),\tfrac{\sigma_t^2}{\alpha_t^2}I\big)</span> and adding a weight <span class="math inline">w_r</span> (values above 1 worked better) gives <strong>reconstruction guidance</strong>:</p>
+<p><span class="math display">
+\tilde x^b_\theta(z_t) = \hat x^b_\theta(z_t) - \frac{w_r\,\alpha_t}{2}\nabla_{z^b_t}\big\lVert x^a-\hat x^a_\theta(z_t)\big\rVert_2^2 .
+</span></p>
+<p><strong>Imagen Video</strong> (2022) used a cascade of 7 models (a 5.6B base model at 16 frames, 40x24, 3 fps, then 3 spatial and 3 temporal super-resolution models; 11.6B diffusion parameters) with a frozen T5-XXL, reaching 128 frames at 1280x768, 24 fps [2]. It used v-prediction, temporal convolutions rather than attention in the SR models, and progressive distillation to 8 steps per model. <strong>Make-A-Video</strong> (2022) used no text-video pairs: text alignment came from a text-to-image prior and motion from unlabeled video, through pseudo-3D layers (a 1D temporal convolution after each 2D convolution, temporal attention after each spatial attention) initialized as identities [3]. <strong>AnimateDiff</strong> (2023) froze the base Stable Diffusion and trained only a plug-in motion module (temporal transformer layers, output projections zero-initialized) on WebVid-10M; the module is then inserted into personalized fine-tunes of the same base, and MotionLoRA adapts it to specific motions [4]. <strong>Stable Video Diffusion</strong> (2023) made the three-stage recipe explicit (image pre-training, curated video pre-training, high-quality fine-tuning) [5].</p>
+<details class="qa" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">When you add temporal layers to a pretrained text-to-image model, why initialize them to the identity or to zero?</span>
+</summary><div class="qa-body">
+<p>At initialization the inflated network then computes exactly the image model’s output on each frame, so training starts from a strong per-frame prior rather than a corrupted one. Make-A-Video initializes temporal layers as identities; AnimateDiff zero-initializes the motion module’s output projection so its residual branch contributes nothing at first. Gradients grow the temporal pathway gradually, which is more stable and preserves image quality. Freezing the spatial weights as well (AnimateDiff) keeps compatibility with community fine-tunes and LoRAs, at the cost of limiting how far appearance can adapt to video statistics.</p>
+</div></details>
+<h3 id="dit-era-spacetime-patches-and-full-attention">DiT era: spacetime patches and full attention</h3>
+<p>OpenAI’s Sora report (2024) describes, at a high level, the recipe most open models now follow: a video compression network maps video to a spatiotemporal latent, the latent is cut into <strong>spacetime patches</strong> used as tokens, and a diffusion transformer (DiT [7]) is trained jointly on images and videos of variable duration, resolution and aspect ratio, at native size rather than square crops [12]. The report says it applied DALL-E 3 style re-captioning to videos and used GPT to expand short prompts. It shows samples with 3D consistency and object permanence (which it says hold often, not always) and lists failures such as glass shattering. It states that model and implementation details are not included.</p>
+<p><strong>Full 3D vs factorized attention.</strong> With <span class="math inline">T</span> latent frames of <span class="math inline">S</span> tokens, full attention costs <span class="math inline">\propto(TS)^2</span>; alternating spatial attention (within a frame) and temporal attention (across frames at one location) costs <span class="math inline">\propto TS^2+ST^2=TS(S+T)</span>, about 21x cheaper for Wan’s <span class="math inline">T=21</span>, <span class="math inline">S=3600</span>. The price: temporal attention links only tokens at the same position, but a moving object changes position, so its information must hop through intermediate tokens. CogVideoX switched to 3D full attention for this reason [6], HunyuanVideo reports full attention beating divided attention [8], and Latte compares factorized DiT variants [20].</p>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Model</th>
+<th>Size</th>
+<th>Autoencoder</th>
+<th>Text pathway</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CogVideoX [6]</td>
+<td>2B / 5B</td>
+<td>causal <span class="math inline">4\times8\times8</span>, <span class="math inline">C=16</span></td>
+<td>T5 tokens concatenated with video tokens; expert AdaLN</td>
+<td>3D full attention, 3D RoPE, v-prediction, zero terminal SNR</td>
+</tr>
+<tr>
+<td>HunyuanVideo [8]</td>
+<td>13B</td>
+<td>causal <span class="math inline">4\times8\times8</span>, <span class="math inline">C=16</span></td>
+<td>decoder-only MLLM plus a global CLIP text feature; dual-stream then single-stream blocks</td>
+<td>flow matching</td>
+</tr>
+<tr>
+<td>Wan 2.1 [9]</td>
+<td>1.3B / 14B</td>
+<td>causal <span class="math inline">4\times8\times8</span>, <span class="math inline">C=16</span></td>
+<td>umT5 via cross-attention</td>
+<td>flow matching; time MLP shared across blocks</td>
+</tr>
+<tr>
+<td>LTX-Video [10]</td>
+<td>1.9B</td>
+<td><span class="math inline">8\times32\times32</span>, <span class="math inline">C=128</span></td>
+<td>cross-attention</td>
+<td>decoder does the last denoising step</td>
+</tr>
+<tr>
+<td>Movie Gen [11]</td>
+<td>30B</td>
+<td>TAE <span class="math inline">8\times8\times8</span>, <span class="math inline">C=16</span></td>
+<td>UL2, ByT5, long-prompt MetaCLIP via cross-attention</td>
+<td>LLaMa3-style blocks; 7B upsampler to 1080p</td>
+</tr>
+</tbody>
+</table>
+<p>According to the Wan 2.2 GitHub README (2025; no paper), its A14B models split denoising between a high-noise expert (early steps, layout) and a low-noise expert (later steps, detail), switching at a step set by an SNR threshold: about 27B parameters in total, about 14B active per step [9]. Google’s Veo 3 report gives only an outline: latent diffusion run jointly over audio latents and spatiotemporal video latents, a transformer denoiser, and Gemini-generated captions at several levels of detail [13].</p>
+<details class="qa qa-asked" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">How are diffusion transformers applied to video generation, for example in Sora?</span><span class="qa-badge" title="Reported in a real interview">Asked · Ant Group video algorithm engineer, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>A video autoencoder compresses the clip in space and time; the latent is split into spacetime patches (for example <span class="math inline">1\times2\times2</span> latent voxels), each becoming a token with a 3D position encoding (3D RoPE in CogVideoX and HunyuanVideo, factorized learned embeddings in Movie Gen). A transformer with AdaLN timestep modulation denoises all tokens, and text enters by cross-attention or joint attention. Because tokens form a plain sequence, images and videos of different sizes and lengths train together, which is what Sora calls training at native size. Relative to a U-Net, the transformer scales more predictably and reuses LLM tooling, but the sequence is very long, so attention is the bottleneck.</p>
+</div></details>
+<details class="qa" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">Full 3D attention or factorized space-time attention? Give the costs and the argument each way.</span>
+</summary><div class="qa-body">
+<p>Full attention costs <span class="math inline">O((TS)^2)</span> per layer and lets any token see any other, so moving objects are tracked directly; CogVideoX argues this matters for large motion and found 2D+1D attention less stable, and HunyuanVideo reports full attention outperforming divided attention. Factorized attention costs <span class="math inline">O(TS(S+T))</span>, about a factor <span class="math inline">T</span> cheaper when <span class="math inline">S\gg T</span>, and reuses image-model spatial weights. Its weakness is that temporal attention connects only co-located tokens, so motion must propagate through several layers. Large current models mostly pay for full attention and recover efficiency with sparse or local patterns that match what full attention actually attends to.</p>
+</div></details>
+<details class="qa qa-asked" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">What is your technical assessment of Sora?</span><span class="qa-badge" title="Reported in a real interview">Asked · Taobao/Tmall AIGC image algorithm interview, Nowcoder 2025</span>
+</summary><div class="qa-body">
+<p>The stated recipe is simple: compress video into a latent, cut it into spacetime patches, and train a diffusion transformer at scale on native-size data with detailed synthetic captions. The useful lessons are that variable-size training avoids framing errors caused by cropping, that re-captioning plus prompt expansion improves prompt following, and that sample quality improved with training compute; the report attributes 3D consistency and object permanence to scale rather than built-in inductive biases. The admitted limits are physical interactions such as breaking glass, and later benchmarks such as Physics-IQ found physical accuracy largely unrelated to visual realism. The report gives no architecture or data details, so claims about its internals are speculation.</p>
+</div></details>
+<h2 id="conditioning">Conditioning</h2>
+<p><strong>Text-to-video</strong> follows the image recipe (<a href="text-to-image-multimodal.html">text-to-image</a>) with two twists: training captions are long (Movie Gen’s average about 100 words), and because users write short prompts, an LLM rewrites prompts at inference to match.</p>
+<p><strong>Image-to-video</strong> mechanisms:</p>
+<ul>
+<li><em>Mask plus channel concatenation.</em> Wan concatenates the image latent (zeros for other frames) and a binary mask to the noisy latent and injects CLIP image features by cross-attention; moving the mask gives first-last-frame interpolation and continuation from the same model [9].</li>
+<li><em>Noise-augmented concatenation.</em> SVD concatenates a slightly noised, encoded conditioning frame (copied along time) and replaces the text embedding with the CLIP image embedding [5].</li>
+<li><em>Per-token timesteps.</em> LTX-Video assigns conditioning tokens a small diffusion time and the rest <span class="math inline">t=1</span> [10].</li>
+</ul>
+<p>SVD shifts training noise higher for I2V because the image is a strong signal, increases guidance linearly across frames, and conditions on frame rate and a motion score so motion is controllable [5].</p>
+<p><strong>Camera and motion control.</strong> CameraCtrl encodes each pixel’s camera ray as a Plücker embedding <span class="math inline">(o\times d,\,d)\in\mathbb{R}^6</span> (camera center <span class="math inline">o</span>, ray direction <span class="math inline">d</span>) and trains a plug-in encoder beside a frozen video model [24]. Movie Gen instead labels 16 camera-motion classes with a classifier and prefixes them to captions [11]. Trajectory conditioning (for example MotionCtrl [40]) handles object motion.</p>
+<details class="qa" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">How would you fine-tune a text-to-video model into a text-and-image-to-video model?</span>
+</summary><div class="qa-body">
+<p>Concatenate the encoded image (frame 0, zeros elsewhere) and a mask channel to the noisy latent, widening the input projection with zero-initialized weights so the model starts as the original T2V model; optionally add image-encoder features through cross-attention for identity. Drop text and image independently during training so guidance can be applied to each, and randomize which frames are given (first, last, both). Filter clips whose first frame differs strongly from the rest, as Wan did with SigLIP similarity. Expect to shift training noise higher, because the image makes low-noise steps too easy.</p>
+</div></details>
+<details class="qa" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">Your image-to-video model returns nearly static videos. What are the likely causes and fixes?</span>
+</summary><div class="qa-body">
+<p>The image explains most of every frame, so copying it is the cheapest way to lower the loss, and low-motion training clips reinforce that. On the data side, filter static clips by optical flow and balance motion levels. On the model side, condition on a motion score or frame rate (as SVD does) and raise it at inference, shift training noise higher, and noise-augment the conditioning image so it cannot be copied exactly. At sampling, separate text and image guidance scales, or guidance that increases across frames, trade first-frame fidelity for motion.</p>
+</div></details>
+<h2 id="training-recipe">Training recipe</h2>
+<h3 id="data-curation-and-captioning">Data curation and captioning</h3>
+<p>Published pipelines look alike [5, 6, 8, 11]: split videos into single-shot clips (SVD runs cut detection at three frame rates to catch fades), drop clips with little or jittery motion (optical flow, motion vectors), drop heavy overlaid text (OCR), score aesthetic and technical quality, deduplicate by embedding similarity, and rebalance concepts (Movie Gen samples clips from concept clusters according to the inverse square root of cluster size). In SVD’s ablation, a model trained on a curated 2.3M-clip subset was preferred to one trained on the full 9.8M uncurated set [5]. Captions come from video VLMs fine-tuned for dense description (CogVLM2-Caption, LLaMa3-Video; Gemini for Veo).</p>
+<details class="qa qa-asked" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">How would you build an automated filtering pipeline for video training data, and how do you check that it is not throwing away good clips?</span><span class="qa-badge" title="Reported in a real interview">Asked · SenseTime R&amp;D algorithm intern, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>Order filters from cheap to expensive: metadata (resolution, duration, aspect ratio), shot detection, optical-flow motion scores, OCR, quality and aesthetic predictors, embedding deduplication, then VLM judgements and captioning on the survivors. Store scores, not pass/fail flags, so thresholds can change without reprocessing. To estimate false rejections, have humans label a uniform sample of each filter’s rejected pool; the share of good clips there is the miss rate, and a sample of the accepted pool gives precision. The decisive test is downstream: train small models on data filtered at different thresholds under equal compute, since a filter can look clean yet remove the rare or motion-rich clips that matter most.</p>
+</div></details>
+<h3 id="curricula">Curricula</h3>
+<p>Large reports train in stages of rising cost: text-to-image pre-training at 256px, joint image-video training at low resolution and short duration, then higher resolution and longer clips, then fine-tuning on a small hand-picked set. Wan went from 256px images to 192px 5 s clips at 16 fps, then 480px, then 720px [9]; HunyuanVideo from <span class="math inline">256\times256\times65</span> to <span class="math inline">720\times1280\times129</span> [8]; Movie Gen from 256px images to 256px and then 768px image-video training [11]. Cheap low-resolution stages teach layout and motion; expensive stages mainly add detail. Batches are bucketed by duration and aspect ratio (or packed, as in CogVideoX) to avoid padding.</p>
+<h3 id="objective-and-noise-schedule">Objective and noise schedule</h3>
+<p>Most recent models use flow matching on the linear path. In the rectified-flow convention <span class="math inline">x_t=(1-t)x_0+t\epsilon</span> (noise at <span class="math inline">t=1</span>) the network regresses <span class="math inline">v=\epsilon-x_0</span> with <span class="math inline">t</span> drawn from a logit-normal; Wan, HunyuanVideo and Movie Gen write the same path with time reversed [8, 9, 11] (derivation in <a href="flow-matching.html">flow matching</a>). The path reaches pure noise exactly, giving zero terminal SNR, which Movie Gen stresses for video; CogVideoX instead gets zero terminal SNR with v-prediction and a rescaled schedule [6, 11, 26].</p>
+<p>A given noise level destroys less information at higher resolution or frame count, because noise is independent per pixel while signal is correlated. SD3’s argument [27]: for a constant image seen through <span class="math inline">n</span> pixels, averaging leaves uncertainty <span class="math inline">\sigma(t,n)\propto\frac{t}{(1-t)\sqrt n}</span>. Setting <span class="math inline">\sigma(t_m,m)=\sigma(t_n,n)</span> gives</p>
+<p><span class="math display">
+\frac{t_m}{1-t_m}=\alpha\,\frac{t_n}{1-t_n},\qquad t_m=\frac{\alpha\,t_n}{1+(\alpha-1)\,t_n},\qquad \alpha=\sqrt{m/n},
+</span></p>
+<p>a log-SNR shift of <span class="math inline">-2\log\alpha</span>. HunyuanVideo applies this form at inference with <span class="math inline">s=7</span> for 50 steps and <span class="math inline">s=17</span> below 20 steps [8]. Extending the argument to video by counting frames in <span class="math inline">n</span> is a heuristic, not something SD3 derives: frames are strongly but not perfectly correlated, so it suggests larger shifts for video, and in practice the shift is tuned empirically.</p>
+<details class="qa" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Why do video models shift the timestep schedule toward high noise, and how do you derive the shift?</span>
+</summary><div class="qa-body">
+<p>Averaging <span class="math inline">n</span> correlated pixels keeps the signal and cuts independent noise by <span class="math inline">\sqrt n</span>, so at fixed <span class="math inline">t</span> a larger or longer input is effectively less noisy. Without enough training and sampling effort at high noise, the model does not learn global layout and motion well, and samples look locally plausible but globally incoherent. Equating the uncertainty <span class="math inline">t/((1-t)\sqrt n)</span> across sizes gives <span class="math inline">t_m=\alpha t_n/(1+(\alpha-1)t_n)</span> with <span class="math inline">\alpha=\sqrt{m/n}</span>. Because real images are not constant, <span class="math inline">\alpha</span> is tuned in practice, and fewer sampling steps call for larger shifts.</p>
+</div></details>
+<h2 id="cascades-and-refiners">Cascades and refiners</h2>
+<p>A cascade generates a low-resolution (sometimes low-frame-rate) video, then upsamples with conditional diffusion models. The base model spends its token budget on layout and motion; super-resolution needs only local context and can run on tiles; each stage trains independently. Movie Gen’s 7B spatial upsampler takes 768px to 1080p: the input is bilinearly upsampled, encoded with a frame-wise VAE, concatenated channel-wise to the noisy latent, and trained on second-order degradations mixed with real TAE artifacts so train and test inputs match [11]; Imagen Video’s noise conditioning augmentation serves the same purpose [2]. See <a href="restoration-super-resolution.html">restoration and super-resolution</a>.</p>
+<p>Per-frame super-resolution flickers because each frame hallucinates different detail. Make-A-Video ran its first SR stage across space and time and gave its final per-frame stage the same initial noise for every frame [3]. Lumiere argued against temporal cascades: sparse keyframes alias fast motion, TSR models with short windows cannot resolve that ambiguity consistently, and TSR trained on real video meets generated frames at test time; it generates all 80 frames at once and keeps only spatial SR [25]. Recent latent DiTs mostly generate at the target frame rate; Movie Gen notes its <span class="math inline">8\times</span> temporal compression lets it skip frame interpolation [11].</p>
+<details class="qa" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">Why do cascades help video generation, and what goes wrong with them?</span>
+</summary><div class="qa-body">
+<p>The base model handles semantics and motion at a size where full attention is affordable, and refiners handle texture, which is local; each stage gets its own resolution and data mix. Failure modes: a train-test gap between stages (SR trained on degraded real video but applied to generated video, reduced by noise conditioning augmentation and realistic degradations), flicker when SR runs per frame, and temporal aliasing when keyframes are too sparse to determine fast motion. Base-model errors also persist, because refiners are trained to stay faithful to their input.</p>
+</div></details>
+<h2 id="long-video-and-autoregressive-diffusion">Long video and autoregressive diffusion</h2>
+<p>Bidirectional models generate a fixed-length clip. Longer video needs extension (reconstruction guidance, mask-based continuation) or a causal model that generates chunk by chunk with a KV cache, which also enables streaming and interaction.</p>
+<p><strong>Exposure bias.</strong> Teacher forcing trains <span class="math inline">p_\theta(x_i\mid x^{\text{data}}_{&lt;i})</span>, but sampling uses <span class="math inline">p_\theta(x_i\mid\hat x_{&lt;i})</span> with generated context. Small errors push the context off the training distribution, the next prediction gets worse, and errors compound into drift: oversaturation, blur, identity loss.</p>
+<p><strong>Diffusion Forcing</strong> (Chen et al., 2024) trains a causal denoiser with an independent noise level per frame [15]. In causal-transformer form,</p>
+<p><span class="math display">
+\mathcal{L}=\mathbb{E}\sum_{i=1}^{N}\big\lVert \epsilon_i-\epsilon_\theta\big(x^{k_1}_1,\dots,x^{k_i}_i;\,k_{1:i}\big)\big\rVert^2,\qquad k_i\sim\mathcal{U}\{0,\dots,K\}\ \text{independently}.
+</span></p>
+<p>Teacher forcing (<span class="math inline">k_{&lt;i}=0</span>) and full-sequence diffusion (all <span class="math inline">k_i</span> equal) are special cases. At sampling, a schedule matrix sets each frame’s noise level per step, for example keeping future frames noisier. Feeding context at a small noise level <span class="math inline">0&lt;k\ll K</span> makes the model tolerant of imperfect context and stabilizes rollouts past the training horizon; GameNGen noised context frames during training for the same reason [28].</p>
+<p><strong>CausVid</strong> (Yin et al., 2024) distills a 50-step bidirectional teacher into a 4-step student with block-causal attention (bidirectional within a chunk, causal across chunks) [16]. The student is initialized on teacher ODE pairs, then trained with distribution matching distillation (DMD), whose gradient is the difference between data and generator scores evaluated on noised student samples. With KV caching it reports 1.3 s initial latency and about 9.4 FPS on one GPU.</p>
+<p><strong>Self Forcing</strong> (Huang et al., 2025) trains on the model’s own rollouts: each chunk is generated conditioned on earlier generated chunks through the KV cache, and a video-level distribution-matching loss (DMD, SiD or GAN) is applied to the result [17]. For affordability it backpropagates only through the final denoising step of each chunk, chooses that step at random, and stops gradients into the cache. For long videos it uses a rolling KV cache; since a causal VAE’s first latent is statistically special, training blocks attention to the first chunk when denoising the last one. Built on Wan2.1-1.3B, it reports 17 FPS with sub-second latency on one H100. FramePack names the core tension, <em>forgetting</em> (too little history) versus <em>drifting</em> (history that propagates errors), and compresses less important frames more to fit long histories [29].</p>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">What is exposure bias in autoregressive video diffusion, and what are three ways to reduce it?</span>
+</summary><div class="qa-body">
+<p>Training conditions on real past frames and inference on generated ones, so the model meets unseen context and errors compound. (1) Robustness: noise context frames during training and condition on a small noise level at inference (Diffusion Forcing, GameNGen). (2) Train on the inference distribution: roll out the model in training and apply a sequence-level loss (Self Forcing), as GANs do implicitly. (3) Limit propagation: shorter or compressed contexts, a clean anchor frame, or sampling orders that fix endpoints first (FramePack). Each trades some memory or training cost for stability.</p>
+</div></details>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">How does Diffusion Forcing relate to teacher forcing and to full-sequence diffusion?</span>
+</summary><div class="qa-body">
+<p>They differ only in the joint distribution of per-frame noise levels. Teacher forcing uses a clean past and a noisy current frame; full-sequence diffusion shares one level across all frames with a non-causal network. Diffusion Forcing samples levels independently with a causal network, so it learns all mixtures, including both special cases. The sampling schedule becomes a free choice: one frame at a time, a pyramid of rising noise into the future, or guidance with lookahead. Slightly noised context also stabilizes long rollouts.</p>
+</div></details>
+<details class="qa" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">CausVid and Self Forcing both distill a causal few-step generator with DMD. What is the key difference?</span>
+</summary><div class="qa-body">
+<p>CausVid builds the student’s inputs by noising chunks of real videos, so during training the student never conditions on its own outputs, and DMD matches a distribution the model does not produce at inference. Self Forcing generates the whole video autoregressively during training, each chunk conditioned on the model’s earlier chunks, and applies the distribution-matching loss to that rollout. This removes the train-test mismatch at the cost of sequential training compute, controlled with few-step models and gradient truncation.</p>
+</div></details>
+<h2 id="efficiency">Efficiency</h2>
+<p>The token arithmetic sets the priorities: shrink <span class="math inline">L</span>, avoid dense <span class="math inline">L^2</span> attention, and cut network evaluations.</p>
+<ul>
+<li><strong>Sparse and local attention.</strong> Pretrained video DiTs attend mostly within local 3D windows. Sliding Tile Attention computes tile-aligned windowed attention; on HunyuanVideo it cut end-to-end time from 945 s to 685 s without training and to 268 s with fine-tuning [21]. Sparse VideoGen profiles each head online as spatial (within-frame) or temporal (same location across frames) and applies the matching sparse mask, reporting up to 2.33x on HunyuanVideo without training [22].</li>
+<li><strong>Step distillation.</strong> Progressive distillation took Imagen Video to 8 steps per model [2]; DMD gives 4-step causal generators [16, 17]; adversarial post-training against real data (APT) generates 2 s, 1280x720, 24 fps clips in one step in real time [23]. Guidance distillation removes the extra CFG pass; HunyuanVideo reports about 1.9x [8].</li>
+<li><strong>Feature caching.</strong> Features change slowly between steps. Pyramid Attention Broadcast reuses attention outputs across steps, longest for the attention types that vary least [30]; TeaCache reuses cached outputs when the change in timestep-modulated inputs is small, reporting up to 4.41x on Open-Sora-Plan with a 0.07% VBench drop [31]; Wan caches attention outputs and recomputes the unconditional branch only every few steps, about 1.62x on its 14B model [9].</li>
+<li><strong>Fewer tokens.</strong> High-compression autoencoders and cascades reduce <span class="math inline">L</span> before any of the above.</li>
+</ul>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">You need a 5x speed-up on a 13B video DiT without retraining from scratch. What do you try, in what order?</span>
+</summary><div class="qa-body">
+<p>Profile first: by the rough <span class="math inline">L/(6d)</span> estimate, attention is over 80% of FLOPs at <span class="math inline">10^5</span> tokens and <span class="math inline">d\approx3000</span>. Then the cheap options: guidance distillation or fewer unconditional passes (up to half the work), step caching (TeaCache reports up to 4.41x), and a profiled sparse or tiled attention mask (Sparse VideoGen reports up to 2.33x). Gains combine only partially because they remove overlapping computation. If that is not enough, fine-tune with local attention, then distill to a few steps with DMD or adversarial post-training, the largest win but the riskiest for motion and diversity. Check every change on a fixed prompt set with human A/B tests and motion-sensitive metrics.</p>
+</div></details>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">Why does feature caching work for diffusion transformers, and when does it fail?</span>
+</summary><div class="qa-body">
+<p>Adjacent steps see nearly the same input, so many features, especially attention outputs in middle steps, barely change and can be reused. PAB found the step-to-step attention difference U-shaped over sampling, so reuse is safest mid-trajectory; TeaCache recomputes only when an accumulated input-change estimate passes a threshold. Caching fails when each step changes the output a lot (few-step or distilled samplers), in early steps that set layout and motion, and on fast motion or fine detail, where stale features show up as blur or ghosting.</p>
+</div></details>
+<h2 id="evaluation">Evaluation</h2>
+<p><strong>FVD</strong> [39] fits Gaussians to I3D features (an action classifier trained on Kinetics) of real and generated clips:</p>
+<p><span class="math display">
+\mathrm{FVD}=\lVert\mu_r-\mu_g\rVert_2^2+\operatorname{Tr}\big(\Sigma_r+\Sigma_g-2(\Sigma_r\Sigma_g)^{1/2}\big).
+</span></p>
+<p>Ge et al. showed that FVD barely changes under severe temporal corruption and that picking motionless samples from a large pool can lower it substantially, because supervised I3D features are biased toward per-frame content; self-supervised VideoMAE-v2 features reduce the bias [32]. FVD also inherits FID’s issues: Gaussian assumption, sample-size bias, and sensitivity to clip length, resizing and sampling protocol (VDM notes that sampling test clips with or without replacement changes reported numbers [1]). See <a href="evaluation-metrics.html">evaluation metrics</a>.</p>
+<p><strong>VBench</strong> splits quality into 16 dimensions (subject and background consistency, flicker, motion smoothness, dynamic degree, aesthetics, object class, spatial relations and more), each with an automatic evaluator validated against human preference [33]. Its authors note that nearly static videos score well on consistency, so read consistency together with dynamic degree. <strong>Human evaluation</strong> is the reference: Movie Gen used pairwise A/B tests on a released 1003-prompt benchmark along text alignment, visual quality, and realness and aesthetics, and explained why it avoided automated metrics [11]. Physics-IQ and VideoPhy probe physical plausibility [34, 35].</p>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">What are the main problems with FVD, and what would you report instead or in addition?</span>
+</summary><div class="qa-body">
+<p>Its features come from a supervised Kinetics classifier that weighs appearance over motion, so sharp frames with wrong or missing motion can score well, temporal corruption barely moves it, and selecting static samples lowers it. It assumes Gaussian features, is biased at small sample sizes, needs a matched reference set, and depends on clip length, frame rate, resizing and sampling details, so cross-paper numbers are rarely comparable. I would add FVD with self-supervised features, VBench dimensions read in pairs (consistency with dynamic degree), prompt-alignment scores, and blinded pairwise human preference with confidence intervals on a fixed prompt set.</p>
+</div></details>
+<h2 id="world-models-and-failure-modes">World models and failure modes</h2>
+<p>A world model predicts future observations given actions; a video generator becomes one when conditioned on actions and run causally in real time.</p>
+<ul>
+<li><strong>Genie</strong> (Bruce et al., 2024): an 11B model trained on about 30,000 hours of 2D platformer gameplay without action labels [18]. A latent action model learns a discrete action (8 codes) between consecutive frames; a spatiotemporal tokenizer and a MaskGIT dynamics model generate frames given a chosen action. It ran at about 1 FPS with 16 frames of memory.</li>
+<li><strong>Genie 2</strong> (Dec 2024) is described as an autoregressive latent diffusion model with a causally masked transformer, consistent for up to a minute [36]. <strong>Genie 3</strong> (Aug 2025) runs at 720p, 24 fps in real time, consistent for a few minutes [37].</li>
+<li><strong>GameNGen</strong> simulated DOOM at 20 FPS on one TPU with a modified Stable Diffusion conditioned on past frames and actions [28]. Veo 3 solves some perception and reasoning tasks zero-shot by prompting, such as edge detection and maze solving [38].</li>
+</ul>
+<p><strong>Common failure modes</strong>: wrong physics (collisions, fluids, breakage), broken object permanence (objects vanish or change after occlusion), morphing (merging limbs, identity drift), wrong counts and extra limbs, near-static “living photo” output, camera motion substituting for object motion, and drift in long rollouts. Physics-IQ found physical understanding “severely limited, and unrelated to visual realism” [34].</p>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Do video diffusion models understand physics?</span>
+</summary><div class="qa-body">
+<p>Partially and inconsistently. They capture frequent, visible regularities (rigid motion, gravity on common objects, plausible lighting), and large models show some 3D consistency and object persistence. But the objective rewards matching pixel statistics, not conservation laws, so rare or causally subtle events (breakage, fluids, multi-object contact) often fail, and Physics-IQ found physical accuracy unrelated to realism. Evidence of understanding should come from interventions, such as action-conditioned or counterfactual prediction, not from how real samples look.</p>
+</div></details>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">How does Genie learn controllable actions from videos without action labels?</span>
+</summary><div class="qa-body">
+<p>A latent action model acts as an information bottleneck: an encoder sees frames up to <span class="math inline">x_{t+1}</span> and outputs a code <span class="math inline">a_t</span> from an 8-entry VQ codebook, and a decoder must predict <span class="math inline">x_{t+1}</span> from <span class="math inline">x_{1:t}</span> and <span class="math inline">a_t</span> alone. Since the decoder already has the past, the code must carry the most predictive change between frames, which in platformers aligns with movement. At inference the encoder is dropped, a user picks codes, and the dynamics model predicts the next frame’s tokens. The tiny codebook keeps actions playable and consistent across environments.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">Why do many video models generate 49, 81, 121 or 129 frames?</span>
+</summary><div class="qa-body">
+<p>Causal VAEs map <span class="math inline">1+sk</span> frames to <span class="math inline">1+k</span> latents. With <span class="math inline">s=4</span>: 49, 81, 129 frames give 13, 21, 33 latents; with <span class="math inline">s=8</span>, 121 gives 16.</p>
+</div></details>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">What is the compression ratio of a <span class="math inline">4\times8\times8</span> VAE with 16 channels?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">4\cdot8\cdot8\cdot3/16=48</span> pixel values per latent value, 1:48; a <span class="math inline">1\times2\times2</span> patch then makes one token per <span class="math inline">4\times16\times16</span> pixel block.</p>
+</div></details>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">Why did Imagen Video use v-prediction?</span>
+</summary><div class="qa-body">
+<p>It kept progressive distillation numerically stable and avoided the color shifts seen with <span class="math inline">\epsilon</span>-prediction at high resolution.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">What is a motion module?</span>
+</summary><div class="qa-body">
+<p>Temporal attention layers inserted into a frozen text-to-image U-Net and trained on video (AnimateDiff), so one module animates many fine-tunes of the same base model.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">What is 3D RoPE?</span>
+</summary><div class="qa-body">
+<p>Rotary embeddings applied separately to time, height and width on disjoint channel groups and concatenated, giving relative positions on all three axes for variable sizes.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">What does noise conditioning augmentation do in a cascade?</span>
+</summary><div class="qa-body">
+<p>It noises the low-resolution input during SR training and tells the model the level, so the SR model tolerates artifacts of generated inputs.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">Why condition on frame rate or a motion score?</span>
+</summary><div class="qa-body">
+<p>Training data mixes frame rates and motion levels; explicit inputs remove that ambiguity and give a control knob at inference (SVD, Make-A-Video).</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">What does a KV cache buy in causal video generation?</span>
+</summary><div class="qa-body">
+<p>Keys and values of past chunks are computed once and reused, so each new chunk attends to the cache instead of recomputing the sequence; a rolling cache bounds memory.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">What is a Plücker embedding for camera control?</span>
+</summary><div class="qa-body">
+<p>The 6D vector <span class="math inline">(o\times d,d)</span> of the camera ray through each pixel; it encodes pose and intrinsics densely in pixel space, easier for a network than raw matrices.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">Why resample concept clusters by inverse square root of cluster size?</span>
+</summary><div class="qa-body">
+<p>Movie Gen says only that clips are sampled according to the inverse square root of cluster size. Read as a per-clip weight <span class="math inline">\propto n_c^{-1/2}</span>, each cluster’s total mass becomes <span class="math inline">\propto\sqrt{n_c}</span>: big clusters lose dominance without tiny, noisy clusters taking over, a middle ground between natural frequency (<span class="math inline">\propto n_c</span>) and uniform over clusters.</p>
+</div></details>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">What is the Wan 2.2 mixture of experts?</span>
+</summary><div class="qa-body">
+<p>Per its GitHub README, two experts of about 14B each (about 27B total) specialized by noise level, one for early high-noise steps (overall layout) and one for later low-noise steps (detail), switched at a step set by an SNR threshold; per-step compute stays roughly that of one 14B model.</p>
+</div></details>
+<details class="qa" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">Why do teacher-forced autoregressive video models drift?</span>
+</summary><div class="qa-body">
+<p>They never train on their own outputs, so early errors create out-of-distribution context and errors compound (exposure bias).</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Ho et al., “Video Diffusion Models,” 2022. <a href="https://arxiv.org/abs/2204.03458" target="_blank" rel="noopener">arXiv:2204.03458</a></li>
+<li>Ho et al., “Imagen Video: High Definition Video Generation with Diffusion Models,” 2022. <a href="https://arxiv.org/abs/2210.02303" target="_blank" rel="noopener">arXiv:2210.02303</a></li>
+<li>Singer et al., “Make-A-Video: Text-to-Video Generation without Text-Video Data,” 2022. <a href="https://arxiv.org/abs/2209.14792" target="_blank" rel="noopener">arXiv:2209.14792</a></li>
+<li>Guo et al., “AnimateDiff: Animate Your Personalized Text-to-Image Diffusion Models without Specific Tuning,” 2023. <a href="https://arxiv.org/abs/2307.04725" target="_blank" rel="noopener">arXiv:2307.04725</a></li>
+<li>Blattmann et al., “Stable Video Diffusion: Scaling Latent Video Diffusion Models to Large Datasets,” 2023. <a href="https://arxiv.org/abs/2311.15127" target="_blank" rel="noopener">arXiv:2311.15127</a></li>
+<li>Yang et al., “CogVideoX: Text-to-Video Diffusion Models with An Expert Transformer,” 2024. <a href="https://arxiv.org/abs/2408.06072" target="_blank" rel="noopener">arXiv:2408.06072</a></li>
+<li>Peebles and Xie, “Scalable Diffusion Models with Transformers,” 2022. <a href="https://arxiv.org/abs/2212.09748" target="_blank" rel="noopener">arXiv:2212.09748</a></li>
+<li>Kong et al., “HunyuanVideo: A Systematic Framework for Large Video Generative Models,” 2024. <a href="https://arxiv.org/abs/2412.03603" target="_blank" rel="noopener">arXiv:2412.03603</a></li>
+<li>Wan Team, “Wan: Open and Advanced Large-Scale Video Generative Models,” 2025. <a href="https://arxiv.org/abs/2503.20314" target="_blank" rel="noopener">arXiv:2503.20314</a>; Wan 2.2 release notes: <a href="https://github.com/Wan-Video/Wan2.2" target="_blank" rel="noopener">github.com/Wan-Video/Wan2.2</a></li>
+<li>HaCohen et al., “LTX-Video: Realtime Video Latent Diffusion,” 2024. <a href="https://arxiv.org/abs/2501.00103" target="_blank" rel="noopener">arXiv:2501.00103</a></li>
+<li>Polyak et al., “Movie Gen: A Cast of Media Foundation Models,” 2024. <a href="https://arxiv.org/abs/2410.13720" target="_blank" rel="noopener">arXiv:2410.13720</a></li>
+<li>Brooks et al. (OpenAI), “Video generation models as world simulators,” technical report, 2024. <a href="https://openai.com/research/video-generation-models-as-world-simulators" target="_blank" rel="noopener">openai.com</a></li>
+<li>Google DeepMind, “Veo 3 Tech Report,” 2025. <a href="https://storage.googleapis.com/deepmind-media/veo/Veo-3-Tech-Report.pdf" target="_blank" rel="noopener">PDF</a></li>
+<li>Yu et al., “Language Model Beats Diffusion: Tokenizer is Key to Visual Generation” (MAGVIT-v2), 2023. <a href="https://arxiv.org/abs/2310.05737" target="_blank" rel="noopener">arXiv:2310.05737</a></li>
+<li>Chen et al., “Diffusion Forcing: Next-token Prediction Meets Full-Sequence Diffusion,” 2024. <a href="https://arxiv.org/abs/2407.01392" target="_blank" rel="noopener">arXiv:2407.01392</a></li>
+<li>Yin et al., “From Slow Bidirectional to Fast Autoregressive Video Diffusion Models” (CausVid), 2024. <a href="https://arxiv.org/abs/2412.07772" target="_blank" rel="noopener">arXiv:2412.07772</a></li>
+<li>Huang et al., “Self Forcing: Bridging the Train-Test Gap in Autoregressive Video Diffusion,” 2025. <a href="https://arxiv.org/abs/2506.08009" target="_blank" rel="noopener">arXiv:2506.08009</a></li>
+<li>Bruce et al., “Genie: Generative Interactive Environments,” 2024. <a href="https://arxiv.org/abs/2402.15391" target="_blank" rel="noopener">arXiv:2402.15391</a></li>
+<li>Blattmann et al., “Align your Latents: High-Resolution Video Synthesis with Latent Diffusion Models,” 2023. <a href="https://arxiv.org/abs/2304.08818" target="_blank" rel="noopener">arXiv:2304.08818</a></li>
+<li>Ma et al., “Latte: Latent Diffusion Transformer for Video Generation,” 2024. <a href="https://arxiv.org/abs/2401.03048" target="_blank" rel="noopener">arXiv:2401.03048</a></li>
+<li>Zhang et al., “Fast Video Generation with Sliding Tile Attention,” 2025. <a href="https://arxiv.org/abs/2502.04507" target="_blank" rel="noopener">arXiv:2502.04507</a></li>
+<li>Xi et al., “Sparse VideoGen: Accelerating Video Diffusion Transformers with Spatial-Temporal Sparsity,” 2025. <a href="https://arxiv.org/abs/2502.01776" target="_blank" rel="noopener">arXiv:2502.01776</a></li>
+<li>Lin et al., “Diffusion Adversarial Post-Training for One-Step Video Generation,” 2025. <a href="https://arxiv.org/abs/2501.08316" target="_blank" rel="noopener">arXiv:2501.08316</a></li>
+<li>He et al., “CameraCtrl: Enabling Camera Control for Video Diffusion Models,” 2024. <a href="https://arxiv.org/abs/2404.02101" target="_blank" rel="noopener">arXiv:2404.02101</a></li>
+<li>Bar-Tal et al., “Lumiere: A Space-Time Diffusion Model for Video Generation,” 2024. <a href="https://arxiv.org/abs/2401.12945" target="_blank" rel="noopener">arXiv:2401.12945</a></li>
+<li>Lin et al., “Common Diffusion Noise Schedules and Sample Steps are Flawed,” 2023. <a href="https://arxiv.org/abs/2305.08891" target="_blank" rel="noopener">arXiv:2305.08891</a></li>
+<li>Esser et al., “Scaling Rectified Flow Transformers for High-Resolution Image Synthesis,” 2024. <a href="https://arxiv.org/abs/2403.03206" target="_blank" rel="noopener">arXiv:2403.03206</a></li>
+<li>Valevski et al., “Diffusion Models Are Real-Time Game Engines” (GameNGen), 2024. <a href="https://arxiv.org/abs/2408.14837" target="_blank" rel="noopener">arXiv:2408.14837</a></li>
+<li>Zhang et al., “Frame Context Packing and Drift Prevention in Next-Frame-Prediction Video Diffusion Models” (FramePack), 2025. <a href="https://arxiv.org/abs/2504.12626" target="_blank" rel="noopener">arXiv:2504.12626</a></li>
+<li>Zhao et al., “Real-Time Video Generation with Pyramid Attention Broadcast,” 2024. <a href="https://arxiv.org/abs/2408.12588" target="_blank" rel="noopener">arXiv:2408.12588</a></li>
+<li>Liu et al., “Timestep Embedding Tells: It’s Time to Cache for Video Diffusion Model” (TeaCache), 2024. <a href="https://arxiv.org/abs/2411.19108" target="_blank" rel="noopener">arXiv:2411.19108</a></li>
+<li>Ge et al., “On the Content Bias in Fréchet Video Distance,” 2024. <a href="https://arxiv.org/abs/2404.12391" target="_blank" rel="noopener">arXiv:2404.12391</a></li>
+<li>Huang et al., “VBench: Comprehensive Benchmark Suite for Video Generative Models,” 2023. <a href="https://arxiv.org/abs/2311.17982" target="_blank" rel="noopener">arXiv:2311.17982</a></li>
+<li>Motamed et al., “Do generative video models understand physical principles?” (Physics-IQ), 2025. <a href="https://arxiv.org/abs/2501.09038" target="_blank" rel="noopener">arXiv:2501.09038</a></li>
+<li>Bansal et al., “VideoPhy: Evaluating Physical Commonsense for Video Generation,” 2024. <a href="https://arxiv.org/abs/2406.03520" target="_blank" rel="noopener">arXiv:2406.03520</a></li>
+<li>Google DeepMind, “Genie 2: A large-scale foundation world model,” blog, Dec 2024. <a href="https://deepmind.google/discover/blog/genie-2-a-large-scale-foundation-world-model/" target="_blank" rel="noopener">deepmind.google</a></li>
+<li>Google DeepMind, “Genie 3: A new frontier for world models,” blog, Aug 2025. <a href="https://deepmind.google/discover/blog/genie-3-a-new-frontier-for-world-models/" target="_blank" rel="noopener">deepmind.google</a></li>
+<li>Wiedemer et al., “Video models are zero-shot learners and reasoners,” 2025. <a href="https://arxiv.org/abs/2509.20328" target="_blank" rel="noopener">arXiv:2509.20328</a></li>
+<li>Unterthiner et al., “Towards Accurate Generative Models of Video: A New Metric &amp; Challenges” (FVD), 2018. <a href="https://arxiv.org/abs/1812.01717" target="_blank" rel="noopener">arXiv:1812.01717</a></li>
+<li>Wang et al., “MotionCtrl: A Unified and Flexible Motion Controller for Video Generation,” 2023. <a href="https://arxiv.org/abs/2312.03641" target="_blank" rel="noopener">arXiv:2312.03641</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="text-to-image-multimodal.html"><span class="pager-dir">Previous</span><span class="pager-title">Text-to-Image and Multimodal Generation</span></a>
+        <a class="pager-next" href="deep-learning-training.html"><span class="pager-dir">Next</span><span class="pager-title">Deep Learning Training Essentials</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

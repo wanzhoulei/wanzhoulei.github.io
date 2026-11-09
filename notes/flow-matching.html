@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flow Matching and Few-Step Generation · Notes · Wanzhou Lei</title>
+  <meta name="description" content="Continuous flows, flow matching and rectified flow, why they coincide with diffusion, and the distillation and consistency methods that cut sampling to one to four steps.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Flow Matching and Few-Step Generation</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#continuous-normalizing-flows" id="toc-continuous-normalizing-flows">Continuous normalizing flows</a></li>
+      <li><a href="#flow-matching" id="toc-flow-matching">Flow matching</a></li>
+      <li><a href="#probability-paths" id="toc-probability-paths">Probability paths</a></li>
+      <li><a href="#rectified-flow-reflow-and-straightness" id="toc-rectified-flow-reflow-and-straightness">Rectified flow, reflow and straightness</a></li>
+      <li><a href="#flow-matching-and-diffusion-are-one-model-class" id="toc-flow-matching-and-diffusion-are-one-model-class">Flow matching and diffusion are one model class</a></li>
+      <li><a href="#timestep-sampling-and-resolution-shift" id="toc-timestep-sampling-and-resolution-shift">Timestep sampling and resolution shift</a></li>
+      <li><a href="#why-sampling-is-slow-solvers-versus-distillation" id="toc-why-sampling-is-slow-solvers-versus-distillation">Why sampling is slow: solvers versus distillation</a></li>
+      <li><a href="#few-step-methods" id="toc-few-step-methods">Few-step methods</a></li>
+      <li><a href="#trade-offs" id="toc-trade-offs">Trade-offs</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Flow Matching and Few-Step Generation</h1>
+        <p class="page-lede">Continuous flows, flow matching and rectified flow, why they coincide with diffusion, and the distillation and consistency methods that cut sampling to one to four steps.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>31 practice questions</span><span>31 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#continuous-normalizing-flows">Continuous normalizing flows</a></li>
+<li><a href="#flow-matching">Flow matching</a></li>
+<li><a href="#probability-paths">Probability paths</a></li>
+<li><a href="#rectified-flow-reflow-and-straightness">Rectified flow, reflow and straightness</a></li>
+<li><a href="#flow-matching-and-diffusion-are-one-model-class">Flow matching and diffusion are one model class</a></li>
+<li><a href="#timestep-sampling-and-resolution-shift">Timestep sampling and resolution shift</a></li>
+<li><a href="#why-sampling-is-slow-solvers-versus-distillation">Why sampling is slow: solvers versus distillation</a></li>
+<li><a href="#few-step-methods">Few-step methods</a></li>
+<li><a href="#trade-offs">Trade-offs</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>Flow matching trains a continuous normalizing flow by regressing a neural velocity field onto the velocity of a path you design between noise and data, with no ODE simulation during training. With a Gaussian source it describes the same model class as diffusion, and since SD3 and FLUX.1 it is the usual way large image generators are written down. Sampling still integrates an ODE with tens of network calls, so the second half covers methods that reach one to four steps by giving up some training simplicity, diversity or flexibility. Interviewers use this area to check that you can derive the conditional flow matching identity, convert between parameterizations, and say precisely why straight paths and distillation make sampling cheaper. DDPM basics, the SDE view and the CFG derivation are in <a href="diffusion-models.html">diffusion models</a>; GAN theory is in <a href="gans-vaes-autoregressive.html">GANs, VAEs and autoregressive models</a>.</p>
+<p><strong>Convention.</strong> Unless a section says otherwise, <span class="math inline">t=0</span> is noise and <span class="math inline">t=1</span> is data, as in Lipman et al., Liu et al. and the Flow Matching Guide. Noise is <span class="math inline">\epsilon\sim\mathcal{N}(0,I)</span> and data is <span class="math inline">x_1\sim q</span>. SD3, the FLUX code and MeanFlow flip this (<span class="math inline">t=0</span> data, <span class="math inline">t=1</span> noise); sections that follow them say so.</p>
+<h2 id="continuous-normalizing-flows">Continuous normalizing flows</h2>
+<p>A continuous normalizing flow (CNF) is an ODE <span class="math inline">\frac{d}{dt}x_t=v_t(x_t)</span> with a neural velocity field, started from <span class="math inline">x_0\sim p_0=\mathcal{N}(0,I)</span>. Its flow map pushes <span class="math inline">p_0</span> forward to a density path <span class="math inline">p_t</span>, and the pair satisfies the continuity equation</p>
+<p><span class="math display">\partial_t p_t(x)+\nabla\cdot\big(p_t(x)\,v_t(x)\big)=0 .</span></p>
+<p>It is conservation of probability mass: density in a small volume changes only through the net flux <span class="math inline">p_tv_t</span> across its boundary. We say <span class="math inline">v_t</span> <em>generates</em> <span class="math inline">p_t</span> when the two satisfy it.</p>
+<p><strong>Log-density along a trajectory.</strong> Expanding the divergence gives <span class="math inline">\partial_tp_t+v_t\cdot\nabla p_t+p_t\nabla\cdot v_t=0</span>. The first two terms are the total derivative of <span class="math inline">p_t(x_t)</span> along a trajectory, so</p>
+<p><span class="math display">\frac{d}{dt}\log p_t(x_t)=-(\nabla\cdot v_t)(x_t),\qquad\log p_1(x_1)=\log p_0(x_0)-\int_0^1(\nabla\cdot v_t)(x_t)\,dt .</span></p>
+<p><strong>Why maximum likelihood is expensive.</strong> The likelihood of one training image needs (i) a sequential ODE solve from the image back to noise, whose number of function evaluations (NFE) tends to grow as the learned field gets more complex; (ii) the divergence along the path, which costs <span class="math inline">d</span> vector-Jacobian products exactly or one with Hutchinson’s unbiased but noisy estimator <span class="math inline">\mathbb{E}_z[z^\top(\partial v/\partial x)z]</span> (FFJORD); and (iii) backpropagation through the solve, usually by the adjoint method, a second ODE solve. One training step costs tens to hundreds of network calls. Flow matching keeps the model, replaces the objective with a regression at one random <span class="math inline">t</span> per example, and leaves the ODE only at sampling time.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>A CNF is specified by its velocity field, and the continuity equation tells you which density path that field produces. Flow matching reverses the order: choose the path first, then regress the field that produces it.</p>
+</aside>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Why does the CNF log-likelihood contain a trace where discrete flows have a log-determinant?</span>
+</summary><div class="qa-body">
+<p>For one Euler step <span class="math inline">x\mapsto x+h\,v(x)</span> the Jacobian is <span class="math inline">I+hJ</span> with <span class="math inline">J=\partial v/\partial x</span>, and <span class="math inline">\log\det(I+hJ)=h\,\mathrm{tr}(J)+O(h^2)</span>. Composing infinitely many small steps turns the sum of log-determinants into the time integral of the trace, the divergence in the formula above. So CNFs need no triangular or coupling structure. The catch is that the exact trace still costs <span class="math inline">d</span> backward passes, so practical CNFs use Hutchinson’s estimator and accept extra gradient variance.</p>
+</div></details>
+<h2 id="flow-matching">Flow matching</h2>
+<h3 id="the-objective-we-cannot-compute">The objective we cannot compute</h3>
+<p>Given a density path <span class="math inline">p_t</span> from <span class="math inline">\mathcal{N}(0,I)</span> to <span class="math inline">p_1\approx q</span> and the field <span class="math inline">u_t</span> that generates it, we would regress</p>
+<p><span class="math display">\mathcal{L}_{\mathrm{FM}}(\theta)=\mathbb{E}_{t\sim U[0,1],\;x\sim p_t}\big\lVert v^\theta_t(x)-u_t(x)\big\rVert^2 .</span></p>
+<p>For a data distribution <span class="math inline">q</span>, neither <span class="math inline">p_t</span> nor <span class="math inline">u_t</span> has a closed form.</p>
+<h3 id="marginal-paths-built-from-conditional-paths">Marginal paths built from conditional paths</h3>
+<p>Condition on one data point. Pick a simple conditional path <span class="math inline">p_t(x\mid x_1)</span> from <span class="math inline">\mathcal{N}(0,I)</span> to <span class="math inline">\mathcal{N}(x_1,\sigma_{\min}^2I)</span> and a conditional field <span class="math inline">u_t(x\mid x_1)</span> that generates it. Then mix over data:</p>
+<p><span class="math display">p_t(x)=\int p_t(x\mid x_1)\,q(x_1)\,dx_1,\qquad u_t(x)=\int u_t(x\mid x_1)\,\frac{p_t(x\mid x_1)\,q(x_1)}{p_t(x)}\,dx_1=\mathbb{E}\big[u_t(X_t\mid X_1)\,\big|\,X_t=x\big].</span></p>
+<p>The marginal field is the posterior average of the conditional fields, and it generates the marginal path. Differentiate under the integral and use the conditional continuity equation:</p>
+<p><span class="math display">\partial_tp_t(x)=\int\partial_tp_t(x\mid x_1)\,q(x_1)\,dx_1=-\nabla\cdot\int u_t(x\mid x_1)\,p_t(x\mid x_1)\,q(x_1)\,dx_1=-\nabla\cdot\big(u_t(x)\,p_t(x)\big).</span></p>
+<h3 id="conditional-flow-matching-and-the-gradient-identity">Conditional flow matching and the gradient identity</h3>
+<p>Replace the unknown marginal target with the conditional one:</p>
+<p><span class="math display">\mathcal{L}_{\mathrm{CFM}}(\theta)=\mathbb{E}_{t,\;x_1\sim q,\;x\sim p_t(\cdot\mid x_1)}\big\lVert v^\theta_t(x)-u_t(x\mid x_1)\big\rVert^2 .</span></p>
+<p><strong>Claim (Lipman et al., Theorem 2).</strong> If <span class="math inline">p_t(x)&gt;0</span>, the two losses differ by a constant independent of <span class="math inline">\theta</span>, so their gradients agree.</p>
+<p><strong>Proof.</strong> Expand <span class="math inline">\lVert v-u\rVert^2=\lVert v\rVert^2-2\langle v,u\rangle+\lVert u\rVert^2</span>. The last term has no <span class="math inline">\theta</span>. The first has the same expectation in both losses because <span class="math inline">p_t(x)</span> is the <span class="math inline">q</span>-mixture of <span class="math inline">p_t(x\mid x_1)</span>. For the cross term, insert the definition of <span class="math inline">u_t</span> and swap integrals:</p>
+<p><span class="math display">\mathbb{E}_{p_t(x)}\big\langle v^\theta_t(x),u_t(x)\big\rangle=\int\!\!\int\big\langle v^\theta_t(x),u_t(x\mid x_1)\big\rangle\,p_t(x\mid x_1)\,q(x_1)\,dx_1\,dx=\mathbb{E}_{q(x_1),\,p_t(x\mid x_1)}\big\langle v^\theta_t(x),u_t(x\mid x_1)\big\rangle .</span></p>
+<p>Equivalently, least squares on a noisy target learns the conditional mean: with <span class="math inline">U=u_t(X_t\mid X_1)</span>, <span class="math inline">\mathcal{L}_{\mathrm{CFM}}=\mathcal{L}_{\mathrm{FM}}+\mathbb{E}_{t,X_t}\,\mathrm{tr}\,\mathrm{Cov}[U\mid X_t]</span>. The Guide extends the identity to any Bregman divergence.</p>
+<p><strong>The algorithm</strong> with the linear path: sample <span class="math inline">x_1\sim q</span>, <span class="math inline">\epsilon\sim\mathcal{N}(0,I)</span>, <span class="math inline">t\sim U[0,1]</span>; set <span class="math inline">x_t=t\,x_1+(1-t)\,\epsilon</span>; regress <span class="math inline">v^\theta_t(x_t)</span> onto <span class="math inline">x_1-\epsilon</span>. To sample, integrate <span class="math inline">dx/dt=v^\theta_t(x)</span> from <span class="math inline">\epsilon</span> at <span class="math inline">t=0</span> to <span class="math inline">t=1</span>.</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>The CFM loss does not go to zero at the optimum. Its floor is the conditional-variance term, which is large at high noise, where many data points are compatible with the same <span class="math inline">x_t</span>. A plateau is not evidence of underfitting, and loss values are not comparable across paths, couplings or timestep distributions.</p>
+</aside>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">The CFM target depends on a data point <span class="math inline">x_1</span> that the model never sees. Why does regressing on it give the right field?</span>
+</summary><div class="qa-body">
+<p>Squared error is minimized by the conditional expectation of the target given the input, and the marginal velocity is exactly <span class="math inline">\mathbb{E}[u_t(X_t\mid X_1)\mid X_t=x]</span>. So the population minimizer of CFM is the marginal field, and the losses differ only by the conditional variance, a constant in <span class="math inline">\theta</span>. The argument depends on the loss: <span class="math inline">\ell_1</span> would learn a coordinate-wise conditional median, which in general does not generate <span class="math inline">p_t</span>. Bregman divergences work because they are exactly the losses minimized by the conditional mean.</p>
+</div></details>
+<details class="qa qa-asked" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">Explain the “flow” mechanism in FLUX-style models: what is trained, and how is an image sampled?</span><span class="qa-badge" title="Reported in a real interview">Asked · Xiaomi AIGC algorithm engineer, Nowcoder 2025</span>
+</summary><div class="qa-body">
+<p>Black Forest Labs describe FLUX.1 as a rectified flow transformer but have not published its training recipe, so the training side rests on the closest published recipe, SD3’s: conditional flow matching with the linear path in SD3’s convention. Encode an image to a latent <span class="math inline">x</span>, draw <span class="math inline">\epsilon</span> and <span class="math inline">t</span> (SD3 uses a logit-normal), form <span class="math inline">z_t=(1-t)x+t\epsilon</span>, and regress onto <span class="math inline">v=\epsilon-x</span>, so the network learns <span class="math inline">\mathbb{E}[\epsilon-x\mid z_t]</span>. Sampling integrates <span class="math inline">dz/dt=v_\theta</span> from noise at <span class="math inline">t=1</span> down to <span class="math inline">t=0</span>; the public reference code uses Euler steps on a time grid shifted toward high noise by an amount that grows with the number of image tokens. The model card says [dev] was trained with guidance distillation, and the public code passes the guidance scale to the network as an input, so each step needs one forward pass instead of two.</p>
+</div></details>
+<h2 id="probability-paths">Probability paths</h2>
+<h3 id="gaussian-conditional-paths">Gaussian conditional paths</h3>
+<p>Lipman et al. use <span class="math inline">p_t(x\mid x_1)=\mathcal{N}\big(x\mid\mu_t(x_1),\sigma_t(x_1)^2I\big)</span> with <span class="math inline">\mu_0=0</span>, <span class="math inline">\sigma_0=1</span>, <span class="math inline">\mu_1=x_1</span>, <span class="math inline">\sigma_1=\sigma_{\min}</span>, produced by the flow <span class="math inline">\psi_t(\epsilon)=\sigma_t\epsilon+\mu_t</span>. Its time derivative is <span class="math inline">\sigma_t&#39;\epsilon+\mu_t&#39;</span>; substituting <span class="math inline">\epsilon=(x-\mu_t)/\sigma_t</span> gives</p>
+<p><span class="math display">u_t(x\mid x_1)=\frac{\sigma_t&#39;}{\sigma_t}\big(x-\mu_t\big)+\mu_t&#39; .</span></p>
+<p>Practical paths are affine, <span class="math inline">x_t=\alpha_tx_1+\sigma_t\epsilon</span> with <span class="math inline">\alpha_0=0,\ \sigma_0=1,\ \alpha_1=1,\ \sigma_1\approx0</span>, and the target is <span class="math inline">\dot\alpha_tx_1+\dot\sigma_t\epsilon</span>:</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Path</th>
+<th><span class="math inline">\alpha_t</span></th>
+<th><span class="math inline">\sigma_t</span></th>
+<th>Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linear, “OT” (Lipman)</td>
+<td><span class="math inline">t</span></td>
+<td><span class="math inline">1-(1-\sigma_{\min})t</span></td>
+<td><span class="math inline">x_1-(1-\sigma_{\min})\epsilon</span></td>
+</tr>
+<tr>
+<td>Rectified flow</td>
+<td><span class="math inline">t</span></td>
+<td><span class="math inline">1-t</span></td>
+<td><span class="math inline">x_1-\epsilon</span></td>
+</tr>
+<tr>
+<td>Trigonometric (variance preserving)</td>
+<td><span class="math inline">\sin\frac{\pi t}{2}</span></td>
+<td><span class="math inline">\cos\frac{\pi t}{2}</span></td>
+<td><span class="math inline">\frac{\pi}{2}\big(\cos\frac{\pi t}{2}\,x_1-\sin\frac{\pi t}{2}\,\epsilon\big)</span></td>
+</tr>
+</tbody>
+</table>
+<p>Lipman et al. write VE and VP diffusion paths in the same form and report that the linear path trained faster and sampled with fewer NFE in their experiments.</p>
+<p><strong>v-prediction is a velocity.</strong> In Salimans and Ho’s angle form <span class="math inline">z_\phi=\cos\phi\,x+\sin\phi\,\epsilon</span>, so <span class="math inline">dz_\phi/d\phi=\cos\phi\,\epsilon-\sin\phi\,x</span>, which is their <span class="math inline">v</span>. With <span class="math inline">\phi=\frac{\pi}{2}(1-t)</span>, <span class="math inline">z_\phi</span> is the trigonometric path above and <span class="math inline">u_t=\frac{dz_\phi}{d\phi}\frac{d\phi}{dt}=-\frac{\pi}{2}v</span>, so <span class="math inline">v=-\frac{2}{\pi}u_t</span>. The sign comes from <span class="math inline">\phi</span> decreasing as <span class="math inline">t</span> runs from noise to data; with data at <span class="math inline">t=0</span> the factor is <span class="math inline">+2/\pi</span>.</p>
+<h3 id="what-ot-does-and-does-not-mean">What “OT” does and does not mean</h3>
+<p>The linear conditional path is the straight-line interpolation between noise and the point mass at <span class="math inline">x_1</span>. The Guide shows with Jensen’s inequality that the marginal field’s kinetic energy is bounded by that of the conditional flows, that straight lines minimize this bound, and hence</p>
+<p><span class="math display">\int_0^1\mathbb{E}\,\lVert u_t(x_t)\rVert^2\,dt\;\le\;\mathbb{E}\,\lVert x_1-\epsilon\rVert^2 .</span></p>
+<p>This is optimal transport only when the target is a single point. For Gaussian paths the marginal field is a gradient field (Guide, eq. 4.79), so it is kinetic-optimal for its own path <span class="math inline">p_t</span>, but that path is not the OT interpolation between <span class="math inline">\mathcal{N}(0,I)</span> and <span class="math inline">q</span>.</p>
+<h3 id="stochastic-interpolants">Stochastic interpolants</h3>
+<p>Albergo and Vanden-Eijnden reached the same quadratic velocity loss concurrently, for arbitrary pairs of densities. Their later framework uses <span class="math inline">x_t=I(t,x_0,x_1)+\gamma(t)z</span> with <span class="math inline">\gamma(0)=\gamma(1)=0</span>, and learns both a velocity <span class="math inline">b</span> and a score <span class="math inline">s=-\gamma^{-1}\mathbb{E}[z\mid x_t]</span> by quadratic regression. The SDEs <span class="math inline">dX_t=(b+\varepsilon(t)s)\,dt+\sqrt{2\varepsilon(t)}\,dW_t</span> share the same marginals for any <span class="math inline">\varepsilon(t)\ge0</span>, so deterministic versus stochastic sampling becomes a choice made at sampling time.</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“OT path” describes each conditional path, a straight line to one data point, not the learned map. With noise and data paired independently, the marginal flow is not the optimal transport map from <span class="math inline">\mathcal{N}(0,I)</span> to <span class="math inline">q</span>, and its trajectories are curved.</p>
+</aside>
+<details class="qa" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">Linear path versus a variance-preserving path: if both are Gaussian, what actually changes?</span>
+</summary><div class="qa-body">
+<p>Both are <span class="math inline">x_t=\alpha_tx_1+\sigma_t\epsilon</span> and differ only in the curve <span class="math inline">\alpha_t^2/\sigma_t^2</span> (the SNR) and the overall scale of <span class="math inline">x_t</span>. The Guide gives a closed-form scale-time change between any two such schedules, so a trained field can be sampled under another schedule and, in exact arithmetic, maps noise to the same samples. What changes in practice is how training samples are spread over noise levels (an implicit loss weighting), what the network outputs, and how curved the trajectories look as functions of <span class="math inline">t</span>, which sets the per-step solver error. Neither family is uniformly straighter on real data.</p>
+</div></details>
+<h2 id="rectified-flow-reflow-and-straightness">Rectified flow, reflow and straightness</h2>
+<p>Liu, Gong and Liu reached the same objective from transport. Given any coupling <span class="math inline">(X_0,X_1)</span> of <span class="math inline">\pi_0</span> and <span class="math inline">\pi_1</span>, fit</p>
+<p><span class="math display">\min_v\int_0^1\mathbb{E}\,\big\lVert(X_1-X_0)-v(X_t,t)\big\rVert^2dt,\qquad X_t=tX_1+(1-t)X_0 .</span></p>
+<p>With Gaussian <span class="math inline">\pi_0</span> and an independent coupling this is CFM with the linear path, called the 1-rectified flow.</p>
+<p><strong>Non-crossing and marginals.</strong> The lines <span class="math inline">X_t</span> can cross, but trajectories of a well-defined ODE cannot. At a crossing the learned field averages directions, so the flow rewires the lines: it keeps the marginals, <span class="math inline">\mathrm{Law}(Z_t)=\mathrm{Law}(X_t)</span> (Theorem 3.3), through a new deterministic coupling <span class="math inline">(Z_0,Z_1)</span>. For every convex cost <span class="math inline">c</span>, <span class="math inline">\mathbb{E}\,c(Z_1-Z_0)\le\mathbb{E}\,c(X_1-X_0)</span> (Theorem 3.5), but rectification targets no particular cost, so it is not guaranteed to reach the OT map for a given <span class="math inline">c</span>.</p>
+<p><strong>Straightness and reflow.</strong> Let <span class="math inline">S(Z)=\int_0^1\mathbb{E}\lVert(Z_1-Z_0)-\dot Z_t\rVert^2dt</span>, zero exactly when every trajectory is straight at constant speed. Reflow simulates the <span class="math inline">k</span>-rectified flow to get pairs <span class="math inline">(Z_0^k,Z_1^k)</span> and retrains on them. These pairs come from a non-crossing flow, so their lines cross much less. Theorem 3.7: <span class="math inline">\min_{k\le K}S(Z^k)\le\mathbb{E}\lVert X_1-X_0\rVert^2/K</span>.</p>
+<p><strong>Why straight means few steps.</strong> The local error of an Euler step of size <span class="math inline">h</span> is about <span class="math inline">\frac{h^2}{2}\ddot z</span>, with acceleration <span class="math inline">\ddot z=\partial_tv+(\nabla v)\,v</span>. A straight trajectory at constant speed has zero acceleration, so <span class="math inline">z_1=z_0+v(z_0,0)</span> is exact. Curvature sets the step count, not path length.</p>
+<p><strong>In practice.</strong> Liu et al. distill a final one-step map on the reflow pairs, only at the end, since distillation fits the current coupling without improving it. InstaFlow applied reflow and distillation to Stable Diffusion and reached one-step FID 13.1 on MS COCO 2014 at about 0.09 s per image. Lee et al. argue that one reflow round is enough in realistic settings. Minibatch OT (Tong et al.; Pooladian et al.) straightens without reflow: solve an assignment between noise and data samples inside each batch and train on matched pairs. Marginals stay correct, crossings and gradient variance drop, and fewer NFE are needed, though gains shrink in high dimension with small batches and when pairs must share a condition.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>Every conditional path is straight. The learned marginal field is curved because it averages over crossing paths, and a better coupling (reflow, minibatch OT) is what removes the crossings.</p>
+</aside>
+<details class="qa" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">Why are the learned trajectories curved if every training path is a straight line?</span>
+</summary><div class="qa-body">
+<p>At <span class="math inline">(x,t)</span> the model predicts <span class="math inline">\mathbb{E}[x_1-\epsilon\mid x_t=x]</span>, an average over all noise-data pairs whose lines pass through <span class="math inline">x</span>. Near <span class="math inline">t=0</span> the posterior over <span class="math inline">x_1</span> is close to the whole data distribution, so the field is roughly <span class="math inline">\mathbb{E}[x_1]-x</span> and every trajectory first heads toward the data mean. As <span class="math inline">t</span> grows the posterior concentrates on one mode and the trajectory bends toward it. With a two-point dataset you see it exactly: all paths move toward the midpoint, then split.</p>
+</div></details>
+<details class="qa" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">What does reflow cost, and what can go wrong?</span>
+</summary><div class="qa-body">
+<p>Each round solves the teacher ODE for every training pair, often millions of solves, then retrains. The new model learns the previous model’s coupling, so its endpoint distribution is the previous model’s samples rather than the data: errors and lost modes accumulate, and quality is bounded by the teacher. Liu et al. warn against many rounds, and Lee et al. find one round already gives nearly straight paths. Any teacher bias, including a baked-in guidance scale, is inherited.</p>
+</div></details>
+<h2 id="flow-matching-and-diffusion-are-one-model-class">Flow matching and diffusion are one model class</h2>
+<p>Take an affine Gaussian path <span class="math inline">x_t=\alpha_tx_1+\sigma_t\epsilon</span>. Conditioning both the target and the path on <span class="math inline">x_t=x</span> gives two linear equations,</p>
+<p><span class="math display">u_t(x)=\dot\alpha_t\,\hat x_1+\dot\sigma_t\,\hat\epsilon,\qquad x=\alpha_t\,\hat x_1+\sigma_t\,\hat\epsilon,</span></p>
+<p>with <span class="math inline">\hat x_1=\mathbb{E}[x_1\mid x_t=x]</span> and <span class="math inline">\hat\epsilon=\mathbb{E}[\epsilon\mid x_t=x]</span>, and Tweedie’s formula adds <span class="math inline">\nabla\log p_t(x)=-\hat\epsilon/\sigma_t</span>. Any one of velocity, <span class="math inline">x_1</span>-prediction, <span class="math inline">\epsilon</span>-prediction and score fixes the other three. Eliminating <span class="math inline">\hat x_1</span> gives eq. 4.78 of the Guide:</p>
+<p><span class="math display">u_t(x)=\frac{\dot\alpha_t}{\alpha_t}x+\Big(\frac{\dot\alpha_t\sigma_t^2}{\alpha_t}-\dot\sigma_t\sigma_t\Big)\nabla\log p_t(x).</span></p>
+<p>For the linear path: <span class="math inline">\hat x_1=x+(1-t)v</span>, <span class="math inline">\hat\epsilon=x-tv</span>, <span class="math inline">v=(x-\hat\epsilon)/t</span>, <span class="math inline">\nabla\log p_t(x)=(tv-x)/(1-t)</span>.</p>
+<p><strong>Samplers coincide.</strong> In diffusion notation <span class="math inline">z_s=a_sx+b_s\epsilon</span> (any schedule), rescale <span class="math inline">\tilde z=z/(a_s+b_s)</span> and set <span class="math inline">\tau=b_s/(a_s+b_s)</span>, so <span class="math inline">\tilde z=(1-\tau)x+\tau\epsilon</span>, a rectified-flow path with the same SNR (noise at <span class="math inline">\tau=1</span>, as in SD3). A deterministic DDIM step <span class="math inline">z_{s&#39;}=a_{s&#39;}\hat x+b_{s&#39;}\hat\epsilon</span> becomes</p>
+<p><span class="math display">\tilde z_{\tau&#39;}=(1-\tau&#39;)\hat x+\tau&#39;\hat\epsilon=\tilde z_\tau+(\tau&#39;-\tau)(\hat\epsilon-\hat x),</span></p>
+<p>an Euler step of the rectified-flow ODE. DDIM on any Gaussian schedule is Euler on the rescaled linear path (Gao et al.).</p>
+<p><strong>Losses coincide up to weighting.</strong> In SD3’s convention (<span class="math inline">z_t=(1-t)x+t\epsilon</span>, <span class="math inline">v=\epsilon-x</span>, <span class="math inline">\lambda_t=2\log\frac{1-t}{t}</span>), writing the velocity through an <span class="math inline">\epsilon</span>-prediction gives <span class="math inline">\hat v-v=(\hat\epsilon-\epsilon)/(1-t)</span>. SD3 writes every objective as <span class="math inline">-\frac12\mathbb{E}_t[w_t\lambda_t&#39;\lVert\hat\epsilon-\epsilon\rVert^2]</span>; since <span class="math inline">-\frac12\lambda_t&#39;=\frac{1}{t(1-t)}</span>, matching <span class="math inline">\frac{1}{(1-t)^2}</span> gives <span class="math inline">w_t=\frac{t}{1-t}=e^{-\lambda_t/2}</span>. SD3 lists the same <span class="math inline">e^{-\lambda/2}</span> for v-prediction on the cosine schedule (up to a constant). Changing variables from <span class="math inline">t</span> to <span class="math inline">\lambda</span> turns either loss into <span class="math inline">\frac12\int w(\lambda)\,\mathbb{E}\lVert\hat\epsilon-\epsilon\rVert^2\,d\lambda</span>, so the expected objective over the implied denoiser is the same. Uniform <span class="math inline">t</span> samples <span class="math inline">\lambda</span> from different densities on the two schedules, but the factor <span class="math inline">\lambda_t&#39;</span> compensates, so the density only changes the variance of the loss estimate (Gao et al.). What differs is the network’s output and input scaling.</p>
+<p><strong>What actually differs in practice.</strong></p>
+<ol type="1">
+<li><em>Output parameterization.</em> <span class="math inline">\hat x_1</span> and <span class="math inline">\hat\epsilon</span> follow from <span class="math inline">v</span> without division; recovering <span class="math inline">\hat x</span> from <span class="math inline">\hat\epsilon</span> divides by <span class="math inline">\alpha_t</span>, which vanishes at pure noise.</li>
+<li><em>Weighting and timestep density</em> over log-SNR (Kingma and Gao; SD3).</li>
+<li><em>Endpoints.</em> The linear path reaches zero SNR at the noise end; several DDPM schedules in use do not, which Lin et al. linked to Stable Diffusion’s trouble with very bright or dark images.</li>
+<li><em>Generality.</em> CFM needs only samples of the source, so non-Gaussian sources and data-to-data couplings fit directly; the equivalence assumes a Gaussian source and independent coupling.</li>
+</ol>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“Flow matching samples faster because its paths are straight.” The conditional paths are straight; the marginal ODE is not, and with the same SNR schedule DDIM on a diffusion model takes the same steps as Euler on the flow. Gao et al. also argue that on realistic data no schedule is uniformly straighter. Speed differences come from the schedule, the timestep allocation and the parameterization.</p>
+</aside>
+<details class="qa" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">Given a velocity prediction on the linear path, recover <span class="math inline">\hat x_1</span>, <span class="math inline">\hat\epsilon</span> and the score. Where are the singularities?</span>
+</summary><div class="qa-body">
+<p>From <span class="math inline">x_t=tx_1+(1-t)\epsilon</span> and <span class="math inline">v=\hat x_1-\hat\epsilon</span>: <span class="math inline">\hat x_1=x_t+(1-t)v</span>, <span class="math inline">\hat\epsilon=x_t-tv</span>, and <span class="math inline">\nabla\log p_t=-\hat\epsilon/(1-t)</span>. The score blows up as <span class="math inline">t\to1</span> (data end) because <span class="math inline">\sigma_t\to0</span>, whichever output you start from. In the other direction, <span class="math inline">v=(x_t-\hat\epsilon)/t</span> blows up as <span class="math inline">t\to0</span>, so an <span class="math inline">\epsilon</span>-prediction model gives no usable velocity at pure noise. Velocity is the only one of the three predictions that gives the other two (<span class="math inline">\hat x_1</span> and <span class="math inline">\hat\epsilon</span>) without division at either end.</p>
+</div></details>
+<details class="qa" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">Is uniform-<span class="math inline">t</span> rectified-flow training different from v-prediction diffusion?</span>
+</summary><div class="qa-body">
+<p>As an expected objective over the implied denoiser, no: written as a weighted <span class="math inline">\epsilon</span>-MSE over log-SNR, both put weight <span class="math inline">e^{-\lambda/2}</span> on each noise level (SD3’s weighting table; Gao et al.). What is not equal is the distribution of noise levels sampled: uniform <span class="math inline">t</span> induces different densities over <span class="math inline">\lambda</span>, but the factor <span class="math inline">|d\lambda/dt|</span> reweights each sample, so only the estimator’s variance changes. They also differ in the output target and the input scaling (a variance-preserving state versus a linear-path state), and these matter in practice: in SD3’s Table 1 uniform rectified flow ranked well above v/cos but below the <span class="math inline">\epsilon</span>/linear baseline, while rectified flow with logit-normal timesteps ranked first.</p>
+</div></details>
+<details class="qa qa-asked" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">What changed from SDXL to SD3, especially in the generative formulation?</span><span class="qa-badge" title="Reported in a real interview">Asked · Image-generation vision intern, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>SDXL is a U-Net trained with <span class="math inline">\epsilon</span>-prediction on a discrete variance-preserving DDPM schedule and sampled with DDIM or DPM-Solver-type samplers. SD3 switches to rectified flow: linear path, velocity target <span class="math inline">\epsilon-x</span>, logit-normal timestep sampling, and a resolution-dependent timestep shift. The backbone becomes a transformer with separate weights for image and text tokens, on a 16-channel autoencoder. SD3’s comparison found that the gain came from rectified flow combined with the non-uniform timestep density, and that rectified-flow variants degraded less when sampling steps were reduced.</p>
+</div></details>
+<h2 id="timestep-sampling-and-resolution-shift">Timestep sampling and resolution shift</h2>
+<p><em>In this section <span class="math inline">t</span> is the noise fraction, as in SD3: <span class="math inline">z_t=(1-t)x+t\epsilon</span>, <span class="math inline">v=\epsilon-x</span>.</em></p>
+<p><strong>Why not uniform <span class="math inline">t</span>.</strong> Near either end the regression is easy: when <span class="math inline">t\to0</span>, <span class="math inline">z_t\approx x</span> and <span class="math inline">\epsilon</span> can only be predicted by its mean; when <span class="math inline">t\to1</span>, <span class="math inline">z_t\approx\epsilon</span> and <span class="math inline">x</span> can only be predicted by the data mean. The middle is where the model learns structure. Sampling <span class="math inline">t\sim\pi</span> equals uniform <span class="math inline">t</span> with the loss multiplied by <span class="math inline">\pi(t)</span>, so the timestep density is a loss weighting.</p>
+<p><strong>Logit-normal.</strong> Draw <span class="math inline">u\sim\mathcal{N}(m,s^2)</span>, set <span class="math inline">t=\mathrm{sigmoid}(u)</span>:</p>
+<p><span class="math display">\pi_{\mathrm{ln}}(t;m,s)=\frac{1}{s\sqrt{2\pi}}\,\frac{1}{t(1-t)}\exp\Big(-\frac{(\mathrm{logit}\,t-m)^2}{2s^2}\Big).</span></p>
+<p><span class="math inline">m&gt;0</span> moves mass toward noise and <span class="math inline">s</span> sets the width. SD3 also tried mode sampling with heavy tails and CosMap; the best configuration was <span class="math inline">m=0</span>, <span class="math inline">s=1</span>, which also ranked first at 5 sampling steps.</p>
+<p><strong>Resolution shift.</strong> At a fixed <span class="math inline">t</span>, a larger image keeps more information, because many correlated pixels carry noisy copies of the same signal. SD3 makes this exact for a constant image of value <span class="math inline">c</span> with <span class="math inline">n</span> pixels: averaging <span class="math inline">z_t/(1-t)</span> estimates <span class="math inline">c</span> with standard deviation <span class="math inline">\frac{t}{(1-t)\sqrt n}</span>. Equal uncertainty at <span class="math inline">n</span> and <span class="math inline">m</span> pixels requires</p>
+<p><span class="math display">\frac{t_m}{1-t_m}=\sqrt{\tfrac{m}{n}}\,\frac{t_n}{1-t_n}\quad\Longrightarrow\quad t_m=\frac{\alpha\,t_n}{1+(\alpha-1)\,t_n},\qquad\alpha=\sqrt{m/n},</span></p>
+<p>a log-SNR shift of <span class="math inline">-2\log\alpha</span>. With <span class="math inline">\alpha&gt;1</span> every timestep moves toward noise, where global layout is decided. SD3 used <span class="math inline">\alpha=3.0</span> at <span class="math inline">1024^2</span> for training and sampling, chosen by a human preference study. FLUX’s public sampling code uses the same map with <span class="math inline">\alpha=e^\mu</span>, <span class="math inline">\mu</span> rising linearly from 0.5 at 256 image tokens to 1.15 at 4096. Hoogeboom et al. had shifted noise schedules for high-resolution pixel diffusion earlier.</p>
+<details class="qa" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Why does SD3 sample <span class="math inline">t</span> from a logit-normal instead of uniformly, and what does it do to the loss?</span>
+</summary><div class="qa-body">
+<p>Velocity regression is nearly trivial at both ends, where one of <span class="math inline">x</span> and <span class="math inline">\epsilon</span> is almost determined by <span class="math inline">z_t</span> and the other can only be predicted by its mean. A logit-normal centered at <span class="math inline">t=0.5</span> spends more of the training budget on the informative middle. Since sampling from <span class="math inline">\pi</span> equals uniform sampling with the loss reweighted by <span class="math inline">\pi(t)</span>, this changes the loss weighting over log-SNR, not the model or its optimum in the infinite-capacity limit.</p>
+</div></details>
+<details class="qa" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Which way does the resolution shift move <span class="math inline">t</span>, and why is the shift factor tuned rather than taken from the formula?</span>
+</summary><div class="qa-body">
+<p>For more pixels, <span class="math inline">\alpha=\sqrt{m/n}&gt;1</span>, and <span class="math inline">t_m=\alpha t_n/(1+(\alpha-1)t_n)</span> pushes every step toward noise, because averaging over more correlated pixels makes the same nominal noise level less destructive. The derivation assumes a constant image, which real images are not, so the formula is only a rough guide. SD3 therefore picked <span class="math inline">\alpha</span> by human preference (3.0 at <span class="math inline">1024^2</span>), and FLUX ties it to token count with a tuned linear rule.</p>
+</div></details>
+<h2 id="why-sampling-is-slow-solvers-versus-distillation">Why sampling is slow: solvers versus distillation</h2>
+<p>Sampling cost is NFE times one network call, and classifier-free guidance doubles the calls unless it is distilled. NFE is set by solver error: an order-<span class="math inline">p</span> method has global error <span class="math inline">O(h^p)</span> with constants that grow with the curvature of the trajectories.</p>
+<p>Training-free solvers reduce NFE without touching the model: DDIM is first order, EDM’s Heun sampler used 35 NFE on CIFAR-10, DPM-Solver integrates the linear part of the ODE exactly and gets good samples in about 10 to 20 NFE, and DPM-Solver++ stays stable under large guidance in 15 to 20 steps, where its authors report DDIM usually needs 100 to 250. Below roughly 10 NFE a few polynomial steps cannot follow curved trajectories, and further gains require changing the model.</p>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Method</th>
+<th>What the student learns</th>
+<th>Teacher</th>
+<th>Main loss</th>
+<th>Steps</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Progressive distillation</td>
+<td>two teacher steps as one</td>
+<td>yes</td>
+<td>regression</td>
+<td>4 to 8</td>
+</tr>
+<tr>
+<td>Reflow + distill (InstaFlow)</td>
+<td>the teacher’s noise-image coupling</td>
+<td>yes</td>
+<td>regression</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Consistency distillation, LCM</td>
+<td>ODE point to trajectory endpoint</td>
+<td>yes</td>
+<td>self-consistency</td>
+<td>1 to 4</td>
+</tr>
+<tr>
+<td>Consistency training (iCT, sCT)</td>
+<td>same, no teacher</td>
+<td>no</td>
+<td>self-consistency</td>
+<td>1 to 2</td>
+</tr>
+<tr>
+<td>DMD, DMD2</td>
+<td>the output distribution</td>
+<td>yes (scores)</td>
+<td>score difference, plus regression or GAN</td>
+<td>1 to 4</td>
+</tr>
+<tr>
+<td>ADD, LADD</td>
+<td>realistic, teacher-consistent samples</td>
+<td>yes</td>
+<td>GAN, plus score distillation in ADD</td>
+<td>1 to 4</td>
+</tr>
+<tr>
+<td>Shortcut, MeanFlow</td>
+<td>jumps of any size</td>
+<td>no</td>
+<td>self-consistency, identity</td>
+<td>1 to 2</td>
+</tr>
+</tbody>
+</table>
+<details class="qa qa-asked" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">Explain common fast samplers such as DDIM and DPM-Solver++, and how LCM and Turbo models differ from them.</span><span class="qa-badge" title="Reported in a real interview">Asked · Taobao/Tmall Group AIGC image algorithm, Nowcoder 2025</span>
+</summary><div class="qa-body">
+<p>DDIM is a deterministic first-order solver of the probability-flow ODE: each step forms <span class="math inline">\hat x</span> and <span class="math inline">\hat\epsilon</span> and recombines them at the next noise level, which equals an Euler step on the rescaled linear path. DPM-Solver++ integrates the linear part exactly and approximates the data prediction with a higher-order (usually second-order multistep) expansion in half-log-SNR <span class="math inline">\log(\alpha_t/\sigma_t)</span>, giving guided samples in about 15 to 20 steps. Both are training-free, so diversity, guidance scale and negative prompts are unchanged. LCM and SDXL-Turbo change the network: LCM is consistency distillation in latent space on the guided ODE (2 to 4 steps), and Turbo is adversarial diffusion distillation, a GAN loss plus a score-distillation loss (1 to 4 steps, no CFG). The price is extra training, some diversity, and a fixed or narrowed guidance range.</p>
+</div></details>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">Why can’t a better ODE solver get you to one step?</span>
+</summary><div class="qa-body">
+<p>A solver sees the field only where it evaluates it. With one step, the error is set by the curvature over the whole interval, and higher-order schemes need more evaluations per step while their error constants grow when <span class="math inline">h</span> spans the whole range. The ODE’s noise-to-data map is deterministic and smooth, so a network can represent it, but it must be learned, which is what distillation, consistency training and reflow do.</p>
+</div></details>
+<h2 id="few-step-methods">Few-step methods</h2>
+<h3 id="progressive-distillation">Progressive distillation</h3>
+<p><em>Diffusion notation: <span class="math inline">z_t=\alpha_tx+\sigma_t\epsilon</span>, data at <span class="math inline">t=0</span>.</em> A student initialized from the teacher learns to make one DDIM step from <span class="math inline">t</span> to <span class="math inline">t&#39;&#39;=t-1/N</span> land where two teacher DDIM steps land. Its step with <span class="math inline">x</span>-prediction <span class="math inline">\tilde x</span> is <span class="math inline">z_{t&#39;&#39;}=\alpha_{t&#39;&#39;}\tilde x+\frac{\sigma_{t&#39;&#39;}}{\sigma_t}(z_t-\alpha_t\tilde x)</span>; solving for <span class="math inline">\tilde x</span> gives the regression target</p>
+<p><span class="math display">\tilde x=\frac{z_{t&#39;&#39;}-(\sigma_{t&#39;&#39;}/\sigma_t)\,z_t}{\alpha_{t&#39;&#39;}-(\sigma_{t&#39;&#39;}/\sigma_t)\,\alpha_t}.</span></p>
+<p>Each round halves <span class="math inline">N</span> and the student becomes the next teacher; Salimans and Ho went from up to 8192 steps to 4, with FID 3.0 on CIFAR-10 at 4 steps. Near pure noise <span class="math inline">\hat x=(z_t-\sigma_t\hat\epsilon)/\alpha_t</span> amplifies errors, so they introduced <span class="math inline">v=\alpha_t\epsilon-\sigma_tx</span>, with <span class="math inline">\hat x=\alpha_tz_t-\sigma_t\hat v</span>.</p>
+<h3 id="consistency-models">Consistency models</h3>
+<p><em>EDM notation: <span class="math inline">x_t=x+t\,z</span>, <span class="math inline">t\in[\epsilon,T]</span>, <span class="math inline">\epsilon=0.002</span>, <span class="math inline">T=80</span>.</em> The consistency function maps any point of a probability-flow ODE trajectory to its endpoint, <span class="math inline">f(x_t,t)=x_\epsilon</span>, so it is constant along trajectories. The boundary condition <span class="math inline">f(x,\epsilon)=x</span> is built in with <span class="math inline">f_\theta=c_{\mathrm{skip}}(t)\,x+c_{\mathrm{out}}(t)\,F_\theta(x,t)</span>, <span class="math inline">c_{\mathrm{skip}}(\epsilon)=1</span>, <span class="math inline">c_{\mathrm{out}}(\epsilon)=0</span>.</p>
+<p><strong>Consistency distillation (CD).</strong> With <span class="math inline">\hat x^\phi_{t_n}</span> one teacher ODE step from <span class="math inline">x_{t_{n+1}}</span> to <span class="math inline">t_n</span> and <span class="math inline">\theta^-</span> an EMA of <span class="math inline">\theta</span>,</p>
+<p><span class="math display">\mathcal{L}_{\mathrm{CD}}=\mathbb{E}\Big[\lambda(t_n)\,d\big(f_\theta(x_{t_{n+1}},t_{n+1}),\,f_{\theta^-}(\hat x^\phi_{t_n},t_n)\big)\Big].</span></p>
+<p>If the loss is zero, the error to the true consistency function is <span class="math inline">O((\Delta t)^p)</span> for an order-<span class="math inline">p</span> solver. Multistep sampling alternates <span class="math inline">f_\theta</span> with re-noising.</p>
+<p><strong>Consistency training (CT).</strong> Replace the teacher’s score with the one-sample estimate <span class="math inline">\nabla\log p_t(x_t)\approx-(x_t-x)/t^2</span>. An Euler step of <span class="math inline">dx/dt=-t\nabla\log p_t</span> from <span class="math inline">x_{t_{n+1}}=x+t_{n+1}z</span> gives</p>
+<p><span class="math display">x_{t_{n+1}}+(t_n-t_{n+1})\frac{x_{t_{n+1}}-x}{t_{n+1}}=x+t_nz,</span></p>
+<p>so CT compares <span class="math inline">f_\theta(x+t_{n+1}z,t_{n+1})</span> with <span class="math inline">f_{\theta^-}(x+t_nz,t_n)</span> for the same <span class="math inline">(x,z)</span>. No teacher, but a bias that vanishes only as the discretization is refined, hence a curriculum over <span class="math inline">N</span>. Improved CT drops the EMA target, uses pseudo-Huber instead of LPIPS and a lognormal noise schedule, and reaches one-step FID 2.51 on CIFAR-10 and 3.25 on ImageNet 64.</p>
+<p><strong>Latent consistency models.</strong> LCM runs CD in Stable Diffusion’s latent space on the guided ODE, <span class="math inline">\tilde\epsilon=(1+\omega)\epsilon(z,c,t)-\omega\epsilon(z,\varnothing,t)</span>, with <span class="math inline">\omega\sim U[2,14]</span> fed to the student. Adjacent timesteps barely differ, so it links <span class="math inline">t_{n+k}</span> and <span class="math inline">t_n</span> with <span class="math inline">k=20</span>. Distillation took 32 A100 GPU hours, and FID at 768 px fell from 34.2 at one step to 16.3 at two and 13.5 at four. LCM-LoRA packages it as a LoRA that transfers to other fine-tunes.</p>
+<p><strong>Continuous-time consistency models (sCM).</strong> Let <span class="math inline">\Delta t\to0</span>. With squared <span class="math inline">\ell_2</span> and <span class="math inline">\theta^-=\mathrm{sg}(\theta)</span>, <span class="math inline">f_\theta(x_t,t)-f_{\theta^-}(x_{t-\Delta t},t-\Delta t)\approx\Delta t\,\frac{df}{dt}</span>, so the gradient becomes proportional to</p>
+<p><span class="math display">\nabla_\theta\,\mathbb{E}\Big[f_\theta^\top\,\mathrm{sg}\Big(\frac{df_{\theta^-}}{dt}\Big)\Big],\qquad\frac{df}{dt}=\partial_tf+(\partial_xf)\,\frac{dx_t}{dt},</span></p>
+<p>a Jacobian-vector product, with <span class="math inline">dx_t/dt</span> from the teacher (sCD) or the conditional velocity (sCT). There is no discretization error, but training was unstable. Lu and Song fix it with TrigFlow (<span class="math inline">x_t=\cos t\,x+\sin t\,z</span> for data <span class="math inline">x</span>), the identity time transformation, positional time embeddings, adaptive double normalization, tangent normalization and warmup, adaptive weighting, and a JVP-capable attention kernel; at 1.5B parameters they reach two-step FID 1.88 on ImageNet 512.</p>
+<h3 id="distribution-matching-and-score-distillation">Distribution matching and score distillation</h3>
+<p><strong>DMD</strong> trains a one-step generator <span class="math inline">x=G_\theta(z)</span> to minimize <span class="math inline">\mathrm{KL}(p_{\mathrm{fake}}\Vert p_{\mathrm{real}})</span>. The explicit <span class="math inline">\theta</span>-dependence of <span class="math inline">\log p_{\mathrm{fake}}</span> drops out because <span class="math inline">\mathbb{E}_{p_\theta}[\nabla_\theta\log p_\theta]=0</span>, leaving</p>
+<p><span class="math display">\nabla_\theta\mathrm{KL}=\mathbb{E}_z\Big[\big(s_{\mathrm{fake}}(x)-s_{\mathrm{real}}(x)\big)^\top\frac{\partial G_\theta}{\partial\theta}\Big].</span></p>
+<p>Both scores are evaluated on noised samples: <span class="math inline">s_{\mathrm{real}}</span> from the frozen teacher, <span class="math inline">s_{\mathrm{fake}}</span> from a second diffusion model initialized from the teacher and trained online on generator outputs. Reverse KL is mode-seeking, so DMD adds an LPIPS regression onto teacher ODE outputs for fixed noises; without it, CIFAR-10 FID rose from 2.66 to 5.58 with visible mode collapse. DMD reached FID 2.62 on ImageNet 64 and 11.49 on zero-shot COCO-30k.</p>
+<p><strong>DMD2</strong> drops the regression set, which is costly and caps the student at the teacher. It uses a two time-scale rule (5 fake-score updates per generator update), a GAN loss through a classifier on the fake-score network’s bottleneck using real images, and multi-step students trained on their own intermediate outputs. It reports FID 1.28 on ImageNet 64, better than its EDM teacher, 8.35 on zero-shot COCO 2014, and a 4-step SDXL student.</p>
+<p><strong>Score distillation.</strong> SDS, VSD and DMD all push samples along the difference between a “fake” score and the teacher’s score. SDS (DreamFusion) optimizes a renderer <span class="math inline">x=g(\theta)</span> with</p>
+<p><span class="math display">\nabla_\theta\mathcal{L}_{\mathrm{SDS}}=\mathbb{E}_{t,\epsilon}\Big[w(t)\big(\hat\epsilon_\phi(x_t;y,t)-\epsilon\big)\frac{\partial x}{\partial\theta}\Big],</span></p>
+<p>dropping the denoiser’s Jacobian. Since <span class="math inline">\epsilon=-\sigma_t\nabla\log\mathcal{N}(x_t;\alpha_tx,\sigma_t^2I)</span>, this is the DMD gradient with the fake distribution set to a point mass at the current render: mode-seeking, and in practice it needs CFG around 100, giving oversaturated, low-diversity results. VSD (ProlificDreamer) treats <span class="math inline">\theta</span> as a distribution and learns the fake score with a LoRA of the teacher on renders, working at CFG 7.5. DMD and Diff-Instruct apply this VSD-type gradient to a generator network.</p>
+<h3 id="adversarial-distillation">Adversarial distillation</h3>
+<p><strong>ADD</strong> initializes the student from the teacher and trains it from noised real images at four student timesteps, with zero terminal SNR so the last is pure noise. The loss is <span class="math inline">\mathcal{L}_{\mathrm{adv}}+\lambda\mathcal{L}_{\mathrm{distill}}</span> (<span class="math inline">\lambda=2.5</span>). The discriminator is a frozen DINOv2 ViT with trainable heads, text and image conditioning, hinge loss and an R1 penalty. The distillation term re-noises the student output, lets the teacher denoise it, and pulls the student toward that result; with squared <span class="math inline">\ell_2</span> and a suitable weighting it is the SDS gradient. SDXL-Turbo is ADD applied to SDXL and runs with guidance disabled; the paper notes slightly lower diversity.</p>
+<p><strong>LADD</strong> uses the teacher’s own features on re-noised latents (noise from a logit-normal, <span class="math inline">m=1</span>, <span class="math inline">s=1</span>) as the discriminator, so everything stays in latent space at high resolution and multiple aspect ratios. It trains on teacher-generated images, which are better text-aligned than real captioned data, and with that data a distillation loss gave no benefit. SD3-Turbo matches its teacher’s image quality in four unguided steps, with weaker prompt alignment as the reported limitation.</p>
+<h3 id="teacher-free-few-step-flows">Teacher-free few-step flows</h3>
+<p><strong>Shortcut models</strong> (flow matching time) condition on a step size: <span class="math inline">x_{t+d}=x_t+d\,s(x_t,t,d)</span>. At <span class="math inline">d=0</span> they train with flow matching; for larger steps they enforce</p>
+<p><span class="math display">s(x_t,t,2d)=\tfrac12\,s(x_t,t,d)+\tfrac12\,s(x&#39;_{t+d},t+d,d),\qquad x&#39;_{t+d}=x_t+d\,s(x_t,t,d),</span></p>
+<p>for <span class="math inline">d</span> in powers of two from <span class="math inline">1/128</span> to <span class="math inline">1</span>, with about a quarter of each batch on these bootstrap targets. One network, one run, step count chosen at inference; with DiT-XL on ImageNet 256 they report FID 10.6 at one step and 3.8 at 128.</p>
+<p><strong>MeanFlow</strong> (SD3 time) learns the average velocity <span class="math inline">u(z_t,r,t)=\frac{1}{t-r}\int_r^tv(z_\tau,\tau)\,d\tau</span>. Multiply by <span class="math inline">t-r</span> and differentiate in <span class="math inline">t</span>:</p>
+<p><span class="math display">u+(t-r)\frac{du}{dt}=v\quad\Longrightarrow\quad u(z_t,r,t)=v(z_t,t)-(t-r)\big(v\,\partial_zu+\partial_tu\big).</span></p>
+<p>The network regresses onto the stop-gradient right-hand side, with <span class="math inline">v</span> replaced by the conditional velocity <span class="math inline">\epsilon-x</span> and the total derivative computed as a JVP with tangent <span class="math inline">(v,0,1)</span>. <span class="math inline">r=t</span> recovers flow matching; one-step sampling is <span class="math inline">z_0=z_1-u(z_1,0,1)</span>. Trained from scratch, it reports one-step FID 3.43 on ImageNet 256.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>Few-step methods learn something more global than the instantaneous velocity: an endpoint map (consistency), a finite jump (progressive distillation, shortcut, MeanFlow), or a match of the whole output distribution (DMD, adversarial). The more global the target, the more the method relies on a teacher, a self-consistency bootstrap, or a discriminator.</p>
+</aside>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Consistency distillation versus consistency training: where does each target come from, and what does each cost?</span>
+</summary><div class="qa-body">
+<p>CD gets the earlier trajectory point from one teacher ODE step, so its target follows the teacher’s ODE up to solver error and quality is bounded by the teacher. CT uses the same clean sample and noise at two noise levels, which equals one Euler step with the single-sample score estimate; it needs no teacher but has a bias that only vanishes as steps shrink, hence a refinement curriculum. Song and Dhariwal argue that CT’s EMA target is unnecessary and remove it, together with LPIPS, which they replace with pseudo-Huber to avoid biasing FID.</p>
+</div></details>
+<details class="qa" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">Why move consistency models to continuous time, and why was that hard?</span>
+</summary><div class="qa-body">
+<p>Discrete CMs compare outputs at timesteps <span class="math inline">\Delta t</span> apart, with the earlier point from a solver, which adds discretization error and sensitivity to how <span class="math inline">\Delta t</span> is annealed. As <span class="math inline">\Delta t\to0</span> the gradient becomes <span class="math inline">\mathbb{E}[f_\theta^\top\mathrm{sg}(df/dt)]</span>, with the tangent from a JVP, so there is no solver and no <span class="math inline">\Delta t</span> schedule. The tangent involves derivatives of the network in time and input, and with standard designs it blows up: EDM’s time transform diverges at the noise end, Fourier time embeddings and some normalization layers amplify it, and FP16 JVPs overflow. sCM’s TrigFlow, identity time transformation, tangent normalization and adaptive weighting address these.</p>
+</div></details>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Why does DMD need a second, “fake” diffusion model, and why does it tend to drop modes?</span>
+</summary><div class="qa-body">
+<p>The KL gradient needs the score of the generator’s own distribution, and a one-step generator has no tractable density, so that score is estimated by a diffusion model trained on generator samples and kept current as the generator moves. Reverse KL is mode-seeking: it is small when samples stay in high-density regions of the data even if whole modes are missing, and the score difference carries little signal about the relative mass of well-separated modes. DMD counters this with a regression loss onto teacher outputs; DMD2 replaces it with a GAN loss on real images.</p>
+</div></details>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">Why does ADD combine an adversarial and a distillation loss, and why could LADD drop the distillation loss?</span>
+</summary><div class="qa-body">
+<p>The ADD paper gives one reason per term. The adversarial loss forces each one- or two-step output onto the manifold of real images, avoiding the blur and artifacts typical of other distillation methods. The distillation loss lets the student use the frozen teacher’s knowledge and keep the strong compositionality of large diffusion models. LADD trains on teacher-generated images, which are better aligned with their prompts than real captioned data, and reports that with this synthetic data the distillation loss gave no advantage, plausibly because the data and a discriminator built on the teacher’s own features already carry the teacher signal.</p>
+</div></details>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">Why can MeanFlow train without a teacher?</span>
+</summary><div class="qa-body">
+<p>Every term in its target <span class="math inline">v-(t-r)(v\,\partial_zu+\partial_tu)</span> is either the instantaneous velocity, for which the CFM conditional velocity <span class="math inline">\epsilon-x</span> is an unbiased stand-in, or a derivative of the network itself, computed by one JVP under stop-gradient. So the target comes from data and the current network, as in flow matching, rather than from simulating a pretrained ODE. The costs are a JVP per step and a noisier target; in the paper’s best setting, 75% of samples still use <span class="math inline">r=t</span>, i.e. plain flow matching.</p>
+</div></details>
+<h2 id="trade-offs">Trade-offs</h2>
+<p><strong>Diversity.</strong> Reverse-KL and adversarial objectives are mode-seeking: DMD without regression collapsed modes, ADD reports slightly lower diversity, and the sCM paper reports that VSD-style distillation lowers recall (diversity), while two-step sCD keeps precision and recall close to the teacher’s. Regression and consistency-distillation objectives inherit the teacher’s coverage.</p>
+<p><strong>Quality versus steps.</strong> Flow and diffusion ODEs improve steadily with NFE. Consistency models gain most from one to two steps and then flatten or slightly worsen (LCM: FID 13.5 at four steps, 15.0 at eight), which motivated trajectory models such as CTM.</p>
+<p><strong>Teacher dependence.</strong> Progressive distillation, consistency distillation, reflow and regression-based DMD are bounded by the teacher; real data through a discriminator can lift the student to or past the teacher (DMD2 on ImageNet 64 FID; ADD-XL in human preference against 50-step SDXL). iCT, sCT, shortcut models and MeanFlow need no teacher.</p>
+<p><strong>Guidance baked in.</strong> Most distilled text-to-image students fix a guidance scale during distillation (DMD2 used 8 for its SDXL teacher; LADD trains on images generated at a fixed guidance). LCM and FLUX.1 [dev] take the scale as an input, and SDXL-Turbo disables guidance and negative prompts.</p>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Your one-step distilled model has lost diversity. How do you diagnose it, and what do you change?</span>
+</summary><div class="qa-body">
+<p>Fix the prompt and vary the seed: if layouts and identities repeat, it is mode collapse rather than a quality problem, and recall or per-prompt diversity metrics will confirm it. Usual causes are a reverse-KL or GAN-dominated objective and a high baked-in guidance scale. Remedies are a mode-covering term (regression onto teacher ODE pairs, as in DMD), real data in the discriminator, lower or input-conditioned distillation guidance, and two to four steps instead of one. If diversity matters more than latency, a consistency-distilled model or a few-step solver on the teacher keeps the teacher’s coverage.</p>
+</div></details>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">What do you lose when guidance is baked into a distilled model?</span>
+</summary><div class="qa-body">
+<p>Guidance sets the trade-off between prompt adherence and diversity, and distilling at one scale freezes it, including any oversaturation. Negative prompts work by replacing CFG’s unconditional branch, which a single-pass model no longer has unless you run CFG on top at twice the cost. Conditioning the student on the scale, as LCM and FLUX.1 [dev] do, restores part of the control within the range seen during distillation. LoRAs and adapters trained on the base model may also behave differently on the guidance-distilled student.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">What is <span class="math inline">\sigma_{\min}</span> in Lipman’s OT path for?</span>
+</summary><div class="qa-body">
+<p>It keeps <span class="math inline">p_1(x\mid x_1)</span> a proper narrow Gaussian. With <span class="math inline">\sigma_{\min}\to0</span> the target becomes the rectified-flow target <span class="math inline">x_1-\epsilon</span>.</p>
+</div></details>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">Does flow matching need a Gaussian source?</span>
+</summary><div class="qa-body">
+<p>No. CFM only needs samples from source and target, which allows data-to-data transport. The equivalence with diffusion assumes a Gaussian source and independent coupling.</p>
+</div></details>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">What do stochastic interpolants add beyond flow matching?</span>
+</summary><div class="qa-body">
+<p>A learned score alongside the velocity, which gives a family of SDEs with the same marginals for any diffusion coefficient <span class="math inline">\varepsilon(t)\ge0</span>; <span class="math inline">\varepsilon=0</span> is the ODE.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">What is a 2-rectified flow?</span>
+</summary><div class="qa-body">
+<p>A rectified flow retrained on (noise, sample) pairs generated by the 1-rectified flow. Its trajectories are much straighter, so one Euler step already gives reasonable samples.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">When does minibatch OT coupling stop helping?</span>
+</summary><div class="qa-body">
+<p>In high dimension a small batch approximates the true OT plan poorly, and in conditional generation only pairs with the same condition can be matched.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">Is DDIM an Euler method?</span>
+</summary><div class="qa-body">
+<p>Yes, on the rescaled state <span class="math inline">z/(a_s+b_s)</span>, which follows the rectified-flow path with the same SNR. In the original coordinates it is a first-order exponential integrator.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">Does the resolution shift require retraining?</span>
+</summary><div class="qa-body">
+<p>It is a change of time grid, so it can be applied at sampling alone; FLUX’s public code applies it at sampling (how FLUX was trained is not published). SD3 applies it at training too, so the network sees enough high-noise samples at high resolution.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">How is the consistency boundary condition enforced?</span>
+</summary><div class="qa-body">
+<p>By construction: <span class="math inline">f_\theta=c_{\mathrm{skip}}(t)\,x+c_{\mathrm{out}}(t)\,F_\theta</span> with <span class="math inline">c_{\mathrm{skip}}(\epsilon)=1</span> and <span class="math inline">c_{\mathrm{out}}(\epsilon)=0</span>, so <span class="math inline">f_\theta(x,\epsilon)=x</span> for any network.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">What is the two time-scale update rule in DMD2?</span>
+</summary><div class="qa-body">
+<p>Several fake-score updates (5 on ImageNet and SDXL) per generator update, so the fake score tracks the generator’s current distribution and the score difference stays accurate.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">What does LCM’s skipping step do?</span>
+</summary><div class="qa-body">
+<p>It enforces consistency between <span class="math inline">t_{n+k}</span> and <span class="math inline">t_n</span> (<span class="math inline">k=20</span>) instead of adjacent steps, which barely differ; a much larger <span class="math inline">k</span> increases the teacher solver’s error.</p>
+</div></details>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">Why does MeanFlow need a Jacobian-vector product?</span>
+</summary><div class="qa-body">
+<p>Its target contains the total derivative <span class="math inline">v\,\partial_zu+\partial_tu</span> of the network’s own output, which one forward-mode JVP with tangent <span class="math inline">(v,0,1)</span> computes.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Chen, Rubanova, Bettencourt, Duvenaud. Neural Ordinary Differential Equations, 2018. <a href="https://arxiv.org/abs/1806.07366" target="_blank" rel="noopener">arXiv:1806.07366</a></li>
+<li>Grathwohl et al. FFJORD: Free-form Continuous Dynamics for Scalable Reversible Generative Models, 2018. <a href="https://arxiv.org/abs/1810.01367" target="_blank" rel="noopener">arXiv:1810.01367</a></li>
+<li>Lipman, Chen, Ben-Hamu, Nickel, Le. Flow Matching for Generative Modeling, 2022. <a href="https://arxiv.org/abs/2210.02747" target="_blank" rel="noopener">arXiv:2210.02747</a></li>
+<li>Liu, Gong, Liu. Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow, 2022. <a href="https://arxiv.org/abs/2209.03003" target="_blank" rel="noopener">arXiv:2209.03003</a></li>
+<li>Albergo, Vanden-Eijnden. Building Normalizing Flows with Stochastic Interpolants, 2022. <a href="https://arxiv.org/abs/2209.15571" target="_blank" rel="noopener">arXiv:2209.15571</a></li>
+<li>Albergo, Boffi, Vanden-Eijnden. Stochastic Interpolants: A Unifying Framework for Flows and Diffusions, 2023. <a href="https://arxiv.org/abs/2303.08797" target="_blank" rel="noopener">arXiv:2303.08797</a></li>
+<li>Lipman et al. Flow Matching Guide and Code, 2024. <a href="https://arxiv.org/abs/2412.06264" target="_blank" rel="noopener">arXiv:2412.06264</a></li>
+<li>Tong et al. Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport, 2023. <a href="https://arxiv.org/abs/2302.00482" target="_blank" rel="noopener">arXiv:2302.00482</a></li>
+<li>Pooladian et al. Multisample Flow Matching: Straightening Flows with Minibatch Couplings, 2023. <a href="https://arxiv.org/abs/2304.14772" target="_blank" rel="noopener">arXiv:2304.14772</a></li>
+<li>Lee, Lin, Fanti. Improving the Training of Rectified Flows, 2024. <a href="https://arxiv.org/abs/2405.20320" target="_blank" rel="noopener">arXiv:2405.20320</a></li>
+<li>Liu et al. InstaFlow: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation, 2023. <a href="https://arxiv.org/abs/2309.06380" target="_blank" rel="noopener">arXiv:2309.06380</a></li>
+<li>Esser et al. Scaling Rectified Flow Transformers for High-Resolution Image Synthesis, 2024. <a href="https://arxiv.org/abs/2403.03206" target="_blank" rel="noopener">arXiv:2403.03206</a></li>
+<li>Hoogeboom, Heek, Salimans. Simple Diffusion: End-to-End Diffusion for High Resolution Images, 2023. <a href="https://arxiv.org/abs/2301.11093" target="_blank" rel="noopener">arXiv:2301.11093</a></li>
+<li>Kingma, Gao. Understanding Diffusion Objectives as the ELBO with Simple Data Augmentation, 2023. <a href="https://arxiv.org/abs/2303.00848" target="_blank" rel="noopener">arXiv:2303.00848</a></li>
+<li>Gao, Hoogeboom, Heek, De Bortoli, Murphy, Salimans. Diffusion Meets Flow Matching: Two Sides of the Same Coin (blog), 2024. <a href="https://diffusionflow.github.io/" target="_blank" rel="noopener">diffusionflow.github.io</a></li>
+<li>Lin, Liu, Li, Yang. Common Diffusion Noise Schedules and Sample Steps are Flawed, 2023. <a href="https://arxiv.org/abs/2305.08891" target="_blank" rel="noopener">arXiv:2305.08891</a></li>
+<li>Song, Meng, Ermon. Denoising Diffusion Implicit Models, 2020. <a href="https://arxiv.org/abs/2010.02502" target="_blank" rel="noopener">arXiv:2010.02502</a></li>
+<li>Karras, Aittala, Aila, Laine. Elucidating the Design Space of Diffusion-Based Generative Models, 2022. <a href="https://arxiv.org/abs/2206.00364" target="_blank" rel="noopener">arXiv:2206.00364</a></li>
+<li>Lu et al. DPM-Solver: A Fast ODE Solver for Diffusion Probabilistic Model Sampling in Around 10 Steps, 2022. <a href="https://arxiv.org/abs/2206.00927" target="_blank" rel="noopener">arXiv:2206.00927</a></li>
+<li>Lu et al. DPM-Solver++: Fast Solver for Guided Sampling of Diffusion Probabilistic Models, 2022. <a href="https://arxiv.org/abs/2211.01095" target="_blank" rel="noopener">arXiv:2211.01095</a></li>
+<li>Salimans, Ho. Progressive Distillation for Fast Sampling of Diffusion Models, 2022. <a href="https://arxiv.org/abs/2202.00512" target="_blank" rel="noopener">arXiv:2202.00512</a></li>
+<li>Song, Dhariwal, Chen, Sutskever. Consistency Models, 2023. <a href="https://arxiv.org/abs/2303.01469" target="_blank" rel="noopener">arXiv:2303.01469</a></li>
+<li>Song, Dhariwal. Improved Techniques for Training Consistency Models, 2023. <a href="https://arxiv.org/abs/2310.14189" target="_blank" rel="noopener">arXiv:2310.14189</a></li>
+<li>Luo et al. Latent Consistency Models: Synthesizing High-Resolution Images with Few-Step Inference, 2023. <a href="https://arxiv.org/abs/2310.04378" target="_blank" rel="noopener">arXiv:2310.04378</a></li>
+<li>Luo et al. LCM-LoRA: A Universal Stable-Diffusion Acceleration Module, 2023. <a href="https://arxiv.org/abs/2311.05556" target="_blank" rel="noopener">arXiv:2311.05556</a></li>
+<li>Kim et al. Consistency Trajectory Models: Learning Probability Flow ODE Trajectory of Diffusion, 2023. <a href="https://arxiv.org/abs/2310.02279" target="_blank" rel="noopener">arXiv:2310.02279</a></li>
+<li>Lu, Song. Simplifying, Stabilizing and Scaling Continuous-Time Consistency Models, 2024. <a href="https://arxiv.org/abs/2410.11081" target="_blank" rel="noopener">arXiv:2410.11081</a></li>
+<li>Poole, Jain, Barron, Mildenhall. DreamFusion: Text-to-3D using 2D Diffusion, 2022. <a href="https://arxiv.org/abs/2209.14988" target="_blank" rel="noopener">arXiv:2209.14988</a></li>
+<li>Wang et al. ProlificDreamer: High-Fidelity and Diverse Text-to-3D Generation with Variational Score Distillation, 2023. <a href="https://arxiv.org/abs/2305.16213" target="_blank" rel="noopener">arXiv:2305.16213</a></li>
+<li>Luo et al. Diff-Instruct: A Universal Approach for Transferring Knowledge From Pre-trained Diffusion Models, 2023. <a href="https://arxiv.org/abs/2305.18455" target="_blank" rel="noopener">arXiv:2305.18455</a></li>
+<li>Yin et al. One-step Diffusion with Distribution Matching Distillation, 2023. <a href="https://arxiv.org/abs/2311.18828" target="_blank" rel="noopener">arXiv:2311.18828</a></li>
+<li>Yin et al. Improved Distribution Matching Distillation for Fast Image Synthesis, 2024. <a href="https://arxiv.org/abs/2405.14867" target="_blank" rel="noopener">arXiv:2405.14867</a></li>
+<li>Sauer, Lorenz, Blattmann, Rombach. Adversarial Diffusion Distillation, 2023. <a href="https://arxiv.org/abs/2311.17042" target="_blank" rel="noopener">arXiv:2311.17042</a></li>
+<li>Sauer et al. Fast High-Resolution Image Synthesis with Latent Adversarial Diffusion Distillation, 2024. <a href="https://arxiv.org/abs/2403.12015" target="_blank" rel="noopener">arXiv:2403.12015</a></li>
+<li>Frans, Hafner, Levine, Abbeel. One Step Diffusion via Shortcut Models, 2024. <a href="https://arxiv.org/abs/2410.12557" target="_blank" rel="noopener">arXiv:2410.12557</a></li>
+<li>Geng, Deng, Bai, Kolter, He. Mean Flows for One-step Generative Modeling, 2025. <a href="https://arxiv.org/abs/2505.13447" target="_blank" rel="noopener">arXiv:2505.13447</a></li>
+<li>Black Forest Labs. FLUX.1 [dev] model card, <a href="https://huggingface.co/black-forest-labs/FLUX.1-dev" target="_blank" rel="noopener">huggingface.co/black-forest-labs/FLUX.1-dev</a>; reference code, <a href="https://github.com/black-forest-labs/flux" target="_blank" rel="noopener">github.com/black-forest-labs/flux</a></li>
+<li>Stability AI. SDXL-Turbo model card. <a href="https://huggingface.co/stabilityai/sdxl-turbo" target="_blank" rel="noopener">huggingface.co/stabilityai/sdxl-turbo</a></li>
+<li>Interview report (Taobao/Tmall Group AIGC image algorithm, first round), Nowcoder, 2025. <a href="https://www.nowcoder.com/discuss/730099920601907200" target="_blank" rel="noopener">nowcoder.com/discuss/730099920601907200</a></li>
+<li>Interview report (Xiaomi AIGC algorithm engineer, first round), Nowcoder, 2025. <a href="https://www.nowcoder.com/feed/main/detail/ae505961cae04205abc9448399a1da64" target="_blank" rel="noopener">nowcoder.com/feed/main/detail/ae505961cae04205abc9448399a1da64</a></li>
+<li>Interview report (vision algorithm intern, image generation team), Nowcoder, 2024. <a href="https://www.nowcoder.com/feed/main/detail/2b94140c0cc54718b4cd1c8ba02d35a2" target="_blank" rel="noopener">nowcoder.com/feed/main/detail/2b94140c0cc54718b4cd1c8ba02d35a2</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="diffusion-models.html"><span class="pager-dir">Previous</span><span class="pager-title">Diffusion Models</span></a>
+        <a class="pager-next" href="gans-vaes-autoregressive.html"><span class="pager-dir">Next</span><span class="pager-title">GANs, VAEs and Autoregressive Models</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

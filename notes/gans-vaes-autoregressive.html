@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GANs, VAEs and Autoregressive Models · Notes · Wanzhou Lei</title>
+  <meta name="description" content="Adversarial, variational, quantized, autoregressive and flow-based generators: their objectives, failure modes, and where each one still appears in modern image generation.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>GANs, VAEs and Autoregressive Models</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#the-landscape-which-divergence-are-you-minimizing" id="toc-the-landscape-which-divergence-are-you-minimizing">The landscape: which divergence are you minimizing?</a></li>
+      <li><a href="#gans" id="toc-gans">GANs</a></li>
+      <li><a href="#vaes" id="toc-vaes">VAEs</a></li>
+      <li><a href="#discrete-latents" id="toc-discrete-latents">Discrete latents</a></li>
+      <li><a href="#autoencoders-for-latent-diffusion" id="toc-autoencoders-for-latent-diffusion">Autoencoders for latent diffusion</a></li>
+      <li><a href="#autoregressive-and-masked-image-generation" id="toc-autoregressive-and-masked-image-generation">Autoregressive and masked image generation</a></li>
+      <li><a href="#normalizing-flows" id="toc-normalizing-flows">Normalizing flows</a></li>
+      <li><a href="#comparing-the-families" id="toc-comparing-the-families">Comparing the families</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">GANs, VAEs and Autoregressive Models</h1>
+        <p class="page-lede">Adversarial, variational, quantized, autoregressive and flow-based generators: their objectives, failure modes, and where each one still appears in modern image generation.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>33 practice questions</span><span>31 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#the-landscape-which-divergence-are-you-minimizing">The landscape: which divergence are you minimizing?</a></li>
+<li><a href="#gans">GANs</a></li>
+<li><a href="#vaes">VAEs</a></li>
+<li><a href="#discrete-latents">Discrete latents</a></li>
+<li><a href="#autoencoders-for-latent-diffusion">Autoencoders for latent diffusion</a></li>
+<li><a href="#autoregressive-and-masked-image-generation">Autoregressive and masked image generation</a></li>
+<li><a href="#normalizing-flows">Normalizing flows</a></li>
+<li><a href="#comparing-the-families">Comparing the families</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>Before diffusion, image generation was split among GANs (adversarial training), VAEs (a variational bound), autoregressive models (an exact chain-rule likelihood) and normalizing flows (exact likelihood through invertible maps). None of them went away. Adversarial losses sharpen super-resolution, latent autoencoders and few-step samplers. VAEs and VQ tokenizers define the latent spaces that diffusion and transformers work in, and next-scale prediction competes with diffusion on ImageNet. Interviewers use this material to test whether you can derive an objective, explain why it fails in a specific way, and connect a 2014 idea to a 2025 system. Diffusion math is in <a href="diffusion-models.html">diffusion models</a>, distillation in <a href="flow-matching.html">flow matching</a>, and metrics in <a href="evaluation-metrics.html">evaluation metrics</a>.</p>
+<h2 id="the-landscape-which-divergence-are-you-minimizing">The landscape: which divergence are you minimizing?</h2>
+<p>Autoregressive models and flows give an exact <span class="math inline">\log p_\theta(x)</span>, VAEs and diffusion optimize a bound, and GANs define only a sampler. Maximum likelihood is forward-KL minimization, because <span class="math inline">\mathrm{KL}(p_{\text{data}}\|p_\theta) = \mathbb{E}_{p_{\text{data}}}[\log p_{\text{data}}] - \mathbb{E}_{p_{\text{data}}}[\log p_\theta]</span> and the first term is constant. Forward KL blows up wherever <span class="math inline">p_\theta\approx 0</span> but data exists, so it is <em>mode-covering</em>. Reverse KL <span class="math inline">\mathrm{KL}(p_\theta\|p_{\text{data}})</span> penalizes mass where there is no data, so it is <em>mode-seeking</em>.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>Likelihood training (VAE, autoregressive, flow) tends to cover all modes but can put mass on implausible in-between images, which shows up as blur. Adversarial training behaves like reverse KL: samples look sharp, but modes get dropped.</p>
+</aside>
+<h2 id="gans">GANs</h2>
+<h3 id="the-minimax-game-and-the-optimal-discriminator">The minimax game and the optimal discriminator</h3>
+<p>Goodfellow et al. (2014) train <span class="math inline">G</span> and <span class="math inline">D: x\mapsto(0,1)</span> on</p>
+<p><span class="math display">
+\min_G \max_D V(D,G) = \mathbb{E}_{x\sim p_{\text{data}}}[\log D(x)] + \mathbb{E}_{z\sim p_z}[\log(1 - D(G(z)))].
+</span></p>
+<p>For fixed <span class="math inline">G</span> with density <span class="math inline">p_g</span>, maximize <span class="math inline">\int [p_{\text{data}}\log D + p_g\log(1-D)]\,dx</span> pointwise. Since <span class="math inline">a\log y + b\log(1-y)</span> peaks at <span class="math inline">y = a/(a+b)</span>, <span class="math inline">D^* = p_{\text{data}}/(p_{\text{data}}+p_g)</span>. Substituting, with <span class="math inline">m = \tfrac12(p_{\text{data}}+p_g)</span>:</p>
+<p><span class="math display">
+C(G) = \mathbb{E}_{p_{\text{data}}}\Big[\log\tfrac{p_{\text{data}}}{2m}\Big] + \mathbb{E}_{p_g}\Big[\log\tfrac{p_g}{2m}\Big] = -\log 4 + 2\,\mathrm{JSD}(p_{\text{data}}\|p_g),
+</span></p>
+<p>minimized at <span class="math inline">p_g = p_{\text{data}}</span>, where <span class="math inline">D^*\equiv 1/2</span>. This assumes an infinitely flexible discriminator trained to optimality before each generator step, which real training does not provide.</p>
+<details class="qa qa-asked" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Write down the GAN loss function and explain what it optimizes.</span><span class="qa-badge" title="Reported in a real interview">Asked · 360 computer vision interview, Nowcoder 2019</span>
+</summary><div class="qa-body">
+<p><span class="math inline">\min_G\max_D \mathbb{E}_{p_{\text{data}}}[\log D(x)] + \mathbb{E}_{p_z}[\log(1-D(G(z)))]</span>. For fixed <span class="math inline">G</span>, <span class="math inline">D</span> is a binary classifier trained with cross-entropy, and its optimum is <span class="math inline">D^* = p_{\text{data}}/(p_{\text{data}}+p_g)</span>. Substituting gives <span class="math inline">-\log 4 + 2\,\mathrm{JSD}(p_{\text{data}}\|p_g)</span>, so an ideal generator step lowers the JS divergence, with optimum <span class="math inline">p_g = p_{\text{data}}</span> and <span class="math inline">D = 1/2</span>. In practice <span class="math inline">G</span> uses the non-saturating loss and <span class="math inline">D</span> is not optimal, so the JSD reading is only a guide.</p>
+</div></details>
+<h3 id="the-non-saturating-generator-loss">The non-saturating generator loss</h3>
+<p>Write <span class="math inline">D = \sigma(\ell)</span>. The minimax generator term <span class="math inline">\log(1-\sigma(\ell))</span> has <span class="math inline">\partial/\partial\ell = -\sigma(\ell)</span>, which vanishes when <span class="math inline">D</span> confidently rejects fakes, as it does early in training. Minimizing <span class="math inline">-\log D(G(z))</span> instead gives <span class="math inline">\partial/\partial\ell = -(1-\sigma(\ell))\approx -1</span> in that regime, with the same fixed point. The divergence changes, though. Arjovsky &amp; Bottou (2017, Thm. 2.5) show that with <span class="math inline">D^*</span> held fixed,</p>
+<p><span class="math display">
+\mathbb{E}_z\big[-\nabla_\theta \log D^*(G_\theta(z))\big] = \nabla_\theta\big[\mathrm{KL}(p_g\|p_{\text{data}}) - 2\,\mathrm{JSD}(p_g\|p_{\text{data}})\big].
+</span></p>
+<p>Sketch: <span class="math inline">-\log D^* = \log(p_g/p_{\text{data}}) - \log(1-D^*)</span>, and with <span class="math inline">D^*</span> fixed, <span class="math inline">\mathbb{E}_{p_g}[\log(1-D^*)]</span> has the same <span class="math inline">\theta</span>-gradient as <span class="math inline">2\,\mathrm{JSD}</span>. The KL term is the reverse KL, which penalizes unrealistic samples heavily and dropped modes very little; the JSD term is symmetric and does not undo that bias.</p>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">Why use <span class="math inline">-\log D(G(z))</span> instead of <span class="math inline">\log(1-D(G(z)))</span> for the generator, and what does it cost?</span>
+</summary><div class="qa-body">
+<p>The minimax loss saturates: its gradient with respect to the logit is <span class="math inline">-\sigma(\ell)</span>, which goes to zero when fakes are confidently rejected, as they are early in training. The non-saturating loss has gradient <span class="math inline">-(1-\sigma(\ell))</span>, large in that regime, with the same fixed point. The cost: with an optimal <span class="math inline">D</span> the generator follows <span class="math inline">\nabla[\mathrm{KL}(p_g\|p_{\text{data}}) - 2\mathrm{JSD}]</span>, which is mode-seeking and helps explain both sharp samples and mode dropping.</p>
+</div></details>
+<h3 id="instability-and-mode-collapse">Instability and mode collapse</h3>
+<p>There are three distinct causes. <strong>Disjoint supports:</strong> images lie near low-dimensional manifolds, so early on <span class="math inline">p_g</span> and <span class="math inline">p_{\text{data}}</span> barely overlap. A near-perfect <span class="math inline">D</span> then exists, JSD sits at <span class="math inline">\log 2</span>, and gradients vanish. <strong>Game dynamics:</strong> in Mescheder et al.’s Dirac-GAN (data <span class="math inline">\delta_0</span>, generator <span class="math inline">\delta_\theta</span>, <span class="math inline">D(x) = \psi x</span>, loss <span class="math inline">f(\psi\theta)+f(0)</span> with <span class="math inline">f(t) = -\log(1+e^{-t})</span>), the gradient field at the equilibrium has Jacobian <span class="math inline">\begin{pmatrix}0 &amp; -f&#39;(0)\\ f&#39;(0) &amp; 0\end{pmatrix}</span> with eigenvalues <span class="math inline">\pm i f&#39;(0)</span>. The parameters rotate around the equilibrium: simultaneous updates spiral outward and alternating updates keep circling. <strong>Mode collapse:</strong> against a frozen <span class="math inline">D</span>, the generator’s best response maps every <span class="math inline">z</span> to <span class="math inline">\arg\max_x D(x)</span>. Because <span class="math inline">D</span> scores samples one at a time, it cannot see that a batch is all the same image, so <span class="math inline">G</span> and <span class="math inline">D</span> chase each other from mode to mode. Collapse shows up as low recall at high precision. Remedies: batch statistics (minibatch discrimination, minibatch-std), better-conditioned dynamics (TTUR, unrolled GANs, zero-centered penalties), and augmentation (DiffAugment, ADA) for small data.</p>
+<details class="qa qa-asked" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">Why are GANs hard to train?</span><span class="qa-badge" title="Reported in a real interview">Asked · Alibaba Cloud vision, Nowcoder AIGC roundup 2025</span>
+</summary><div class="qa-body">
+<p>First, the objective is a game, not a minimization: near equilibrium the gradient field rotates, so gradient steps oscillate or diverge. Second, real and fake distributions barely overlap, so <span class="math inline">D</span> separates them almost perfectly and the generator gets tiny or noisy gradients. Third, the generator’s best response is to collapse onto whatever <span class="math inline">D</span> currently likes, which causes mode collapse and cycling. Remedies: gradient control on <span class="math inline">D</span> (WGAN-GP, spectral norm, R1/R2), non-saturating or relativistic losses, and batch-level features or augmentation.</p>
+</div></details>
+<h3 id="wasserstein-gan-and-the-gradient-penalty">Wasserstein GAN and the gradient penalty</h3>
+<p>Arjovsky et al. (2017) use <span class="math inline">W_1(p,q) = \inf_{\gamma\in\Pi(p,q)}\mathbb{E}_\gamma\|x-y\|</span>. For a unit segment at <span class="math inline">x=0</span> and the same segment shifted to <span class="math inline">x=\theta</span>, <span class="math inline">W_1 = |\theta|</span>, while <span class="math inline">\mathrm{JSD} = \log 2</span> and <span class="math inline">\mathrm{KL}=\infty</span> for every <span class="math inline">\theta\ne0</span>. Only <span class="math inline">W_1</span> tells the generator which way to move. By Kantorovich-Rubinstein duality,</p>
+<p><span class="math display">
+W_1(p_{\text{data}}, p_g) = \sup_{\|f\|_L\le 1}\mathbb{E}_{p_{\text{data}}}[f(x)] - \mathbb{E}_{p_g}[f(x)],
+</span></p>
+<p>so a real-valued critic maximizes the gap and <span class="math inline">G</span> minimizes <span class="math inline">-\mathbb{E}_z f(G(z))</span>. Weight clipping to <span class="math inline">[-0.01, 0.01]</span> enforced the constraint crudely. WGAN-GP (Gulrajani et al., 2017) uses the fact that the optimal critic has unit gradient norm between coupled points:</p>
+<p><span class="math display">
+L_{\text{critic}} = \mathbb{E}_{p_g}[f(\tilde x)] - \mathbb{E}_{p_{\text{data}}}[f(x)] + \lambda\,\mathbb{E}_{\hat x}\big[(\|\nabla_{\hat x}f(\hat x)\|_2 - 1)^2\big], \quad \hat x = \epsilon x + (1-\epsilon)\tilde x,
+</span></p>
+<p>with <span class="math inline">\epsilon\sim U[0,1]</span>, <span class="math inline">\lambda = 10</span>, 5 critic steps per generator step, and Adam with <span class="math inline">\beta_1 = 0</span>, <span class="math inline">\beta_2 = 0.9</span>. Mescheder et al. (2018) show that WGAN and WGAN-GP with finitely many critic steps are not always locally convergent.</p>
+<details class="qa qa-asked" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">What problem does WGAN solve, and how do you implement WGAN-GP?</span><span class="qa-badge" title="Reported in a real interview">Asked · Douyin and 360 vision interviews, Nowcoder 2019</span>
+</summary><div class="qa-body">
+<p>With disjoint supports, the original loss sees a constant JS divergence (<span class="math inline">\log 2</span>), so the generator gets no direction. <span class="math inline">W_1</span> changes continuously as <span class="math inline">p_g</span> moves, even without overlap. In practice: remove the sigmoid, train the critic on <code>f(fake).mean() - f(real).mean()</code> and the generator on <code>-f(fake).mean()</code>. For WGAN-GP, build per-example interpolates <span class="math inline">\hat x</span>, compute <span class="math inline">\nabla_{\hat x}f</span> with <code>create_graph=True</code>, and add <span class="math inline">10(\|\nabla\|-1)^2</span>. Interpolates are used because enforcing Lipschitz everywhere is intractable. Batch norm is avoided in the critic because it couples samples and breaks the per-sample penalty.</p>
+</div></details>
+<h3 id="zero-centered-penalties-r1-and-r2">Zero-centered penalties: R1 and R2</h3>
+<p>Mescheder et al. (2018) prove local convergence for zero-centered gradient penalties:</p>
+<p><span class="math display">
+R_1 = \frac{\gamma}{2}\,\mathbb{E}_{p_{\text{data}}}\|\nabla_x D(x)\|^2, \qquad R_2 = \frac{\gamma}{2}\,\mathbb{E}_{p_g}\|\nabla_x D(x)\|^2.
+</span></p>
+<p>At equilibrium the ideal <span class="math inline">D</span> is flat, so zero gradient agrees with the equilibrium. In the Dirac-GAN, R1 adds a <span class="math inline">-\gamma\psi</span> damping term that turns the rotation into a spiral toward the equilibrium. StyleGAN2 applies R1 lazily, every 16 minibatches. R3GAN (Huang et al., 2024) combines a relativistic pairing loss with both penalties. On StackedMNIST, R1 alone diverged, while R1 + R2 was stable and covered all 1000 modes.</p>
+<details class="qa" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">Why is R1 centered at zero while the WGAN-GP penalty is centered at one?</span>
+</summary><div class="qa-body">
+<p>They come from different theories. WGAN-GP approximates the 1-Lipschitz constraint of the Kantorovich dual, whose optimal critic has unit-norm gradients between coupled samples. R1 comes from a local-convergence analysis of the standard GAN game. When <span class="math inline">p_g = p_{\text{data}}</span> the discriminator should be flat, so pulling <span class="math inline">\|\nabla_x D\|</span> to zero keeps the equilibrium fixed and damps the rotation. A one-centered penalty keeps a slope even when the distributions match, so the generator keeps being pushed where it should stop.</p>
+</div></details>
+<h3 id="spectral-normalization-hinge-and-relativistic-losses">Spectral normalization, hinge and relativistic losses</h3>
+<p><strong>Spectral normalization</strong> (Miyato et al., 2018) sets <span class="math inline">\bar W = W/\sigma(W)</span>, with <span class="math inline">\sigma</span> from one power-iteration step per training step. With 1-Lipschitz activations, <span class="math inline">\mathrm{Lip}(D)\le\prod_l\sigma(\bar W_l) = 1</span>. It needs no extra backward pass, unlike a gradient penalty, and is used in SAGAN, BigGAN and Real-ESRGAN. <strong>Hinge loss</strong> (Lim &amp; Ye, 2017):</p>
+<p><span class="math display">
+L_D = \mathbb{E}[\max(0, 1 - D(x))] + \mathbb{E}[\max(0, 1 + D(G(z)))], \qquad L_G = -\mathbb{E}[D(G(z))].
+</span></p>
+<p>As in an SVM, <span class="math inline">D</span> stops pushing on samples it already classifies correctly by a margin. It is used in BigGAN, StyleGAN-T and ADD. <strong>Relativistic losses</strong> (Jolicoeur-Martineau, 2018) have <span class="math inline">D</span> estimate whether real data is more realistic than fake: <span class="math inline">L_D = -\mathbb{E}\log\sigma(C(x_r) - C(x_f))</span> and <span class="math inline">L_G = -\mathbb{E}\log\sigma(C(x_f) - C(x_r))</span>. The average variant (RaGAN) compares each sample with the batch mean of the opposite class. Because only differences matter, generator gradients also flow through real samples, and the loss does not saturate on an absolute scale.</p>
+<details class="qa qa-asked" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">What is ESRGAN, and how did it change SRGAN’s losses?</span><span class="qa-badge" title="Reported in a real interview">Asked · Alibaba Taotian AI-application intern, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>SRGAN trains a super-resolution network with a VGG-feature content loss plus a <span class="math inline">10^{-3}</span>-weighted adversarial loss. ESRGAN makes three changes. (1) A relativistic average discriminator predicts whether a real image is more realistic than the average fake, and the generator loss uses both real and fake terms, giving sharper textures. (2) The perceptual loss uses VGG features <em>before</em> activation, which are less sparse and keep brightness information. (3) The total loss is <span class="math inline">L_{\text{percep}} + 5\times10^{-3}L_G^{Ra} + 10^{-2}L_1</span>. The generator also uses RRDB blocks without batch norm.</p>
+</div></details>
+<h3 id="stylegan-in-brief">StyleGAN in brief</h3>
+<p>An 8-layer MLP maps <span class="math inline">z</span> to <span class="math inline">w</span> (512-d), so the learned <span class="math inline">\mathcal{W}</span> need not be Gaussian-shaped and can be less entangled. A learned constant input is styled per layer by an affine projection of <span class="math inline">w</span>. StyleGAN1’s AdaIN caused “droplet” artifacts, because the generator hid signal strength in local spikes. StyleGAN2 uses modulation and demodulation instead, <span class="math inline">w&#39;_{ijk} = s_iw_{ijk}</span> and <span class="math inline">w&#39;&#39;_{ijk} = w&#39;_{ijk}/\sqrt{\sum_{i,k}w&#39;^2_{ijk}+\epsilon}</span>, which normalizes expected rather than actual statistics. Noise inputs add stochastic detail. The path length regularizer <span class="math inline">\mathbb{E}_{w,y\sim\mathcal{N}(0,I)}(\|J_w^\top y\|_2 - a)^2</span>, with <span class="math inline">a</span> a running average, makes a fixed step in <span class="math inline">\mathcal{W}</span> change the image by a fixed amount.</p>
+<details class="qa qa-asked" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">Walk through how GAN generators evolved from the 2014 GAN to StyleGAN2.</span><span class="qa-badge" title="Reported in a real interview">Asked · TP-LINK image algorithm interview, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>The 2014 GAN used MLPs. DCGAN made convolutional GANs train reliably. WGAN-GP and spectral norm stabilized the discriminator. ProGAN grew resolution progressively and added minibatch-std. SAGAN and BigGAN added self-attention, hinge loss and huge class-conditional batches. StyleGAN introduced the mapping network, a constant input, per-layer AdaIN styles and noise, giving scale-specific control. StyleGAN2 replaced AdaIN with weight demodulation (no droplets), dropped progressive growing for skip and residual designs, and added lazy R1 and path-length regularization.</p>
+</div></details>
+<h3 id="discriminators-on-pretrained-features">Discriminators on pretrained features</h3>
+<p>Projected GAN (Sauer et al., 2021) passes images through a frozen EfficientNet-Lite1, mixes channels and scales with fixed random convolutions, and trains four small discriminators on the multi-scale features. It matched prior best FIDs up to 40 times faster. Vision-aided GAN (Kumari et al., 2022) ensembles off-the-shelf backbones. StyleGAN-T uses a frozen DINO ViT-S/16 with five heads and a per-token hinge loss, and ADD uses frozen DINOv2 ViT-S features with hinge loss and R1. The heads only have to separate real from fake in a semantic space, which is easier. The catch: FID is also computed in an ImageNet feature space, and matching ImageNet statistics can lower FID without improving images (Kynkäänniemi et al., 2023).</p>
+<h3 id="where-adversarial-losses-live-today">Where adversarial losses live today</h3>
+<p>The perception-distortion trade-off (Blau &amp; Michaeli, 2018) shows that past some point, low MSE and realistic outputs conflict, so <a href="restoration-super-resolution.html">super-resolution</a> adds a discriminator. Autoencoders and tokenizers (VQGAN, SD VAEs, MAGVIT-v2, DC-AE) add a GAN loss, often with a patch discriminator, to L1 + LPIPS. Few-step distillation (ADD, LADD, DMD2) adds adversarial terms (see <a href="flow-matching.html">flow matching</a>). Standalone GANs remain strong on narrow domains and as fast upsamplers (GigaGAN).</p>
+<details class="qa qa-asked" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">Why would you still use StyleGAN, or any GAN, when diffusion models exist?</span><span class="qa-badge" title="Reported in a real interview">Asked · SenseTime multimodal intern interview, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>One forward pass means millisecond latency, which matters for real-time avatars, on-device filters and interactive editing. StyleGAN’s <span class="math inline">\mathcal{W}</span> space is smooth enough for easy inversion and attribute editing on narrow domains such as faces, where its quality is still competitive. Adversarial losses also recover sharp detail in autoencoder decoders, super-resolution and distilled samplers. The trade-off is weaker mode coverage and harder scaling to diverse text-conditioned data.</p>
+</div></details>
+<h2 id="vaes">VAEs</h2>
+<h3 id="the-elbo-derived-two-ways">The ELBO, derived two ways</h3>
+<p>The model is <span class="math inline">p_\theta(x,z) = p(z)p_\theta(x|z)</span> with <span class="math inline">p(z) = \mathcal{N}(0,I)</span>, and the encoder is <span class="math inline">q_\phi(z|x)</span> (Kingma &amp; Welling, 2013). <strong>Jensen:</strong></p>
+<p><span class="math display">
+\log p_\theta(x) = \log\mathbb{E}_{q_\phi}\Big[\frac{p_\theta(x,z)}{q_\phi(z|x)}\Big] \ge \mathbb{E}_{q_\phi}[\log p_\theta(x|z)] - \mathrm{KL}(q_\phi(z|x)\|p(z)) =: \mathcal{L}(x).
+</span></p>
+<p><strong>KL decomposition:</strong> expanding <span class="math inline">p(z|x) = p(x,z)/p(x)</span>,</p>
+<p><span class="math display">
+\mathrm{KL}(q_\phi(z|x)\|p_\theta(z|x)) = \mathbb{E}_{q_\phi}[\log q_\phi(z|x) - \log p_\theta(x,z)] + \log p_\theta(x) \;\Longrightarrow\; \log p_\theta(x) = \mathcal{L}(x) + \mathrm{KL}(q_\phi\|p_\theta(z|x)).
+</span></p>
+<p>The second route gives the exact gap: maximizing <span class="math inline">\mathcal{L}</span> over <span class="math inline">\phi</span> minimizes the <em>reverse</em> KL to the true posterior, so VAE posteriors tend to be too narrow. With a fixed-variance Gaussian decoder, <span class="math inline">-\log p(x|z) = \|x-\mu_\theta(z)\|^2/2\sigma^2 + \text{const}</span>, so <span class="math inline">\sigma^2</span> balances reconstruction against KL.</p>
+<details class="qa qa-asked" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">Explain VAEs: the ELBO, the KL term and the reparameterization trick.</span><span class="qa-badge" title="Reported in a real interview">Asked · Google MLE screen, PracHub question bank 2026</span>
+</summary><div class="qa-body">
+<p>A VAE is a latent-variable model trained with an amortized posterior <span class="math inline">q_\phi(z|x)</span>. Since <span class="math inline">\log p(x)</span> is intractable, we maximize <span class="math inline">\mathcal{L} = \mathbb{E}_q[\log p_\theta(x|z)] - \mathrm{KL}(q\|p(z))</span>, which follows from Jensen or from <span class="math inline">\log p(x) = \mathcal{L} + \mathrm{KL}(q\|p(z|x))</span>. The first term is reconstruction. The KL keeps posteriors near the prior so that prior samples decode well. Gradients flow through the sampling step via <span class="math inline">z = \mu_\phi + \sigma_\phi\odot\epsilon</span>. For Gaussians the KL is closed-form, so only reconstruction needs a Monte Carlo sample.</p>
+</div></details>
+<h3 id="reparameterization-and-the-gaussian-kl">Reparameterization and the Gaussian KL</h3>
+<p>The score-function estimator <span class="math inline">\mathbb{E}_q[f(z)\nabla_\phi\log q_\phi(z|x)]</span> is unbiased but high-variance. Writing <span class="math inline">z = \mu_\phi(x) + \sigma_\phi(x)\odot\epsilon</span> with <span class="math inline">\epsilon\sim\mathcal{N}(0,I)</span> gives the pathwise gradient <span class="math inline">\mathbb{E}_\epsilon[\nabla_z f(z)\,\partial z/\partial\phi]</span>, which uses <span class="math inline">\nabla f</span> and usually has much lower variance. For <span class="math inline">q = \mathcal{N}(\mu,\sigma^2)</span> and <span class="math inline">p = \mathcal{N}(0,1)</span>:</p>
+<p><span class="math display">
+\begin{aligned}
+\mathrm{KL}(q\|p) &amp;= \Big(-\tfrac12\log(2\pi\sigma^2) - \tfrac12\Big) - \Big(-\tfrac12\log 2\pi - \tfrac12\mathbb{E}_q[z^2]\Big) \\
+&amp;= \tfrac12\big(\mu^2 + \sigma^2 - 1 - \log\sigma^2\big),
+\end{aligned}
+</span></p>
+<p>using <span class="math inline">\mathbb{E}_q[z^2] = \mu^2+\sigma^2</span>. For a diagonal posterior, sum over dimensions. Each term is zero only at <span class="math inline">\mu=0</span>, <span class="math inline">\sigma=1</span>.</p>
+<details class="qa qa-asked" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Sampling is not differentiable. How does a VAE backpropagate through it?</span><span class="qa-badge" title="Reported in a real interview">Asked · iFlytek 2021 and Baidu multimodal 2025, Nowcoder</span>
+</summary><div class="qa-body">
+<p>It moves the randomness out of the parameter path: sample <span class="math inline">\epsilon\sim\mathcal{N}(0,I)</span> and set <span class="math inline">z = \mu_\phi + \sigma_\phi\odot\epsilon</span>. Given <span class="math inline">\epsilon</span>, <span class="math inline">z</span> is differentiable in <span class="math inline">\phi</span> (<span class="math inline">\partial z/\partial\mu = 1</span>, <span class="math inline">\partial z/\partial\sigma = \epsilon</span>), so ordinary backprop works. This needs a distribution that is a differentiable transform of fixed noise. Categorical latents need Gumbel-softmax or straight-through, and REINFORCE is unbiased but much noisier.</p>
+</div></details>
+<details class="qa qa-asked" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">What is the difference between an autoencoder and a VAE?</span><span class="qa-badge" title="Reported in a real interview">Asked · Meitu AIGC vision algorithm interview, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>An autoencoder learns a deterministic <span class="math inline">x\to z\to\hat x</span> for reconstruction only. Its latent space has no density, so decoding a random <span class="math inline">z</span> usually gives garbage. A VAE’s encoder outputs a distribution, and the ELBO adds a KL term tying posteriors to a prior, so <span class="math inline">z\sim p(z)</span> decodes to plausible images and training bounds <span class="math inline">\log p(x)</span>. The costs are blur and possible posterior collapse. Latent-diffusion autoencoders sit in between: their KL weight is about <span class="math inline">10^{-6}</span>, so they are mostly regularized autoencoders whose real prior is the diffusion model trained afterwards.</p>
+</div></details>
+<h3 id="why-vae-samples-are-blurry">Why VAE samples are blurry</h3>
+<p>With a fixed-variance Gaussian decoder the reconstruction term is MSE, so the optimal decoder outputs <span class="math inline">\mathbb{E}[x|z]</span>. The KL term forces posteriors of different images to overlap, so each <span class="math inline">z</span> fits many slightly different images, and their average has smoothed edges and texture. Three more effects add to this: maximum likelihood is mode-covering, the aggregate posterior <span class="math inline">\mathbb{E}_x q(z|x)</span> rarely matches <span class="math inline">\mathcal{N}(0,I)</span> (prior samples land in “holes”), and pixel likelihood undervalues high-frequency detail. Fixes: perceptual and adversarial losses, hierarchical VAEs (NVAE), and a strong learned prior over latents, which is what latent diffusion is.</p>
+<details class="qa qa-asked" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">Why are images generated by a VAE blurry?</span><span class="qa-badge" title="Reported in a real interview">Asked · Samsung Xi'an multimodal interview, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>Mainly because of the Gaussian (MSE) reconstruction likelihood. Under MSE the best prediction is the conditional mean <span class="math inline">\mathbb{E}[x|z]</span>, and because the KL term makes posteriors overlap, each <span class="math inline">z</span> is ambiguous, so the decoder averages several plausible images. Maximum likelihood is also mode-covering, the prior and aggregate posterior mismatch sends samples to poorly trained regions, and pixel losses undervalue high-frequency detail. GANs avoid this because the discriminator directly penalizes averaged-looking outputs.</p>
+</div></details>
+<h3 id="posterior-collapse-and-beta-vae">Posterior collapse and <span class="math inline">\beta</span>-VAE</h3>
+<p>Posterior collapse means <span class="math inline">q(z|x)\approx p(z)</span> for every <span class="math inline">x</span>, so the decoder ignores <span class="math inline">z</span>. If the decoder can model <span class="math inline">p(x)</span> alone (autoregressive decoders), storing nothing in <span class="math inline">z</span> is cheapest, since the KL is paid on every example. Lucas et al. (2019) show collapse even in linear VAEs, tied to observation noise. <span class="math inline">\beta</span>-VAE (Higgins et al., 2017) optimizes <span class="math inline">\mathbb{E}_q[\log p(x|z)] - \beta\,\mathrm{KL}</span>. With <span class="math inline">\beta&gt;1</span> the bottleneck tightens, which encourages disentanglement on simple data at a reconstruction cost and still gives a looser lower bound. With <span class="math inline">\beta&lt;1</span> it is no longer a bound, which is the regime LDM’s tiny KL weight is in.</p>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">What is posterior collapse, why does it happen, and how do you prevent it?</span>
+</summary><div class="qa-body">
+<p>The approximate posterior equals the prior for every input, so <span class="math inline">z</span> carries no information. It happens when the decoder is expressive enough that information in <span class="math inline">z</span> costs more KL than it saves in reconstruction, or when the KL term wins early in optimization. Diagnose it with per-dimension KL near zero and few active units. Fixes: KL annealing from 0 (Bowman et al., 2015), free bits, which stop penalizing KL below a floor per group (Kingma et al., 2016), weaker or limited-context decoders, <span class="math inline">\beta&lt;1</span>, or feeding <span class="math inline">z</span> into every decoder layer.</p>
+</div></details>
+<h2 id="discrete-latents">Discrete latents</h2>
+<h3 id="vq-vae">VQ-VAE</h3>
+<p>VQ-VAE (van den Oord et al., 2017) quantizes each encoder vector to its nearest code, <span class="math inline">z_q = e_k</span> with <span class="math inline">k = \arg\min_j\|z_e(x) - e_j\|_2</span>, and trains</p>
+<p><span class="math display">
+L = -\log p(x|z_q) + \|\operatorname{sg}[z_e] - e\|_2^2 + \beta\|z_e - \operatorname{sg}[e]\|_2^2, \qquad \beta = 0.25.
+</span></p>
+<p>Reconstruction trains the decoder and, through the straight-through estimator <span class="math inline">z_q^{\text{ST}} = z_e + \operatorname{sg}[z_q - z_e]</span>, the encoder. The codebook term moves selected codes toward encoder outputs, like online k-means (EMA updates are an alternative). Commitment keeps the encoder near its codes. Generation needs a second stage: an autoregressive prior over code indices (PixelCNN originally, transformers later).</p>
+<details class="qa qa-asked" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">How is VQ-VAE/VQGAN trained, and how do gradients pass through the quantizer?</span><span class="qa-badge" title="Reported in a real interview">Asked · iFlytek vision 2024, Taotian multimodal 2026, Nowcoder</span>
+</summary><div class="qa-body">
+<p>Stage 1 trains encoder, codebook and decoder with reconstruction + codebook loss <span class="math inline">\|\operatorname{sg}[z_e]-e\|^2</span> + commitment <span class="math inline">\beta\|z_e-\operatorname{sg}[e]\|^2</span>. Argmin has zero gradient almost everywhere, so the straight-through estimator sends <span class="math inline">z_q</span> forward and copies <span class="math inline">\partial L/\partial z_q</span> onto <span class="math inline">z_e</span> backward: <code>z_q = z_e + (z_q - z_e).detach()</code>. Codes are trained only by the codebook loss (or EMA), and commitment keeps <span class="math inline">z_e</span> close to <span class="math inline">z_q</span>, which limits the estimator’s bias. Stage 2 freezes the autoencoder and trains a transformer on code indices with cross-entropy.</p>
+</div></details>
+<h3 id="codebook-collapse">Codebook collapse</h3>
+<p>Codes that start far from the encoder’s outputs, or that the encoder drifts away from, stop being selected, so the effective vocabulary shrinks. Measure code usage or the perplexity of the average assignment. Beyond restarts (as in Jukebox) and EMA, ViT-VQGAN projects to a low-dimensional lookup space (for example 768-d to 32-d) and <span class="math inline">\ell_2</span>-normalizes codes, which kept an 8192-entry codebook well used.</p>
+<details class="qa qa-asked" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">What is codebook collapse in VQ/RQ-VAE, and how do you prevent it?</span><span class="qa-badge" title="Reported in a real interview">Asked · Alibaba Amap recsys interview (RQ-VAE), Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>Only a small subset of codes is ever selected. Unselected codes get no gradient, so once outside the encoder’s output region they stay dead. In residual quantization it also appears as many inputs sharing one code tuple. Prevention: k-means initialization, EMA updates, re-seeding rarely used codes from current encoder outputs, low-dimensional <span class="math inline">\ell_2</span>-normalized lookup, an entropy term rewarding uniform average usage, or codebook-free quantizers (FSQ, LFQ). Track usage at every level.</p>
+</div></details>
+<h3 id="vqgan">VQGAN</h3>
+<p>VQGAN (Esser et al., 2021) replaces the L2 reconstruction with a perceptual (LPIPS) loss and adds a patch discriminator:</p>
+<p><span class="math display">
+\mathcal{Q}^* = \arg\min_{E,G,\mathcal{Z}}\max_D\,\mathbb{E}_x\big[\mathcal{L}_{VQ} + \lambda\mathcal{L}_{GAN}\big], \qquad \lambda = \frac{\|\nabla_{G_L}\mathcal{L}_{rec}\|}{\|\nabla_{G_L}\mathcal{L}_{GAN}\| + \delta},
+</span></p>
+<p>where <span class="math inline">G_L</span> is the last decoder layer and <span class="math inline">\delta = 10^{-6}</span>. The adaptive weight matches the adversarial gradient’s size to the reconstruction gradient’s, so neither dominates. The perceptual and adversarial terms allow a coarse grid: with <span class="math inline">f=16</span> and <span class="math inline">|\mathcal{Z}| = 1024</span>, a <span class="math inline">256^2</span> image becomes 256 tokens, short enough for a GPT-style transformer, which samples larger images with a sliding attention window.</p>
+<details class="qa qa-asked" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">How many losses does VQGAN have, and what does each do?</span><span class="qa-badge" title="Reported in a real interview">Asked · Megvii vision algorithm interview, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>The autoencoder stage has four loss terms and one adaptive weight. Reconstruction (L1 plus LPIPS) preserves structure. The codebook loss moves codes toward encoder outputs. The commitment loss keeps the encoder near its codes. A patch-discriminator adversarial loss makes local texture look real and removes blur. The adaptive weight <span class="math inline">\lambda</span>, a ratio of gradient norms at the last decoder layer, balances adversarial against reconstruction. The GAN term usually starts after a warm-up. Stage 2 adds the transformer’s cross-entropy over indices.</p>
+</div></details>
+<h3 id="fsq-and-lookup-free-quantization">FSQ and lookup-free quantization</h3>
+<p>FSQ (Mentzer et al., 2023) projects to very few dimensions (<span class="math inline">d&lt;10</span>), bounds them, and rounds: <span class="math inline">\hat z = \operatorname{round}(\lfloor L/2\rfloor\tanh(z))</span> for odd <span class="math inline">L</span> (even <span class="math inline">L</span> needs a half-step offset). The implied codebook is the product grid, so levels <span class="math inline">[8,5,5,5]</span> give 1000 codes and <span class="math inline">[8,8,8,5,5,5]</span> give 64,000. Rounding uses straight-through, <span class="math inline">x + \operatorname{sg}(\operatorname{round}(x)-x)</span>. There is no codebook or commitment loss, and the paper reports near-complete code usage without auxiliary losses. LFQ (MAGVIT-v2, Yu et al., 2023) binarizes each dimension, <span class="math inline">q(z_i) = \operatorname{sign}(z_i)</span>, with index <span class="math inline">\sum_i 2^{i-1}\mathbb{1}[z_i&gt;0]</span> and vocabulary <span class="math inline">2^{18}\approx 262\text{k}</span>. An entropy penalty <span class="math inline">\mathbb{E}[H(q(z))] - H[\mathbb{E}\,q(z)]</span> rewards confident per-sample assignments and uniform average usage, and reconstruction and generation kept improving with vocabulary size. RQ-VAE instead quantizes, subtracts, and quantizes the residual several times per position.</p>
+<h2 id="autoencoders-for-latent-diffusion">Autoencoders for latent diffusion</h2>
+<h3 id="downsampling-factor-and-channel-count">Downsampling factor and channel count</h3>
+<p>An autoencoder maps <span class="math inline">H\times W\times3</span> to <span class="math inline">\tfrac Hf\times\tfrac Wf\times c</span>, a compression of <span class="math inline">3f^2/c</span>. A DiT with patch size <span class="math inline">p</span> sees <span class="math inline">(H/fp)^2</span> tokens, so <span class="math inline">f</span> is the main compute lever.</p>
+<table>
+<thead>
+<tr>
+<th>Autoencoder</th>
+<th><span class="math inline">f</span></th>
+<th><span class="math inline">c</span></th>
+<th><span class="math inline">3f^2/c</span></th>
+<th>Latent scaling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SD 1.x/2.x</td>
+<td>8</td>
+<td>4</td>
+<td>48</td>
+<td>0.18215</td>
+</tr>
+<tr>
+<td>SDXL</td>
+<td>8</td>
+<td>4</td>
+<td>48</td>
+<td>0.13025</td>
+</tr>
+<tr>
+<td>SD3 / FLUX</td>
+<td>8</td>
+<td>16</td>
+<td>12</td>
+<td>FLUX: scale 0.3611, shift 0.1159</td>
+</tr>
+<tr>
+<td>DC-AE f32c32 / f64c128</td>
+<td>32 / 64</td>
+<td>32 / 128</td>
+<td>96</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<p>LDM (Rombach et al., 2022) compared <span class="math inline">f\in\{1,\dots,32\}</span>. At <span class="math inline">f\le2</span> training was slow, spending compute on imperceptible detail. At <span class="math inline">f=32</span> fidelity stopped improving early. The paper found <span class="math inline">f</span> between 4 and 16 balanced efficiency and quality, with <span class="math inline">f = 4</span> and 8 best in its sampling-speed comparison. The autoencoders combine L1/L2, LPIPS, a patch GAN, and either a KL penalty weighted about <span class="math inline">10^{-6}</span> or a VQ layer. Latents are rescaled to roughly unit variance to match the noise schedule.</p>
+<details class="qa qa-asked" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">How does the SD 1.5 VAE differ from the FLUX VAE? How many channels does FLUX’s latent have?</span><span class="qa-badge" title="Reported in a real interview">Asked · Alibaba Taotian algorithm interview, Nowcoder 2025</span>
+</summary><div class="qa-body">
+<p>Both are KL-regularized convolutional autoencoders with <span class="math inline">8\times</span> downsampling, trained with reconstruction, perceptual and adversarial losses. SD 1.5’s latent has 4 channels (compression 48), which loses small text, small faces and fine texture. FLUX’s has 16 (compression 12), so reconstruction is much better. FLUX uses a scale and a shift factor, and its transformer packs <span class="math inline">2\times2</span> latent patches into 64-dim tokens. SD3 made the same change and found that models on the 16-channel latent need more capacity to match the FID of 4- or 8-channel ones, but scale better.</p>
+</div></details>
+<h3 id="the-reconstruction-versus-generation-tension">The reconstruction versus generation tension</h3>
+<p>More channels improve reconstruction. In SD3’s comparison, going from <span class="math inline">c=4</span> to <span class="math inline">c=16</span> took rFID from 2.41 to 1.06. But the diffusion model then has more information per token to model. Yao et al. (2025) call this an optimization dilemma: <span class="math inline">f16</span> latents with 32 or 64 channels reconstruct better but generate worse, unless the latent is aligned to DINOv2 features. Their VA-VAE does this and reaches FID 1.35 on ImageNet 256. DC-AE (Chen et al., 2025) instead pushes <span class="math inline">f</span> to 32-128. <em>Residual autoencoding</em> adds parameter-free space-to-channel shortcuts. <em>Decoupled high-resolution adaptation</em> trains at low resolution, tunes only middle layers at high resolution, and applies the GAN loss only to the decoder head at the end. On ImageNet 512 it reports 19.1x faster inference and 17.9x faster training than SD-VAE-f8, with better FID.</p>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">Why not keep adding channels until reconstruction is perfect?</span>
+</summary><div class="qa-body">
+<p>The generator has to model the latent distribution too. A high-capacity latent with weak regularization carries more bits per token and is less smooth, so the diffusion model needs more parameters and training to reach the same FID, and its errors in fine latent detail decode into artifacts. SD3 found that small models do worse on a 16-channel latent and the gap closes only as depth grows. VA-VAE found that 32 or 64 channels generate worse unless the latent is regularized toward semantic features. The target is a latent that is both reconstructable and easy to model.</p>
+</div></details>
+<h2 id="autoregressive-and-masked-image-generation">Autoregressive and masked image generation</h2>
+<h3 id="pixelcnn-and-token-transformers">PixelCNN and token transformers</h3>
+<p>The chain rule gives an exact likelihood, <span class="math inline">\log p(x) = \sum_i\log p(x_i|x_{&lt;i})</span>, here over pixels in raster order and RGB channels. PixelCNN (van den Oord et al., 2016) uses masked convolutions: mask A in the first layer lets a channel see only earlier pixels and the already-predicted channels of the current pixel (G sees R, not G), and mask B in later layers also connects each channel to itself, which is safe because the features it reads are already masked. Gated PixelCNN fixes the receptive-field blind spot with vertical and horizontal stacks. PixelCNN++ replaces the 256-way softmax with a discretized logistic mixture. Training is parallel, but sampling takes <span class="math inline">H\cdot W\cdot3</span> sequential steps, and samples were locally plausible but globally incoherent. Two-stage models compress first: VQGAN + GPT, DALL-E (a discrete VAE and a 12B transformer), Parti (ViT-VQGAN tokens, up to 20B parameters) and LlamaGen. Their weak points are arbitrary raster order, error accumulation, sequential decoding, and a tokenizer quality ceiling.</p>
+<h3 id="maskgit-and-muse">MaskGIT and Muse</h3>
+<p>MaskGIT (Chang et al., 2022) trains a bidirectional transformer BERT-style. It masks <span class="math inline">\lceil\gamma(r)N\rceil</span> tokens with <span class="math inline">r\sim U[0,1)</span> and <span class="math inline">\gamma(r) = \cos(\pi r/2)</span>, and applies cross-entropy on masked positions only. Decoding starts fully masked. At step <span class="math inline">t</span> it predicts all masked tokens in parallel, samples them, and re-masks the <span class="math inline">\lceil\gamma(t/T)N\rceil</span> least confident. It uses <span class="math inline">T = 8</span> steps at <span class="math inline">256^2</span>, and the paper reports decoding up to 64x faster than autoregression. Muse applies the same procedure to text-to-image, conditioned on T5-XXL embeddings, with a 256-pixel base model and a 512-pixel super-resolution transformer.</p>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">How does MaskGIT decode, and what does it give up relative to autoregressive decoding?</span>
+</summary><div class="qa-body">
+<p>It starts with every token masked. At each of <span class="math inline">T\approx8</span> to 12 steps it predicts every masked position in parallel, keeps the most confident samples, and re-masks the rest on a cosine schedule that commits few tokens early. That replaces <span class="math inline">N = 256</span> to 1024 sequential steps, and bidirectional context suits 2D data. The cost: tokens committed in the same step are sampled independently given the context, so too few steps produce inconsistencies. There is no exact likelihood, and quality depends on schedule and temperature heuristics.</p>
+</div></details>
+<h3 id="var-next-scale-prediction">VAR: next-scale prediction</h3>
+<p>VAR (Tian et al., 2024) predicts whole scales instead of single tokens. A multi-scale residual VQ-VAE with one shared codebook (<span class="math inline">V = 4096</span>) quantizes the feature map at the coarsest scale, upsamples and subtracts that reconstruction, then quantizes the residual at the next scale. For <span class="math inline">256^2</span> images the token maps have sides 1, 2, 3, 4, 5, 6, 8, 10, 13 and 16: ten scales, 680 tokens in total. Generation factorizes as</p>
+<p><span class="math display">
+p(r_1,\ldots,r_K) = \prod_{k=1}^K p(r_k\mid r_1,\ldots,r_{k-1}),
+</span></p>
+<p>with every token of <span class="math inline">r_k</span> predicted in parallel under a block-causal mask. On ImageNet 256 it reports FID 1.73 and IS 350.2 (from 18.65 and 80.4 for its AR baseline), about 20x faster inference than that baseline, and power-law scaling.</p>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">What is next-scale prediction, and why does it beat raster-order token prediction?</span>
+</summary><div class="qa-body">
+<p>VAR predicts the next-resolution token map conditioned on all coarser maps, and the residual tokenizer makes each scale encode what the coarser ones missed. All tokens in a scale come out in parallel, so ten steps replace 256 at <span class="math inline">256^2</span>. The order matches image structure (layout first, then detail), keeps 2D neighbourhoods intact, and removes raster AR’s left-to-right bias. Tokens within a scale are conditionally independent, but the coarse prefix constrains them strongly.</p>
+</div></details>
+<h3 id="mar-continuous-tokens-with-a-diffusion-loss">MAR: continuous tokens with a diffusion loss</h3>
+<p>MAR (Li et al., 2024) drops vector quantization. A transformer over continuous tokens (from an LDM KL-16 tokenizer) outputs a vector <span class="math inline">z</span> for each position it predicts. A small MLP (3 residual blocks, width 1024, about 21M parameters) models that token’s distribution with</p>
+<p><span class="math display">
+\mathcal{L}(z,x) = \mathbb{E}_{\epsilon,t}\big[\|\epsilon - \epsilon_\theta(x_t\mid t,z)\|^2\big], \qquad x_t = \sqrt{\bar\alpha_t}\,x + \sqrt{1-\bar\alpha_t}\,\epsilon,
+</span></p>
+<p>and sampling runs a short reverse diffusion per token, with a temperature on the noise. The backbone uses masked autoregression: random order, bidirectional attention, several tokens per step. MAR-H with CFG reaches FID 1.55 on ImageNet 256, and MAR-L generates in under 0.3 s per image.</p>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">For continuous tokens, why use a diffusion loss instead of regressing the next token with MSE?</span>
+</summary><div class="qa-body">
+<p>MSE predicts the conditional mean. When several next tokens are plausible, the mean matches none of them, and the averages compound as they are fed back, which is VAE blur one token at a time. Autoregression needs to <em>sample</em> from <span class="math inline">p(x_i\mid\text{context})</span>. Discrete tokens get that from a softmax, at the cost of quantization error. A small diffusion head gives a multimodal, sampleable distribution over continuous values, with a temperature knob.</p>
+</div></details>
+<h2 id="normalizing-flows">Normalizing flows</h2>
+<p>A flow is a bijection <span class="math inline">z = f(x)</span> with <span class="math inline">z\sim p_Z</span>. Change of variables gives</p>
+<p><span class="math display">
+\log p_X(x) = \log p_Z(f(x)) + \log\Big|\det\frac{\partial f(x)}{\partial x}\Big|,
+</span></p>
+<p>and log-determinants add across composed layers. Affine coupling (RealNVP) keeps half the variables, <span class="math inline">y_a = x_a</span>, and transforms the rest, <span class="math inline">y_b = x_b\odot\exp(s(x_a)) + t(x_a)</span>. The Jacobian is triangular, so <span class="math inline">\log|\det| = \sum s(x_a)</span>, and the inverse is just as cheap. Glow adds invertible <span class="math inline">1\times1</span> convolutions with log-determinant <span class="math inline">h\cdot w\cdot\log|\det W|</span>, which is cheap with an LU parameterization. Flows give exact likelihood, exact encoding and one-pass sampling. Their limits: every layer preserves dimension, so there is no bottleneck and memory is large; mapping a Gaussian onto thin or disconnected data needs badly conditioned Jacobians; and invertibility restricts the architecture. Samples lagged for years. TarFlow (Zhai et al., 2024) narrowed the gap with transformer autoregressive flows, noise augmentation and post-hoc denoising. <a href="flow-matching.html">Flow matching</a> is a different method: it regresses a velocity field.</p>
+<h2 id="comparing-the-families">Comparing the families</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Family</th>
+<th>Density</th>
+<th>Sampling</th>
+<th>Mode coverage</th>
+<th>Sample quality</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GAN</td>
+<td>none</td>
+<td>1 pass</td>
+<td>weak</td>
+<td>sharp</td>
+</tr>
+<tr>
+<td>VAE</td>
+<td>lower bound</td>
+<td>1 pass</td>
+<td>good</td>
+<td>blurry without perceptual/GAN losses</td>
+</tr>
+<tr>
+<td>Flow</td>
+<td>exact</td>
+<td>1 pass (coupling)</td>
+<td>good</td>
+<td>historically weaker</td>
+</tr>
+<tr>
+<td>AR over tokens</td>
+<td>exact (over tokens)</td>
+<td><span class="math inline">N</span> sequential steps</td>
+<td>good</td>
+<td>strong with a good tokenizer</td>
+</tr>
+<tr>
+<td>Masked / next-scale</td>
+<td>none (masked); exact over token maps (VAR)</td>
+<td>about 8-64 steps</td>
+<td>good</td>
+<td>strong</td>
+</tr>
+<tr>
+<td>Diffusion</td>
+<td>bound</td>
+<td>tens of steps unless distilled</td>
+<td>good</td>
+<td>strong</td>
+</tr>
+</tbody>
+</table>
+<p>Xiao et al. (2022) name the <strong>generative learning trilemma</strong>: high sample quality, mode coverage and fast sampling are hard to get together. GANs give quality and speed, VAEs and flows give speed and coverage, and diffusion gives quality and coverage. Their denoising diffusion GANs model each large denoising step with a conditional GAN and report about 2000x faster sampling than the original diffusion model on CIFAR-10. Later distillation and consistency models attack the same trilemma from the diffusion side.</p>
+<p><strong>Likelihood and sample quality can disagree</strong> (Theis et al., 2016). If <span class="math inline">p = 0.01\,q + 0.99\,r</span> for a good model <span class="math inline">q</span> and junk <span class="math inline">r</span>, then <span class="math inline">\log p(x)\ge\log q(x) - \log 100</span>. The log-likelihood drops by at most 4.61 nats per image, which is negligible for a <span class="math inline">256^2</span> RGB image whose total is hundreds of thousands of nats, yet 99% of samples are junk. In the other direction, a mode-dropping model can produce excellent samples while assigning near-zero likelihood to the modes it dropped. Likelihood is dominated by imperceptible detail, which is why bits/dim and FID often rank models differently.</p>
+<details class="qa qa-asked" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">Compare GANs and VAEs.</span><span class="qa-badge" title="Reported in a real interview">Asked · ByteDance vision algorithm interview, Nowcoder 2023</span>
+</summary><div class="qa-body">
+<p>A VAE maximizes a lower bound on <span class="math inline">\log p(x)</span> (reconstruction minus KL to a prior). A GAN plays a min-max game that corresponds roughly to a JS or reverse-KL objective and never computes a density. VAEs train stably, cover modes, and provide an encoder and a likelihood bound, but give blurry samples because of the MSE likelihood and mode covering. GANs give sharp one-pass samples but are unstable, prone to mode collapse, and have no encoder or likelihood. VQGAN and SD autoencoders combine both.</p>
+</div></details>
+<details class="qa qa-asked" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">How do GANs differ from diffusion models, and why do diffusion models usually give better results?</span><span class="qa-badge" title="Reported in a real interview">Asked · Meitu AIGC vision algorithm interview, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>A GAN learns a one-step map from noise through an adversarial game. A diffusion model learns to reverse a fixed noising process with a regression (denoising) loss and samples iteratively. The diffusion objective is stable, non-adversarial and tied to a likelihood bound, so it covers modes and scales predictably with data and model size. Iterative sampling splits generation into many easy steps, and guidance gives a quality-diversity knob. GANs remain far faster at inference and are still used as losses. See <a href="diffusion-models.html">diffusion models</a>.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">What does the optimal discriminator output at the GAN equilibrium?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">1/2</span> everywhere, because <span class="math inline">D^* = p_{\text{data}}/(p_{\text{data}}+p_g)</span> and <span class="math inline">p_g = p_{\text{data}}</span>. The value of the game is <span class="math inline">-\log 4</span>.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">What is TTUR?</span>
+</summary><div class="qa-body">
+<p>Separate learning rates for discriminator and generator. Heusel et al. (2017) prove convergence to a local Nash equilibrium under stochastic-approximation assumptions.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">What does the truncation trick trade?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">w&#39; = \bar w + \psi(w-\bar w)</span> with <span class="math inline">\psi&lt;1</span> moves samples toward the dense centre of <span class="math inline">\mathcal{W}</span>, raising fidelity and lowering diversity. Guidance in diffusion is a similar knob.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">How do DiffAugment and ADA help small-data GANs?</span>
+</summary><div class="qa-body">
+<p>They apply the same differentiable augmentations to real and fake images before <span class="math inline">D</span>, so <span class="math inline">D</span> cannot memorize the data and the augmentations do not leak into samples. ADA adapts the augmentation probability from an overfitting signal.</p>
+</div></details>
+<details class="qa qa-asked" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">Why push the VAE’s latent distribution toward <span class="math inline">\mathcal{N}(0,I)</span>?</span><span class="qa-badge" title="Reported in a real interview">Asked · ByteDance vision algorithm interview, Nowcoder 2023</span>
+</summary><div class="qa-body">
+<p>At generation time we sample <span class="math inline">z\sim p(z)</span> with no encoder, so training codes must fill the region the prior samples from. The KL keeps posteriors overlapping and near the prior, so random <span class="math inline">z</span> decode to valid images.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">Why does the VQ-VAE loss have no KL term?</span>
+</summary><div class="qa-body">
+<p>With a deterministic one-hot posterior and a uniform prior over <span class="math inline">K</span> codes, the KL is the constant <span class="math inline">\log K</span>, so it drops out of the gradient.</p>
+</div></details>
+<details class="qa qa-asked" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">What advantages does VQ-VAE have over a Gaussian VAE?</span><span class="qa-badge" title="Reported in a real interview">Asked · iFlytek interview, Nowcoder 2023</span>
+</summary><div class="qa-body">
+<p>Discrete codes plug directly into transformers trained with cross-entropy, there is little posterior collapse, and a learned prior over codes replaces the weak <span class="math inline">\mathcal{N}(0,I)</span>, so samples are sharper. The costs are codebook collapse and straight-through bias.</p>
+</div></details>
+<details class="qa qa-asked" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">What role does the VAE play in Stable Diffusion?</span><span class="qa-badge" title="Reported in a real interview">Asked · ByteDance AIGC algorithm intern interview, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>It compresses <span class="math inline">512\times512\times3</span> images to <span class="math inline">64\times64\times4</span> latents, so diffusion runs in a space 48 times smaller. Its GAN-trained decoder maps denoised latents back to pixels and supplies much of the fine texture.</p>
+</div></details>
+<details class="qa qa-asked" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">What is the Stable Diffusion VAE scaling factor, and why does it exist?</span><span class="qa-badge" title="Reported in a real interview">Asked · JD machine learning algorithm interview, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>0.18215 for SD 1.x/2.x (0.13025 for SDXL). Latents are multiplied by it before diffusion and divided by it before decoding. It was chosen to give the latents roughly unit variance, which means the raw latents’ standard deviation was estimated at about <span class="math inline">1/0.18215\approx5.5</span>. The noise schedule assumes unit-variance data, so the wrong factor changes the effective SNR at every timestep.</p>
+</div></details>
+<details class="qa" id="q33"><summary>
+<span class="qa-n">Q33</span><span class="qa-q">What is the perception-distortion trade-off?</span>
+</summary><div class="qa-body">
+<p>Blau &amp; Michaeli (2018) prove that beyond some point, lower distortion (e.g., MSE) and outputs indistinguishable from real images conflict. This is why super-resolution systems add adversarial losses and accept lower PSNR.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Goodfellow et al., “Generative Adversarial Networks”, 2014. <a href="https://arxiv.org/abs/1406.2661" target="_blank" rel="noopener">arXiv:1406.2661</a></li>
+<li>Arjovsky &amp; Bottou, “Towards Principled Methods for Training Generative Adversarial Networks”, 2017. <a href="https://arxiv.org/abs/1701.04862" target="_blank" rel="noopener">arXiv:1701.04862</a></li>
+<li>Arjovsky, Chintala &amp; Bottou, “Wasserstein GAN”, 2017. <a href="https://arxiv.org/abs/1701.07875" target="_blank" rel="noopener">arXiv:1701.07875</a></li>
+<li>Gulrajani et al., “Improved Training of Wasserstein GANs”, 2017. <a href="https://arxiv.org/abs/1704.00028" target="_blank" rel="noopener">arXiv:1704.00028</a></li>
+<li>Mescheder, Geiger &amp; Nowozin, “Which Training Methods for GANs do actually Converge?”, 2018. <a href="https://arxiv.org/abs/1801.04406" target="_blank" rel="noopener">arXiv:1801.04406</a></li>
+<li>Miyato et al., “Spectral Normalization for Generative Adversarial Networks”, 2018. <a href="https://arxiv.org/abs/1802.05957" target="_blank" rel="noopener">arXiv:1802.05957</a></li>
+<li>Lim &amp; Ye, “Geometric GAN”, 2017. <a href="https://arxiv.org/abs/1705.02894" target="_blank" rel="noopener">arXiv:1705.02894</a></li>
+<li>Jolicoeur-Martineau, “The relativistic discriminator: a key element missing from standard GAN”, 2018. <a href="https://arxiv.org/abs/1807.00734" target="_blank" rel="noopener">arXiv:1807.00734</a></li>
+<li>Huang et al., “The GAN is dead; long live the GAN! A Modern GAN Baseline”, NeurIPS 2024. <a href="https://arxiv.org/abs/2501.05441" target="_blank" rel="noopener">arXiv:2501.05441</a></li>
+<li>Salimans et al., “Improved Techniques for Training GANs”, 2016. <a href="https://arxiv.org/abs/1606.03498" target="_blank" rel="noopener">arXiv:1606.03498</a></li>
+<li>Heusel et al., “GANs Trained by a Two Time-Scale Update Rule Converge to a Local Nash Equilibrium”, 2017. <a href="https://arxiv.org/abs/1706.08500" target="_blank" rel="noopener">arXiv:1706.08500</a></li>
+<li>Karras et al., “Progressive Growing of GANs for Improved Quality, Stability, and Variation”, 2017. <a href="https://arxiv.org/abs/1710.10196" target="_blank" rel="noopener">arXiv:1710.10196</a></li>
+<li>Brock, Donahue &amp; Simonyan, “Large Scale GAN Training for High Fidelity Natural Image Synthesis”, 2018. <a href="https://arxiv.org/abs/1809.11096" target="_blank" rel="noopener">arXiv:1809.11096</a></li>
+<li>Karras, Laine &amp; Aila, “A Style-Based Generator Architecture for Generative Adversarial Networks”, 2018. <a href="https://arxiv.org/abs/1812.04948" target="_blank" rel="noopener">arXiv:1812.04948</a></li>
+<li>Karras et al., “Analyzing and Improving the Image Quality of StyleGAN”, 2019. <a href="https://arxiv.org/abs/1912.04958" target="_blank" rel="noopener">arXiv:1912.04958</a></li>
+<li>Karras et al., “Training Generative Adversarial Networks with Limited Data”, 2020. <a href="https://arxiv.org/abs/2006.06676" target="_blank" rel="noopener">arXiv:2006.06676</a></li>
+<li>Zhao et al., “Differentiable Augmentation for Data-Efficient GAN Training”, 2020. <a href="https://arxiv.org/abs/2006.10738" target="_blank" rel="noopener">arXiv:2006.10738</a></li>
+<li>Sauer et al., “Projected GANs Converge Faster”, 2021. <a href="https://arxiv.org/abs/2111.01007" target="_blank" rel="noopener">arXiv:2111.01007</a></li>
+<li>Kumari et al., “Ensembling Off-the-shelf Models for GAN Training”, 2021. <a href="https://arxiv.org/abs/2112.09130" target="_blank" rel="noopener">arXiv:2112.09130</a></li>
+<li>Sauer et al., “StyleGAN-T: Unlocking the Power of GANs for Fast Large-Scale Text-to-Image Synthesis”, 2023. <a href="https://arxiv.org/abs/2301.09515" target="_blank" rel="noopener">arXiv:2301.09515</a></li>
+<li>Sauer et al., “Adversarial Diffusion Distillation”, 2023. <a href="https://arxiv.org/abs/2311.17042" target="_blank" rel="noopener">arXiv:2311.17042</a></li>
+<li>Kynkäänniemi et al., “The Role of ImageNet Classes in Fréchet Inception Distance”, 2022. <a href="https://arxiv.org/abs/2203.06026" target="_blank" rel="noopener">arXiv:2203.06026</a></li>
+<li>Ledig et al., “Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network”, 2016. <a href="https://arxiv.org/abs/1609.04802" target="_blank" rel="noopener">arXiv:1609.04802</a></li>
+<li>Wang et al., “ESRGAN: Enhanced Super-Resolution Generative Adversarial Networks”, 2018. <a href="https://arxiv.org/abs/1809.00219" target="_blank" rel="noopener">arXiv:1809.00219</a></li>
+<li>Wang et al., “Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data”, 2021. <a href="https://arxiv.org/abs/2107.10833" target="_blank" rel="noopener">arXiv:2107.10833</a></li>
+<li>Blau &amp; Michaeli, “The Perception-Distortion Tradeoff”, 2017. <a href="https://arxiv.org/abs/1711.06077" target="_blank" rel="noopener">arXiv:1711.06077</a></li>
+<li>Kang et al., “Scaling up GANs for Text-to-Image Synthesis” (GigaGAN), 2023. <a href="https://arxiv.org/abs/2303.05511" target="_blank" rel="noopener">arXiv:2303.05511</a></li>
+<li>Kingma &amp; Welling, “Auto-Encoding Variational Bayes”, 2013. <a href="https://arxiv.org/abs/1312.6114" target="_blank" rel="noopener">arXiv:1312.6114</a></li>
+<li>Higgins et al., “beta-VAE: Learning Basic Visual Concepts with a Constrained Variational Framework”, ICLR 2017. <a href="https://openreview.net/forum?id=Sy2fzU9gl" target="_blank" rel="noopener">OpenReview</a></li>
+<li>Bowman et al., “Generating Sentences from a Continuous Space”, 2015. <a href="https://arxiv.org/abs/1511.06349" target="_blank" rel="noopener">arXiv:1511.06349</a></li>
+<li>Kingma et al., “Improving Variational Inference with Inverse Autoregressive Flow”, 2016. <a href="https://arxiv.org/abs/1606.04934" target="_blank" rel="noopener">arXiv:1606.04934</a></li>
+<li>Lucas et al., “Don’t Blame the ELBO! A Linear VAE Perspective on Posterior Collapse”, 2019. <a href="https://arxiv.org/abs/1911.02469" target="_blank" rel="noopener">arXiv:1911.02469</a></li>
+<li>Jang, Gu &amp; Poole, “Categorical Reparameterization with Gumbel-Softmax”, 2016. <a href="https://arxiv.org/abs/1611.01144" target="_blank" rel="noopener">arXiv:1611.01144</a></li>
+<li>Vahdat &amp; Kautz, “NVAE: A Deep Hierarchical Variational Autoencoder”, 2020. <a href="https://arxiv.org/abs/2007.03898" target="_blank" rel="noopener">arXiv:2007.03898</a></li>
+<li>van den Oord, Vinyals &amp; Kavukcuoglu, “Neural Discrete Representation Learning” (VQ-VAE), 2017. <a href="https://arxiv.org/abs/1711.00937" target="_blank" rel="noopener">arXiv:1711.00937</a></li>
+<li>Esser, Rombach &amp; Ommer, “Taming Transformers for High-Resolution Image Synthesis” (VQGAN), 2020. <a href="https://arxiv.org/abs/2012.09841" target="_blank" rel="noopener">arXiv:2012.09841</a></li>
+<li>Yu et al., “Vector-quantized Image Modeling with Improved VQGAN”, 2021. <a href="https://arxiv.org/abs/2110.04627" target="_blank" rel="noopener">arXiv:2110.04627</a></li>
+<li>Lee et al., “Autoregressive Image Generation using Residual Quantization” (RQ-VAE), 2022. <a href="https://arxiv.org/abs/2203.01941" target="_blank" rel="noopener">arXiv:2203.01941</a></li>
+<li>Dhariwal et al., “Jukebox: A Generative Model for Music”, 2020. <a href="https://arxiv.org/abs/2005.00341" target="_blank" rel="noopener">arXiv:2005.00341</a></li>
+<li>Mentzer et al., “Finite Scalar Quantization: VQ-VAE Made Simple”, 2023. <a href="https://arxiv.org/abs/2309.15505" target="_blank" rel="noopener">arXiv:2309.15505</a></li>
+<li>Yu et al., “Language Model Beats Diffusion – Tokenizer is Key to Visual Generation” (MAGVIT-v2), 2023. <a href="https://arxiv.org/abs/2310.05737" target="_blank" rel="noopener">arXiv:2310.05737</a></li>
+<li>Rombach et al., “High-Resolution Image Synthesis with Latent Diffusion Models”, 2021. <a href="https://arxiv.org/abs/2112.10752" target="_blank" rel="noopener">arXiv:2112.10752</a></li>
+<li>Esser et al., “Scaling Rectified Flow Transformers for High-Resolution Image Synthesis” (SD3), 2024. <a href="https://arxiv.org/abs/2403.03206" target="_blank" rel="noopener">arXiv:2403.03206</a></li>
+<li>Yao, Yang &amp; Wang, “Reconstruction vs. Generation: Taming Optimization Dilemma in Latent Diffusion Models”, 2025. <a href="https://arxiv.org/abs/2501.01423" target="_blank" rel="noopener">arXiv:2501.01423</a></li>
+<li>Chen et al., “Deep Compression Autoencoder for Efficient High-Resolution Diffusion Models”, 2024. <a href="https://arxiv.org/abs/2410.10733" target="_blank" rel="noopener">arXiv:2410.10733</a></li>
+<li>van den Oord, Kalchbrenner &amp; Kavukcuoglu, “Pixel Recurrent Neural Networks”, 2016. <a href="https://arxiv.org/abs/1601.06759" target="_blank" rel="noopener">arXiv:1601.06759</a></li>
+<li>van den Oord et al., “Conditional Image Generation with PixelCNN Decoders”, 2016. <a href="https://arxiv.org/abs/1606.05328" target="_blank" rel="noopener">arXiv:1606.05328</a></li>
+<li>Salimans et al., “PixelCNN++”, 2017. <a href="https://arxiv.org/abs/1701.05517" target="_blank" rel="noopener">arXiv:1701.05517</a></li>
+<li>Ramesh et al., “Zero-Shot Text-to-Image Generation” (DALL-E), 2021. <a href="https://arxiv.org/abs/2102.12092" target="_blank" rel="noopener">arXiv:2102.12092</a></li>
+<li>Yu et al., “Scaling Autoregressive Models for Content-Rich Text-to-Image Generation” (Parti), 2022. <a href="https://arxiv.org/abs/2206.10789" target="_blank" rel="noopener">arXiv:2206.10789</a></li>
+<li>Sun et al., “Autoregressive Model Beats Diffusion: Llama for Scalable Image Generation”, 2024. <a href="https://arxiv.org/abs/2406.06525" target="_blank" rel="noopener">arXiv:2406.06525</a></li>
+<li>Chang et al., “MaskGIT: Masked Generative Image Transformer”, 2022. <a href="https://arxiv.org/abs/2202.04200" target="_blank" rel="noopener">arXiv:2202.04200</a></li>
+<li>Chang et al., “Muse: Text-To-Image Generation via Masked Generative Transformers”, 2023. <a href="https://arxiv.org/abs/2301.00704" target="_blank" rel="noopener">arXiv:2301.00704</a></li>
+<li>Tian et al., “Visual Autoregressive Modeling: Scalable Image Generation via Next-Scale Prediction”, 2024. <a href="https://arxiv.org/abs/2404.02905" target="_blank" rel="noopener">arXiv:2404.02905</a></li>
+<li>Li et al., “Autoregressive Image Generation without Vector Quantization”, 2024. <a href="https://arxiv.org/abs/2406.11838" target="_blank" rel="noopener">arXiv:2406.11838</a></li>
+<li>Dinh, Sohl-Dickstein &amp; Bengio, “Density estimation using Real NVP”, 2016. <a href="https://arxiv.org/abs/1605.08803" target="_blank" rel="noopener">arXiv:1605.08803</a></li>
+<li>Kingma &amp; Dhariwal, “Glow: Generative Flow with Invertible 1x1 Convolutions”, 2018. <a href="https://arxiv.org/abs/1807.03039" target="_blank" rel="noopener">arXiv:1807.03039</a></li>
+<li>Zhai et al., “Normalizing Flows are Capable Generative Models” (TarFlow), 2024. <a href="https://arxiv.org/abs/2412.06329" target="_blank" rel="noopener">arXiv:2412.06329</a></li>
+<li>Xiao, Kreis &amp; Vahdat, “Tackling the Generative Learning Trilemma with Denoising Diffusion GANs”, 2021. <a href="https://arxiv.org/abs/2112.07804" target="_blank" rel="noopener">arXiv:2112.07804</a></li>
+<li>Theis, van den Oord &amp; Bethge, “A note on the evaluation of generative models”, 2015. <a href="https://arxiv.org/abs/1511.01844" target="_blank" rel="noopener">arXiv:1511.01844</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="flow-matching.html"><span class="pager-dir">Previous</span><span class="pager-title">Flow Matching and Few-Step Generation</span></a>
+        <a class="pager-next" href="evaluation-metrics.html"><span class="pager-dir">Next</span><span class="pager-title">Evaluating Generative and Restoration Models</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>

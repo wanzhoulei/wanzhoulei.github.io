@@ -57,6 +57,14 @@ img { max-width: 100%; height: auto; }
   border-radius: 4px;
 }
 .site-nav .cv-btn:hover { text-decoration: none; background: #ffc843; }
+.site-nav .notes-btn {
+  border: 1.5px solid var(--gold);
+  color: var(--gold);
+  font-weight: 700;
+  padding: 3.5px 13px;
+  border-radius: 4px;
+}
+.site-nav .notes-btn:hover, .site-nav .notes-btn.is-current { text-decoration: none; background: rgba(253, 181, 21, 0.16); }
 
 /* ---------- About ---------- */
 .about {

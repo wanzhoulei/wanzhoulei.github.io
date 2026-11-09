@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Text-to-Image and Multimodal Generation · Notes · Wanzhou Lei</title>
+  <meta name="description" content="How text gets into an image generator: conditioning blocks, text encoders, captions, guidance, adapters, editing, unified models, and post-training.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Text-to-Image and Multimodal Generation</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#reference-systems" id="toc-reference-systems">Reference systems</a></li>
+      <li><a href="#conditioning-mechanisms" id="toc-conditioning-mechanisms">Conditioning mechanisms</a></li>
+      <li><a href="#text-encoders" id="toc-text-encoders">Text encoders</a></li>
+      <li><a href="#captions-recaptioning-and-prompt-rewriting" id="toc-captions-recaptioning-and-prompt-rewriting">Captions, recaptioning and prompt rewriting</a></li>
+      <li><a href="#training-practicalities" id="toc-training-practicalities">Training practicalities</a></li>
+      <li><a href="#guidance-with-text" id="toc-guidance-with-text">Guidance with text</a></li>
+      <li><a href="#personalization-and-control" id="toc-personalization-and-control">Personalization and control</a></li>
+      <li><a href="#editing" id="toc-editing">Editing</a></li>
+      <li><a href="#unified-understanding-and-generation" id="toc-unified-understanding-and-generation">Unified understanding and generation</a></li>
+      <li><a href="#post-training-and-alignment" id="toc-post-training-and-alignment">Post-training and alignment</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Text-to-Image and Multimodal Generation</h1>
+        <p class="page-lede">How text gets into an image generator: conditioning blocks, text encoders, captions, guidance, adapters, editing, unified models, and post-training.</p>
+        <p class="note-meta"><span>Updated 2026-11-08</span><span>30 practice questions</span><span>31 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#reference-systems">Reference systems</a></li>
+<li><a href="#conditioning-mechanisms">Conditioning mechanisms</a></li>
+<li><a href="#text-encoders">Text encoders</a></li>
+<li><a href="#captions-recaptioning-and-prompt-rewriting">Captions, recaptioning and prompt rewriting</a></li>
+<li><a href="#training-practicalities">Training practicalities</a></li>
+<li><a href="#guidance-with-text">Guidance with text</a></li>
+<li><a href="#personalization-and-control">Personalization and control</a></li>
+<li><a href="#editing">Editing</a></li>
+<li><a href="#unified-understanding-and-generation">Unified understanding and generation</a></li>
+<li><a href="#post-training-and-alignment">Post-training and alignment</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>A text-to-image model is a conditional generator <span class="math inline">p_\theta(x \mid c)</span> over images (usually VAE latents) given a prompt <span class="math inline">c</span>. The sampler is covered in <a href="diffusion-models.html">diffusion models</a> and <a href="flow-matching.html">flow matching</a>. This page covers what makes the condition work: how text enters the network, which encoder produces it, what captions the model saw, how guidance strengthens it, and how pretrained models are extended with adapters, editing methods, unified architectures and reward-based post-training. Interviews here mix architecture questions (where do Q, K, V come from), short derivations (LoRA gradients, two-scale guidance, Diffusion-DPO) and data judgment. Several of the largest reported quality jumps came from the text encoder and the captions rather than the sampler (Imagen, DALL-E 3).</p>
+<h2 id="reference-systems">Reference systems</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Model</th>
+<th>Backbone</th>
+<th>Text encoder(s)</th>
+<th>How text enters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SD 1.x (LDM)</td>
+<td>latent U-Net</td>
+<td>CLIP ViT-L/14</td>
+<td>cross-attention</td>
+</tr>
+<tr>
+<td>Imagen</td>
+<td>pixel U-Net cascade, 64 to 1024 px</td>
+<td>frozen T5-XXL</td>
+<td>cross-attention + pooled vector added to timestep embedding</td>
+</tr>
+<tr>
+<td>SDXL</td>
+<td>2.6B latent U-Net</td>
+<td>CLIP ViT-L + OpenCLIP ViT-bigG</td>
+<td>cross-attention + OpenCLIP pooled vector</td>
+</tr>
+<tr>
+<td>PixArt-<span class="math inline">\alpha</span></td>
+<td>DiT</td>
+<td>Flan-T5-XXL, 120 tokens</td>
+<td>cross-attention; timestep via adaLN-single</td>
+</tr>
+<tr>
+<td>SD3</td>
+<td>MMDiT, rectified flow</td>
+<td>CLIP-L, CLIP-G, T5-XXL</td>
+<td>joint attention; pooled CLIP in modulation</td>
+</tr>
+<tr>
+<td>FLUX.1</td>
+<td>19 double-stream + 38 single-stream blocks</td>
+<td>T5-v1.1-XXL + pooled CLIP-L</td>
+<td>joint attention; pooled CLIP + timestep (+ guidance) in modulation</td>
+</tr>
+</tbody>
+</table>
+<h2 id="conditioning-mechanisms">Conditioning mechanisms</h2>
+<p>Four ways to inject a condition into a denoiser <span class="math inline">f_\theta(x_t, t, c)</span>. They differ in what kind of condition they suit (pixel-aligned map, global vector, token sequence) and in cost.</p>
+<h3 id="concatenation">Concatenation</h3>
+<p><strong>Channel concatenation</strong> suits pixel-aligned conditions: the low-resolution input in super-resolution, mask and masked image in inpainting, the source image in instruction editing. The input becomes <span class="math inline">[x_t; E(c)]</span>, and the first layer’s new input weights are usually zero-initialized so the pretrained model is unchanged at step 0 (InstructPix2Pix does this). <strong>Sequence concatenation</strong> appends condition tokens to the image tokens and lets self-attention mix them, as in DiT’s “in-context” variant and FLUX.1 Kontext’s context-image tokens. It needs no new layers but pays <span class="math inline">(N+M)^2</span> attention, and shared weights treat both modalities identically.</p>
+<h3 id="cross-attention">Cross-attention</h3>
+<p>Latent Diffusion takes queries from spatial features <span class="math inline">\varphi(z_t) \in \mathbb{R}^{N\times d_z}</span> and keys and values from text-encoder outputs <span class="math inline">\tau(y) \in \mathbb{R}^{M\times d_\tau}</span>:</p>
+<p><span class="math display">
+Q = \varphi(z_t) W_Q,\quad K = \tau(y) W_K,\quad V = \tau(y) W_V,\qquad
+\mathrm{CA} = \underbrace{\mathrm{softmax}\!\Big(\frac{QK^\top}{\sqrt d}\Big)}_{A \in \mathbb{R}^{N \times M}} V .
+</span></p>
+<p>Row <span class="math inline">i</span> of <span class="math inline">A</span> is a distribution over the <span class="math inline">M</span> words for location <span class="math inline">i</span>, so each location outputs its own convex combination of word values. That per-location routing is what binds “red” to the cube and “blue” to the sphere, and it makes the columns of <span class="math inline">A</span> interpretable word masks. Cost is <span class="math inline">O(NMd)</span> with small <span class="math inline">M</span> (77 for CLIP). The limitation: text features are the same frozen encoder output at every layer and never adapt to the image.</p>
+<h3 id="adaln-and-adaln-zero">adaLN and adaLN-Zero</h3>
+<p>FiLM-style conditioning from a global vector <span class="math inline">e = \mathrm{emb}(t) + \mathrm{emb}(y)</span>. A DiT block with adaLN-Zero (LayerNorm without its own affine):</p>
+<p><span class="math display">
+\begin{aligned}
+(\beta_1,\gamma_1,\alpha_1,\beta_2,\gamma_2,\alpha_2) &amp;= \mathrm{MLP}(e),\\
+x &amp;\leftarrow x + \alpha_1 \odot \mathrm{Attn}\big((1+\gamma_1)\odot \mathrm{LN}(x) + \beta_1\big),\\
+x &amp;\leftarrow x + \alpha_2 \odot \mathrm{FFN}\big((1+\gamma_2)\odot \mathrm{LN}(x) + \beta_2\big).
+\end{aligned}
+</span></p>
+<p>The MLP’s last layer is zero-initialized, so <span class="math inline">\alpha = 0</span> and every block starts as the identity. In DiT’s class-conditional ablation (XL/2, 400K steps) FID was 19.47 for adaLN-Zero, 25.21 for adaLN, 26.14 for cross-attention (about 15% more compute) and 35.24 for in-context. But adaLN applies one affine map to all tokens, so it is global: a pooled text vector cannot make location <span class="math inline">i</span> red and location <span class="math inline">j</span> blue, and SD3’s authors note pooled text keeps only coarse information. Text-to-image DiTs therefore keep adaLN for the timestep (plus pooled text) and add a sequence path. PixArt-<span class="math inline">\alpha</span> adds cross-attention and replaces per-block modulation MLPs with one shared MLP plus learned per-block offsets (“adaLN-single”), cutting parameters 26%.</p>
+<h3 id="mmdit-joint-attention">MMDiT joint attention</h3>
+<p>SD3’s MMDiT keeps an image stream <span class="math inline">X \in \mathbb{R}^{N\times d}</span> and a text stream <span class="math inline">C \in \mathbb{R}^{M\times d}</span>, each with its own modulated LayerNorm, QKV and output projections and MLP. Only attention is shared:</p>
+<p><span class="math display">
+\begin{bmatrix} O_X \\ O_C \end{bmatrix}
+= \mathrm{softmax}\!\left(\frac{1}{\sqrt d}\begin{bmatrix} Q_X \\ Q_C \end{bmatrix}\begin{bmatrix} K_X \\ K_C \end{bmatrix}^{\!\top}\right)\begin{bmatrix} V_X \\ V_C \end{bmatrix},
+\qquad Q_X = \tilde X W_Q^{X},\; Q_C = \tilde C W_Q^{C}.
+</span></p>
+<p>One softmax covers all four directions of attention, and text tokens are rewritten at every layer, so the text representation can adapt to the image. Modulation comes from <span class="math inline">\mathrm{emb}(t)</span> plus an MLP of pooled CLIP embeddings. SD3 adds RMSNorm on queries and keys to stop logit growth, enabling bf16 training. In its controlled comparison MMDiT beat a cross-attention DiT, a UViT and a vanilla DiT that concatenates text and image tokens with shared weights (MMDiT with one weight set). A third weight set (separate CLIP and T5 streams) gave only a small gain. FLUX.1 runs 19 such double-stream blocks, then concatenates the streams into 38 single-stream blocks with shared weights and parallel attention and MLP.</p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>Condition</th>
+<th>Per-location routing</th>
+<th>Text sees image</th>
+<th>Extra cost</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Channel concat</td>
+<td>pixel-aligned map</td>
+<td>by construction</td>
+<td>n/a</td>
+<td>~0</td>
+<td>SR, inpainting, InstructPix2Pix</td>
+</tr>
+<tr>
+<td>Token concat</td>
+<td>any tokens</td>
+<td>yes</td>
+<td>yes</td>
+<td><span class="math inline">(N+M)^2</span> attention</td>
+<td>DiT in-context, Kontext</td>
+</tr>
+<tr>
+<td>Cross-attention</td>
+<td>token sequence</td>
+<td>yes</td>
+<td>no</td>
+<td><span class="math inline">NM</span> attention</td>
+<td>SD 1.x/XL, Imagen, PixArt-<span class="math inline">\alpha</span></td>
+</tr>
+<tr>
+<td>adaLN(-Zero)</td>
+<td>global vector</td>
+<td>no</td>
+<td>n/a</td>
+<td>small MLP</td>
+<td>timestep, class, pooled text</td>
+</tr>
+<tr>
+<td>Joint attention</td>
+<td>token sequence</td>
+<td>yes</td>
+<td>yes</td>
+<td><span class="math inline">(N+M)^2</span>, ~2x params</td>
+<td>SD3, FLUX.1</td>
+</tr>
+</tbody>
+</table>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p>Match the mechanism to the condition’s shape: pixel-aligned maps go in by concatenation or residual addition, global vectors by modulation, token sequences by attention. Modern models use two at once: modulation for timestep and pooled text, attention for the word sequence.</p>
+</aside>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">In Stable Diffusion’s cross-attention, where do Q, K and V come from, and what does the attention map mean?</span>
+</summary><div class="qa-body">
+<p>Queries come from the U-Net’s spatial features at that layer (flattened to <span class="math inline">N</span> tokens); keys and values come from the text encoder’s <span class="math inline">M</span> token embeddings, each through a learned projection. <span class="math inline">A = \mathrm{softmax}(QK^\top/\sqrt d)</span> gives, for each location, how much it reads each word, and the output there is the weighted average of word values, added back to the residual stream. Consequences: regions can read different words (attribute binding), each word’s column is a soft segmentation map (which Prompt-to-Prompt edits), and cost is linear in prompt length. The text never sees the image, which is what joint attention changes.</p>
+</div></details>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">Why zero-initialize the adaLN gate?</span>
+</summary><div class="qa-body">
+<p>With <span class="math inline">\alpha = 0</span> every residual branch outputs zero, so the network starts as the identity and gradients reach all blocks through the skip path; each block then learns how much to contribute, like zero-initializing the last BatchNorm scale in a ResNet. In DiT’s ablation this beat plain adaLN by about 6 FID.</p>
+</div></details>
+<details class="qa qa-asked" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">How is the text condition injected in FLUX?</span><span class="qa-badge" title="Reported in a real interview">Asked · Baidu multimodal algorithm intern, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>Two paths. Per-token: T5-v1.1-XXL hidden states (4096-d) are projected to model width and form the text stream of 19 double-stream blocks, which keep separate text and image weights but share one joint attention; the streams are then concatenated for 38 single-stream blocks with shared weights. Global: the pooled CLIP ViT-L/14 embedding (768-d) passes through an MLP and is added to the timestep embedding (and, in the guidance-distilled dev model, a guidance-scale embedding); this vector sets shift, scale and gate in every block. Positions use 3D RoPE over (index, height, width); in the reference code image tokens get <span class="math inline">(0,h,w)</span> and text tokens all zeros, so word order comes from T5 itself.</p>
+</div></details>
+<h2 id="text-encoders">Text encoders</h2>
+<p><strong>CLIP text tower.</strong> Contrastively trained against images, 77-token context, causal mask, pooled embedding at the end-of-text token. Its space is already aligned with visual concepts and styles, but a contrastive loss on short alt-text rewards knowing <em>which</em> things appear more than <em>how</em> they relate: such models act like bags of words on order and binding probes (Yuksekgonul et al.).</p>
+<p><strong>T5 encoder.</strong> Text-only, bidirectional, trained by span corruption on a large corpus. Imagen’s key finding: scaling the frozen text encoder improved fidelity and alignment much more than scaling the U-Net, and on DrawBench raters preferred T5-XXL over CLIP on both (the two were similar on MS-COCO). The image model learns language only from captions, a small noisy corpus, so a strong frozen LM supplies syntax, counting and rare words it could not learn alone.</p>
+<p><strong>Decoder-only LLMs.</strong> Playground v3 conditions only on a decoder-only LLM, Sana uses a small decoder LLM with an instruction prefix, and Qwen-Image conditions on Qwen2.5-VL. They bring world knowledge, multilingual input and long prompts. The catch: under causal attention early tokens never see later words, and last-layer states are tuned for next-token prediction, so systems read hidden states from many layers (Playground v3 feeds each LLM layer to the matching image-model layer), add trainable layers on top, or prepend a template.</p>
+<p><strong>Pooled versus per-token.</strong> A pooled vector is a cheap global summary for the modulation path; per-token embeddings are needed for binding and layout. Imagen, SDXL, SD3 and FLUX use both.</p>
+<p><strong>Spelling.</strong> Subword tokenizers hide letters. Liu et al.’s character-aware models (adding ByT5) beat character-blind competitors on visual spelling by 30+ points on rare words, and the DALL-E 3 report suspects T5 tokenization contributes to its unreliable text. SD3 measured T5’s role: dropping it at inference left aesthetics unchanged (50% win rate) but lowered prompt adherence (46%) and typography (38%).</p>
+<details class="qa qa-asked" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">How would you train a model to render text in images accurately?</span><span class="qa-badge" title="Reported in a real interview">Asked · Taotian AIGC image algorithm, Nowcoder 2025</span>
+</summary><div class="qa-body">
+<p>Data: captions must transcribe visible text, usually in quotes, via OCR or a captioner trained to include words, plus synthetic rendered-text images for rare words and scripts. Encoder: a character-aware or large encoder (ByT5, T5-XXL, an LLM) with a per-token path; joint attention helps glyph layout. Resolution: small glyphs must survive the VAE and patchification, so check reconstruction of text and train at high resolution. Post-training: OCR-based rewards work well; Flow-GRPO raised SD3.5-M’s text accuracy from 0.59 to 0.92. Evaluate OCR accuracy per script, since logographic scripts behave differently from Latin.</p>
+</div></details>
+<h2 id="captions-recaptioning-and-prompt-rewriting">Captions, recaptioning and prompt rewriting</h2>
+<p>Web alt-text omits most of an image, so the model learns to ignore prompt details it could never ground. The DALL-E 3 report fixed this with data: train a captioner, fine-tune it to produce short (main subject) and descriptive (subject, surroundings, colors, visible text) captions, and recaption everything. Among blends of 65% to 95% synthetic captions, more synthetic scored better, and DALL-E 3 used 95% synthetic plus 5% ground truth. Because the model then expects long captions, GPT-4 “upsampled” short user prompts at inference. Prompt rewriting maps prompts into the training-caption distribution but can add unrequested content, override explicit constraints, homogenize style and add latency; mitigations are instructing the rewriter to keep every stated constraint, showing the rewritten prompt, and training on mixed caption lengths.</p>
+<p>PixArt-<span class="math inline">\alpha</span> captioned SAM images with LLaVA: 29.3 nouns per image on average, versus 6.4 for LAION alt-text. SD3 used 50% CogVLM captions, lifting GenEval from 43.27 to 49.78. The failure mode is inheritance: captioner hallucinations become false labels (DALL-E 3 reports hallucinated plant and bird species) and captioner blind spots become generator blind spots (its spatial words were unreliable).</p>
+<details class="qa" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">DALL-E 3 trained on 95% synthetic captions. Why not 100%?</span>
+</summary><div class="qa-body">
+<p>A captioner has stylistic habits (casing, punctuation, length, starting with “a”) that the generator absorbs as requirements, so a model trained only on captioner text can break on human-written prompts. The 5% of real captions regularizes the conditioning toward human phrasing. The general lesson is to match inference prompts to the training caption distribution, through the data mix, through rewriting, or both.</p>
+</div></details>
+<h2 id="training-practicalities">Training practicalities</h2>
+<p><strong>Aspect ratio and micro-conditioning.</strong> Square crops cut off heads and teach the model to crop; dropping images under 256 px would have removed 39% of SDXL’s data. SDXL Fourier-embeds the original size <span class="math inline">(h,w)</span> and crop offsets <span class="math inline">(c_{\text{top}}, c_{\text{left}})</span> and adds them to the timestep embedding; at inference, crop <span class="math inline">(0,0)</span> and a large size give centered, sharp images. It also buckets images by aspect ratio at about <span class="math inline">1024^2</span> pixels with sides in multiples of 64, draws each batch from one bucket, and conditions on the target size.</p>
+<p><strong>Positional encodings.</strong> Absolute embeddings on a fixed grid must be interpolated for new sizes, which changes what each position means. SD3 builds 2D sinusoidal embeddings on an extended and interpolated grid and center-crops per aspect ratio. RoPE encodes relative position inside attention and works for any <span class="math inline">H\times W</span>; FLUX uses 3D axial RoPE, FiT and Lumina-Next study resolution extrapolation, and NaViT packs native-resolution sequences. Far beyond trained sizes, models still tend to repeat objects.</p>
+<p><strong>Resolution-dependent shift.</strong> At high resolution neighboring pixels are redundant, so a given noise level destroys less information. SD3 remaps rectified-flow time (<span class="math inline">x_t = (1-t)x_0 + t\epsilon</span>) from <span class="math inline">n</span> to <span class="math inline">m</span> pixels:</p>
+<p><span class="math display">
+t_m = \frac{\alpha\, t_n}{1 + (\alpha - 1)\, t_n},\quad \alpha = \sqrt{m/n}
+\quad\Longrightarrow\quad \frac{1 - t_m}{t_m} = \frac{1}{\alpha}\cdot\frac{1 - t_n}{t_n},
+</span></p>
+<p>dividing the amplitude signal-to-noise ratio by <span class="math inline">\alpha</span>; SD3 used a shift of 3.0 at <span class="math inline">1024^2</span> for training and sampling.</p>
+<p><strong>Stages.</strong> Tokens scale with <span class="math inline">HW</span> and attention with <span class="math inline">(HW)^2</span>, so models learn composition cheaply at low resolution, then detail, then style. SDXL: 600K steps at 256 px, 200K at 512 px, then multi-aspect near 1024 px. SD3: 256 px pretraining, higher-resolution mixed aspect ratios, then DPO. PixArt-<span class="math inline">\alpha</span>: pixel dependency (from an ImageNet DiT), text-image alignment (dense captions), aesthetics. Emu’s quality-tuning on a few thousand curated images after 1.1B pairs won 82.9% of comparisons against its pretrained model, the image analogue of SFT.</p>
+<p><strong>Filtering.</strong> NSFW classifiers, aesthetic and CLIP-similarity thresholds, watermark detection, a resolution floor (or size conditioning) and deduplication; SD3’s SSCD-based dedup cut potentially memorized examples 5x. Heavy aesthetic filtering costs concept coverage, so it is usually stronger in later stages.</p>
+<details class="qa qa-asked" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">What did SDXL change relative to SD 1.x/2.x, and why?</span><span class="qa-badge" title="Reported in a real interview">Asked · Taotian AIGC image algorithm, Nowcoder 2025</span>
+</summary><div class="qa-body">
+<p>A 3x larger U-Net (2.6B) with transformer blocks shifted to lower resolutions. Two text encoders (CLIP ViT-L and OpenCLIP ViT-bigG) with penultimate features concatenated to 2048 channels, plus the OpenCLIP pooled embedding as a global condition. Size and crop micro-conditioning, so small and cropped images become usable without teaching blur or cropping. Multi-aspect bucketed training near <span class="math inline">1024^2</span> after 256 and 512 px stages. An optional refiner, specialized on low-noise steps, that re-noises and denoises the base output SDEdit-style. A retrained autoencoder with larger batch and EMA weights.</p>
+</div></details>
+<h2 id="guidance-with-text">Guidance with text</h2>
+<p>The CFG derivation is in <a href="diffusion-models.html">diffusion models</a>. Convention here: <span class="math inline">\tilde\epsilon = \epsilon_\theta(x_t, \varnothing) + w\,[\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \varnothing)]</span>, so <span class="math inline">w = 1</span> is the plain conditional model (Ho and Salimans’ <span class="math inline">w&#39;</span> equals <span class="math inline">w - 1</span>); flow models combine <span class="math inline">v</span> the same way. Training uses <strong>conditioning dropout</strong>: replace <span class="math inline">c</span> with a null (empty-string embedding or zeros) about 10% of the time (Imagen zeroed text embeddings 10%).</p>
+<p><strong>Negative prompts</strong> replace <span class="math inline">\varnothing</span> with <span class="math inline">c_-</span>:</p>
+<p><span class="math display">
+\tilde\epsilon = \epsilon(x_t, c_-) + w\,[\epsilon(x_t, c) - \epsilon(x_t, c_-)]
+\;\;\leftrightarrow\;\;
+\nabla_x \log\!\big[p(x\mid c)^{w}\, p(x\mid c_-)^{1-w}\big].
+</span></p>
+<p>For <span class="math inline">w &gt; 1</span> the exponent on <span class="math inline">p(x\mid c_-)</span> is negative, so regions likely under the negative prompt are suppressed. Ban et al. found negative prompts act with a delay, after the positive content appears, and remove concepts by cancellation in latent space.</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“A negative prompt subtracts a concept.” It replaces the unconditional branch, so guidance pushes toward <span class="math inline">c</span> relative to <span class="math inline">c_-</span>. At <span class="math inline">w = 1</span> it has no effect at all, and it can only remove what the model associates with the negative text.</p>
+</aside>
+<p><strong>High-guidance artifacts.</strong> Large <span class="math inline">w</span> inflates the prediction and oversaturates. Imagen’s dynamic thresholding clips <span class="math inline">\hat x_0</span> at a percentile <span class="math inline">s</span> and divides by <span class="math inline">s</span> (pixel space). Lin et al.’s CFG rescale works in latent space: <span class="math inline">x = \phi\, x_{\text{cfg}}\,\sigma_{\text{pos}}/\sigma_{\text{cfg}} + (1-\phi)\,x_{\text{cfg}}</span> with <span class="math inline">\phi = 0.7</span>, where <span class="math inline">\sigma</span> are standard deviations of the conditional and guided predictions.</p>
+<p><strong>Guidance distillation.</strong> Meng et al. train a student <span class="math inline">\epsilon_\eta(x_t, c, w)</span> to match the teacher’s guided output over a range of <span class="math inline">w</span>, halving per-step cost. Black Forest Labs’ model card says FLUX.1 [dev] was “trained using guidance distillation”.</p>
+<details class="qa qa-asked" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">How is classifier-free guidance trained and used at inference in a text-to-image model?</span><span class="qa-badge" title="Reported in a real interview">Asked · Image-generation vision intern, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>Train one network with the prompt replaced by a null embedding for a random ~10% of examples, so it learns <span class="math inline">p(x\mid c)</span> and <span class="math inline">p(x)</span> with shared weights. At each sampling step, run it on <span class="math inline">(x_t, c)</span> and <span class="math inline">(x_t, \varnothing)</span> as a batch of two and form <span class="math inline">\epsilon_\varnothing + w(\epsilon_c - \epsilon_\varnothing)</span>. The guided score is that of <span class="math inline">p_t(x)\,p_t(c\mid x)^w</span> at each noise level, so samples approximately follow this tilted density: sharper alignment, less diversity, saturation at large <span class="math inline">w</span>. The null used at inference must match training (empty-string embedding versus zeros), and the second pass doubles compute.</p>
+</div></details>
+<details class="qa" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">What do you lose with a guidance-distilled model?</span>
+</summary><div class="qa-body">
+<p>The unconditional branch no longer exists as a separate output, so negative prompts, guidance on extra conditions and tricks such as CFG rescale are not directly available; running two passes on a distilled model is outside its training distribution. Usable <span class="math inline">w</span> is limited to the range seen in distillation. Fine-tuning needs care: by reasoning (not a reported result), the plain denoising loss targets the unguided conditional prediction, not the guided output the student was distilled to produce, so it can pull the model away from its guidance behavior. In exchange, sampling is about twice as fast.</p>
+</div></details>
+<h2 id="personalization-and-control">Personalization and control</h2>
+<h3 id="lora">LoRA</h3>
+<p>For a frozen <span class="math inline">W_0 \in \mathbb{R}^{d\times k}</span>, LoRA learns a rank-<span class="math inline">r</span> update:</p>
+<p><span class="math display">
+h = W_0 x + \frac{\alpha}{r} B A x,\qquad B \in \mathbb{R}^{d\times r},\; A \in \mathbb{R}^{r\times k},\; r \ll \min(d,k),
+</span></p>
+<p>with <span class="math inline">r(d+k)</span> parameters instead of <span class="math inline">dk</span> (2.5% for <span class="math inline">d = k = 1280</span>, <span class="math inline">r = 16</span>). <span class="math inline">A</span> starts Gaussian and <span class="math inline">B</span> at zero, so <span class="math inline">\Delta W = 0</span>. The <span class="math inline">\alpha/r</span> factor keeps the update scale roughly independent of <span class="math inline">r</span>; with Adam, tuning <span class="math inline">\alpha</span> is close to tuning the learning rate. With <span class="math inline">G = \partial L/\partial h</span>:</p>
+<p><span class="math display">
+\frac{\partial L}{\partial B} = \frac{\alpha}{r}\, G\,(Ax)^\top,\qquad
+\frac{\partial L}{\partial A} = \frac{\alpha}{r}\, B^\top G\, x^\top ,
+</span></p>
+<p>so at step 0 only <span class="math inline">B</span> moves. Merging <span class="math inline">W = W_0 + \frac{\alpha}{r}BA</span> removes inference overhead. Several LoRAs add as <span class="math inline">W_0 + \sum_i s_i \frac{\alpha_i}{r_i} B_i A_i</span> with user strengths <span class="math inline">s_i</span>, and interfere when they touch the same directions. In image models LoRA usually targets attention projections.</p>
+<h3 id="dreambooth-and-textual-inversion">DreamBooth and Textual Inversion</h3>
+<p><strong>DreamBooth</strong> fine-tunes the generator on 3 to 5 images captioned “a [V] [class noun]”, where [V] is a rare token (real words carry meaning; random strings split into letter tokens). To fight <em>language drift</em> (forgetting the generic class) and lost diversity, it adds a prior-preservation term on about 1000 images the frozen model generated from “a [class noun]”:</p>
+<p><span class="math display">
+\mathbb{E}\Big[w_t \big\|\hat x_\theta(\alpha_t x + \sigma_t \epsilon, c) - x\big\|^2
++ \lambda\, w_{t&#39;} \big\|\hat x_\theta(\alpha_{t&#39;} x_{\text{pr}} + \sigma_{t&#39;} \epsilon&#39;, c_{\text{pr}}) - x_{\text{pr}}\big\|^2\Big],\quad \lambda = 1 .
+</span></p>
+<p><strong>Textual Inversion</strong> freezes everything and learns one embedding <span class="math inline">v_*</span> for a pseudo-word: <span class="math inline">v_* = \arg\min_v \mathbb{E}\,\|\epsilon - \epsilon_\theta(z_t, t, c_\theta(y; v))\|^2</span>. It is tiny but can only reach what the frozen model already expresses, so identity fidelity is lower.</p>
+<h3 id="controlnet-t2i-adapter-ip-adapter">ControlNet, T2I-Adapter, IP-Adapter</h3>
+<p><strong>ControlNet</strong> copies the U-Net encoder (12 blocks plus the middle block) as a trainable branch fed with a spatial condition (edges, depth, pose) and adds its outputs to the frozen U-Net’s skip connections through zero convolutions <span class="math inline">\mathcal{Z}</span>, 1x1 convs with zero weights and biases:</p>
+<p><span class="math display">
+y_c = \mathcal{F}(x;\Theta) + \mathcal{Z}\big(\mathcal{F}(x + \mathcal{Z}(c;\Theta_{z1});\Theta_c);\Theta_{z2}\big).
+</span></p>
+<p>At step 0, <span class="math inline">y_c = \mathcal{F}(x;\Theta)</span> exactly. Training replaces 50% of prompts with empty strings, and the paper reports “sudden convergence”, typically within 10K steps. Cost is roughly an extra encoder pass per sampling step. <strong>T2I-Adapter</strong> is a ~77M-parameter conv network adding condition features to the encoder at four scales; adapters compose as weighted sums, and since it has no time input, training samples <span class="math inline">t</span> with a cubic schedule biased toward noisy steps. <strong>IP-Adapter</strong> adds an image prompt via <em>decoupled cross-attention</em>, with a shared query and new key/value projections (initialized from the text ones) for image tokens <span class="math inline">c_i</span>:</p>
+<p><span class="math display">
+Z = \mathrm{Attn}(Q, c_t W_K, c_t W_V) + \lambda\, \mathrm{Attn}(Q, c_i W&#39;_K, c_i W&#39;_V),
+</span></p>
+<p>where <span class="math inline">c_i</span> is an OpenCLIP ViT-H/14 image embedding projected to 4 tokens. About 22M parameters train; the base stays frozen, so it transfers to community fine-tunes, and <span class="math inline">\lambda = 0</span> recovers the original model.</p>
+<details class="qa qa-asked" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">Write the LoRA formula. How are A and B initialized, and could you instead set A = 0 and B random?</span><span class="qa-badge" title="Reported in a real interview">Asked · Baidu multimodal algorithm intern, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p><span class="math inline">h = W_0x + \frac{\alpha}{r}BAx</span> with <span class="math inline">A</span> Gaussian and <span class="math inline">B = 0</span>, so training starts exactly at the pretrained model. The swap also starts at <span class="math inline">\Delta W = 0</span> and still trains: with <span class="math inline">A = 0</span>, <span class="math inline">\partial L/\partial B = 0</span> but <span class="math inline">\partial L/\partial A = \frac{\alpha}{r}B^\top G x^\top \neq 0</span>. Setting both to zero fails, since both gradients vanish. The schemes are not equivalent in practice: Hayou et al. show the standard one tolerates larger learning rates without instability and performs better on average. PiSSA instead initializes <span class="math inline">A, B</span> from the top singular vectors of <span class="math inline">W_0</span> and freezes the residual.</p>
+</div></details>
+<details class="qa qa-asked" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Can a LoRA achieve the same effect as prompt engineering?</span><span class="qa-badge" title="Reported in a real interview">Asked · Image-generation vision intern, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>Partly. A prompt only moves the conditioning input, so it reaches outputs the frozen model already supports, such as known styles and compositions. A LoRA changes the weights, so it can add concepts the model never learned (a specific face, product or art style) and make a behavior reliable without long prompts. A LoRA can imitate a prompt, but that costs training and may reduce diversity or leak style into unrelated prompts. Try prompting first (cheap and reversible), then Textual Inversion, then LoRA or DreamBooth when the concept is outside the model’s range.</p>
+</div></details>
+<details class="qa qa-asked" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Compare LoRA, DreamBooth and Textual Inversion for personalization.</span><span class="qa-badge" title="Reported in a real interview">Asked · Image-generation vision intern, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>Textual Inversion learns one embedding with everything frozen: tiny and harmless to the model, but bounded by its existing range, so fidelity is weakest. DreamBooth updates all weights with a rare-token identifier and prior preservation: highest fidelity, but a full checkpoint per subject and real overfitting and drift risk. LoRA restricts the update to low-rank factors: a few MB, mergeable and composable, with fidelity close to full fine-tuning. In practice the DreamBooth recipe is now usually trained through LoRA. Training captions are often produced by a captioner such as BLIP, with the identifier inserted.</p>
+</div></details>
+<details class="qa" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">Why does ControlNet use zero convolutions? If the weights start at zero, how does anything learn?</span>
+</summary><div class="qa-body">
+<p>A random connection would inject large random features into a frozen, finely balanced network at step 0 and send noisy gradients into the copied encoder. Zero init makes the model exactly the pretrained one at the start. It still learns because a linear layer’s weight gradient is the upstream gradient times its input, <span class="math inline">(\partial L/\partial y)\,u^\top</span>, nonzero even when <span class="math inline">W = 0</span>. After one step <span class="math inline">W \neq 0</span> and gradients reach the copy, which starts from pretrained rather than random features.</p>
+</div></details>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">IP-Adapter versus ControlNet: what does each control, and why does IP-Adapter decouple its cross-attention?</span>
+</summary><div class="qa-body">
+<p>ControlNet controls spatial structure: a pixel-aligned map whose features are added location by location to the skip connections. IP-Adapter controls content and style: a global CLIP image embedding entering through cross-attention, with no pixel alignment, like an image-valued prompt. They compose (pose from ControlNet, identity or style from IP-Adapter). If image tokens were concatenated to text tokens in the original cross-attention, they would pass through projections trained for text and compete with words in one softmax. Separate projections and a separate softmax let the image branch specialize, <span class="math inline">\lambda</span> trades image against text, and <span class="math inline">\lambda = 0</span> restores the base model.</p>
+</div></details>
+<h2 id="editing">Editing</h2>
+<p><strong>SDEdit</strong> noises a guide image (photo or rough painting) to time <span class="math inline">t_0</span> and denoises; larger <span class="math inline">t_0</span> is more realistic but less faithful, and <span class="math inline">t_0 \in [0.3, 0.6]</span> suited stroke guides. It needs no training but cannot preserve exact detail.</p>
+<p><strong>Inversion.</strong> Real-image editing needs a latent that reconstructs the image. DDIM inversion runs the sampler backwards assuming <span class="math inline">\epsilon_\theta(x_{t+1}) \approx \epsilon_\theta(x_t)</span>: <span class="math inline">x_{t+1} = \sqrt{\bar\alpha_{t+1}}\,\hat x_0(x_t) + \sqrt{1-\bar\alpha_{t+1}}\,\epsilon_\theta(x_t, t, c)</span>. The per-step error is small without guidance, but CFG near <span class="math inline">w = 7.5</span> amplifies it.</p>
+<p><strong>Prompt-to-Prompt</strong> generates source (prompt <span class="math inline">P</span>, cross-attention maps <span class="math inline">M_t</span>) and target (<span class="math inline">P^*</span>, maps <span class="math inline">M^*_t</span>) with the same seed. Word swap uses <span class="math inline">M_t</span> while <span class="math inline">t \ge \tau</span> and <span class="math inline">M^*_t</span> after, injecting source maps during the early steps that fix layout. Adding a phrase injects maps only for shared tokens, and re-weighting scales one word’s column. <strong>Null-text inversion</strong> makes this work on real images: invert at <span class="math inline">w = 1</span> to get a pivot trajectory <span class="math inline">z^*_t</span>, then at <span class="math inline">w = 7.5</span> optimize a per-step null embedding, <span class="math inline">\min_{\varnothing_t} \|z^*_{t-1} - z_{t-1}(\bar z_t, \varnothing_t, C)\|^2</span>. Weights and prompt embedding stay fixed, keeping the attention maps meaningful.</p>
+<p><strong>InstructPix2Pix</strong> trains an editor on synthetic data: GPT-3, fine-tuned on 700 human-written examples, writes caption, instruction and edited caption; Stable Diffusion with Prompt-to-Prompt renders before/after pairs; CLIP filters leave 454,445 examples. The source image is channel-concatenated, and two guidance scales are used (derivation below).</p>
+<p><strong>Instruction and in-context editors.</strong> Emu Edit multi-tasks across editing and vision tasks with learned task embeddings, and MagicBrush supplied manually annotated edit data. In 2025 examples, FLUX.1 Kontext appends context-image tokens to the sequence with a RoPE offset (beating channel concatenation in its tests); Qwen-Image’s editor feeds the input to both Qwen2.5-VL (semantics) and the VAE (appearance); Step1X-Edit pairs a multimodal LLM with a diffusion decoder; and Gemini 2.5 Flash Image advertises character consistency and multi-image fusion. The shared pattern: the source image becomes context, and data quality decides results.</p>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Derive InstructPix2Pix’s two-scale guidance. What do <span class="math inline">s_I</span> and <span class="math inline">s_T</span> control?</span>
+</summary><div class="qa-body">
+<p>By Bayes, <span class="math inline">p(z\mid c_I, c_T) \propto p(c_T\mid c_I, z)\,p(c_I\mid z)\,p(z)</span>, so the score is <span class="math inline">\nabla\log p(z) + \nabla\log p(c_I\mid z) + \nabla\log p(c_T\mid c_I,z)</span>. Each implicit-classifier term is a difference of model scores: <span class="math inline">\nabla\log p(c_I\mid z) = \nabla\log p(z\mid c_I) - \nabla\log p(z)</span> and <span class="math inline">\nabla\log p(c_T\mid c_I,z) = \nabla\log p(z\mid c_I,c_T) - \nabla\log p(z\mid c_I)</span>. Scaling them separately gives <span class="math inline">\tilde e = e(z,\varnothing,\varnothing) + s_I[e(z,c_I,\varnothing) - e(z,\varnothing,\varnothing)] + s_T[e(z,c_I,c_T) - e(z,c_I,\varnothing)]</span>. <span class="math inline">s_I</span> sets faithfulness to the input and <span class="math inline">s_T</span> edit strength (typical: <span class="math inline">s_I \in [1, 1.5]</span>, <span class="math inline">s_T \in [5, 10]</span>). One network provides all terms because training drops <span class="math inline">c_I</span>, <span class="math inline">c_T</span> and both for 5% of examples each.</p>
+</div></details>
+<details class="qa qa-asked" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">How would you remove an unwanted object from a street photo so the result looks real?</span><span class="qa-badge" title="Reported in a real interview">Asked · Meituan CV intern, Nowcoder 2024</span>
+</summary><div class="qa-body">
+<p>Get a mask (click plus a segmentation model, dilated to cover shadows and reflections), then use a dedicated inpainting model whose input concatenates noisy latent, mask and masked image, or an instruction editor. Masking a plain text-to-image model blends poorly and tends to hallucinate a new object, so prompt for the background (“empty sidewalk”) or add the object class as a negative prompt. Paste unmasked pixels back after decoding so the VAE does not alter them, and check leftover shadows and continuity of lines and perspective.</p>
+</div></details>
+<h2 id="unified-understanding-and-generation">Unified understanding and generation</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Model</th>
+<th>Generation representation</th>
+<th>Image objective</th>
+<th>Image-token attention</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chameleon (2024)</td>
+<td>VQ tokens, 1024 per 512 px image</td>
+<td>next-token CE</td>
+<td>causal</td>
+<td>early fusion; QK-norm, z-loss for stability</td>
+</tr>
+<tr>
+<td>Transfusion (2024)</td>
+<td>VAE-latent patches</td>
+<td>diffusion; <span class="math inline">\mathcal{L}_{\text{LM}} + 5\,\mathcal{L}_{\text{DDPM}}</span></td>
+<td>bidirectional within image</td>
+<td>7B, ~2T tokens</td>
+</tr>
+<tr>
+<td>Show-o (2024)</td>
+<td>MAGVIT-v2 tokens</td>
+<td>masked-token prediction</td>
+<td>full within image</td>
+<td>Phi-1.5 base</td>
+</tr>
+<tr>
+<td>Janus (2024)</td>
+<td>VQ tokens; SigLIP for understanding</td>
+<td>next-token CE</td>
+<td>causal</td>
+<td>decoupled encoders; Janus-Pro scales it</td>
+</tr>
+<tr>
+<td>BAGEL (2025)</td>
+<td>FLUX VAE latents; SigLIP2 for understanding</td>
+<td>rectified flow; CE:MSE = 0.25:1</td>
+<td>shared attention, two experts</td>
+<td>7B active / 14B total, interleaved data</td>
+</tr>
+</tbody>
+</table>
+<p>Chameleon’s tokens give one loss and interleaved output, but it reports weak reconstruction of text-heavy images and needed stability fixes because modalities competed through growing norms. Transfusion keeps images continuous; against its own data- and compute-controlled Chameleon-style baseline it reports exceeding the baseline on text-to-image “at less than a third of the compute”, and matching its FID with about 34x less compute. BAGEL’s Mixture-of-Transformers (separate weights for understanding and generation tokens, shared self-attention) beat dense and MoE variants in a controlled 1.5B study, and intelligent editing needed about 3.6T training tokens to reach 85% of its peak, versus about 0.18T for understanding.</p>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Discrete tokens versus continuous diffusion inside the LM: what are the trade-offs, and why does Janus use two visual encoders?</span>
+</summary><div class="qa-body">
+<p>Discrete tokens give one loss, one sampler and LLM infrastructure unchanged, but pay with quantization error (small text, faces), slow sequential decoding of ~1000 tokens, and a quality ceiling set by the tokenizer. Continuous latents with a diffusion loss keep fidelity and denoise all patches in parallel, but require balancing two losses (<span class="math inline">\lambda = 5</span> in Transfusion), a mixed attention mask, and handling of noisy versus clean image copies in context. Separately, understanding wants semantic features and generation wants reconstructive detail; Janus found a shared encoder hurt understanding, so it reads with SigLIP and writes with a VQ tokenizer, a split BAGEL keeps.</p>
+</div></details>
+<h2 id="post-training-and-alignment">Post-training and alignment</h2>
+<p><strong>Rewards.</strong> Learned preference models: ImageReward (BLIP-based, ~137K expert comparisons), PickScore (Pick-a-Pic), HPSv2, the LAION aesthetic predictor. Rule-based: object detectors (GenEval), OCR. Metrics are covered in <a href="evaluation-metrics.html">evaluation metrics</a>.</p>
+<p><strong>Backpropagating a differentiable reward.</strong> Maximize <span class="math inline">\mathbb{E}_{c,x_T}[r(x_0^\theta(x_T, c), c)]</span> through the sampler. DRaFT backpropagates through the full chain with checkpointing and LoRA; DRaFT-K truncates to the last <span class="math inline">K</span> steps, and <span class="math inline">K = 1</span> was most compute-efficient because long-chain gradients explode; AlignProp is similar. ReFL samples to a random late step, scores the one-shot <span class="math inline">\hat x_0</span>, and mixes in the pretraining loss. These are low-variance but need differentiable rewards and exploit them fast.</p>
+<p><strong>Diffusion-DPO.</strong> DPO solves KL-regularized reward maximization in closed form, <span class="math inline">r = \beta\log(\pi^*/\pi_{\text{ref}}) + \text{const}</span>, and fits it with a Bradley-Terry loss. A diffusion marginal <span class="math inline">p_\theta(x_0)</span> is intractable, so Wallace et al. define the ratio on whole chains <span class="math inline">x_{0:T}</span>, move the chain expectation outside the convex <span class="math inline">-\log\sigma</span> with Jensen (an upper bound), replace the reverse posterior with the forward process <span class="math inline">q</span>, and reduce per-step Gaussian KLs to noise-prediction errors. For <span class="math inline">x^w_t, x^l_t \sim q(x_t\mid x_0)</span>:</p>
+<p><span class="math display">
+\mathcal{L} = -\mathbb{E}\log\sigma\Big(-\beta T\omega(\lambda_t)\big[
+\underbrace{\|\epsilon^w - \epsilon_\theta(x_t^w,t)\|^2 - \|\epsilon^w - \epsilon_{\text{ref}}(x_t^w,t)\|^2}_{\Delta_w}
+- \underbrace{\big(\|\epsilon^l - \epsilon_\theta(x_t^l,t)\|^2 - \|\epsilon^l - \epsilon_{\text{ref}}(x_t^l,t)\|^2\big)}_{\Delta_l}\big]\Big).
+</span></p>
+<p><span class="math inline">\Delta_w &lt; 0</span> means the model denoises the winner better than the reference; the loss pushes <span class="math inline">\Delta_w - \Delta_l</span> down. It is offline and reward-model-free; SDXL was tuned on 851K Pick-a-Pic pairs with <span class="math inline">\beta = 5000</span>.</p>
+<p><strong>RL.</strong> DDPO treats denoising as an MDP (state <span class="math inline">(c,t,x_t)</span>, action <span class="math inline">x_{t-1}</span>, terminal reward <span class="math inline">r(x_0,c)</span>). Each step is Gaussian, so</p>
+<p><span class="math display">
+\nabla_\theta J = \mathbb{E}\Big[r(x_0,c)\sum_{t=1}^{T}\nabla_\theta\log p_\theta(x_{t-1}\mid x_t,c)\Big],
+</span></p>
+<p>with an importance-sampled, PPO-clipped variant for several updates per batch. DPOK adds a KL penalty bounded by per-step KLs, each <span class="math inline">\|\mu_\theta - \mu_{\text{pre}}\|^2/2\sigma_t^2</span>, and found online RL beat reward-weighted fine-tuning. Flow-GRPO adapts GRPO to rectified flow, whose ODE sampler has no per-step randomness to explore with. Using the score <span class="math inline">\nabla\log p_t(x_t) = -(x_t + (1-t)v)/t</span> for <span class="math inline">x_t = (1-t)x_0 + t\epsilon</span>, it samples with a marginal-preserving reverse-time SDE, run from <span class="math inline">t = 1</span> to <span class="math inline">0</span> (so <span class="math inline">dt &lt; 0</span>), namely <span class="math inline">dx = [v - \tfrac{\sigma_t^2}{2}\nabla\log p_t]\,dt + \sigma_t\, d\bar w_t</span> with the score substituted:</p>
+<p><span class="math display">
+dx_t = \Big[v_\theta + \frac{\sigma_t^2}{2t}\big(x_t + (1-t)\,v_\theta\big)\Big]dt + \sigma_t\, d\bar w_t,\qquad \sigma_t = a\sqrt{\tfrac{t}{1-t}},
+</span></p>
+<p>so each step is Gaussian with closed-form ratios and KL. It samples <span class="math inline">G</span> images per prompt, uses advantages <span class="math inline">\hat A_i = (R_i - \mathrm{mean}(R))/\mathrm{std}(R)</span>, clipping and KL, and trains with 10-step rollouts while sampling with 40. On SD3.5-M, GenEval rose from 0.63 to 0.95.</p>
+<details class="qa qa-asked" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">Is DPO closer to SFT or to GRPO?</span><span class="qa-badge" title="Reported in a real interview">Asked · Kuaishou multimodal LLM algorithm engineer, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>In objective it is closer to RL: it solves the same KL-regularized reward maximization as RLHF, with the reward implicit in <span class="math inline">\log\pi_\theta/\pi_{\text{ref}}</span> under a Bradley-Terry model. In training dynamics it is closer to SFT: offline, fixed pairs, no sampling from the current policy, no exploration. Diffusion-DPO trains on fixed Pick-a-Pic pairs with a denoising-style loss, while Flow-GRPO samples and scores fresh images every iteration. So DPO is cheaper and more stable but limited by data coverage; online methods can find new high-reward outputs, and new reward hacks.</p>
+</div></details>
+<details class="qa qa-asked" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">In GRPO, what happens when every sample in a group gets the same reward?</span><span class="qa-badge" title="Reported in a real interview">Asked · Kuaishou multimodal LLM algorithm engineer, Nowcoder 2026</span>
+</summary><div class="qa-body">
+<p>All advantages <span class="math inline">(R_i - \bar R)/(\mathrm{std}(R) + \varepsilon)</span> are zero, so the policy-gradient term vanishes and the prompt contributes only the KL term; its sampling compute is wasted. Binary rewards (correct object count, exact OCR match) make this common on too-easy or too-hard prompts, and more common as training improves. Remedies: filter and resample such groups (DAPO’s dynamic sampling), use graded rewards, increase <span class="math inline">G</span>, or schedule prompt difficulty.</p>
+</div></details>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">What reward hacking appears in diffusion RL, and how do you mitigate it?</span>
+</summary><div class="qa-body">
+<p>DDPO’s incompressibility reward ended in high-frequency noise, and its LLaVA counting reward was gamed by a typographic attack: writing text resembling the requested number instead of drawing that many animals. DRaFT’s aesthetic runs collapsed to a few similar images, and Flow-GRPO without KL converged to one style. Mitigations: early stopping on held-out evaluation, KL to the reference (Flow-GRPO notes it is not equivalent to early stopping but trains slower), LoRA with scaled-down merges (DRaFT’s best), pretraining-loss mixing (ReFL), multiple rewards, and checking diversity and human ratings not used in training.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">What is CLIP’s text length limit?</span>
+</summary><div class="qa-body">
+<p>77 tokens including start and end tokens; standard pipelines truncate beyond it. Workarounds are chunked embeddings or a longer-context encoder such as T5.</p>
+</div></details>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">Why normalize queries and keys in SD3 and Chameleon?</span>
+</summary><div class="qa-body">
+<p>Growing attention logits collapse attention entropy and cause divergence, especially in bf16. SD3 uses RMSNorm on Q and K; Chameleon adds z-loss and norm reordering.</p>
+</div></details>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">What does SDXL’s crop conditioning fix?</span>
+</summary><div class="qa-body">
+<p>Random crops teach the model to generate cut-off subjects. Conditioning on crop offsets and setting them to <span class="math inline">(0,0)</span> at inference gives centered compositions while keeping crop augmentation.</p>
+</div></details>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">What is language drift in DreamBooth?</span>
+</summary><div class="qa-body">
+<p>Fine-tuning on “a [V] dog” makes the model forget generic dogs and lose diversity. Prior preservation on frozen-model samples of “a dog” counters it.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">When would you not merge a LoRA into the base weights?</span>
+</summary><div class="qa-body">
+<p>When switching or reweighting adapters per request, serving many adapters from one base, or when the base is quantized. Merging several is plain addition, but they can interfere.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">Why does ControlNet drop half the prompts in training?</span>
+</summary><div class="qa-body">
+<p>With an empty prompt the only source of semantics is the condition image, forcing the branch to recognize content from edges or depth.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">Why does T2I-Adapter sample timesteps with a cubic schedule?</span>
+</summary><div class="qa-body">
+<p>It has no time input, and control matters most in early, noisy steps where layout forms; uniform sampling gave weak guidance.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">Why does high CFG oversaturate, and two fixes?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">w(\epsilon_c - \epsilon_\varnothing)</span> inflates the prediction and pushes <span class="math inline">\hat x_0</span> out of range. Dynamic thresholding clips and rescales in pixel space; CFG rescale matches the guided prediction’s standard deviation to the conditional one.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">Why does ReFL score a late denoising step?</span>
+</summary><div class="qa-body">
+<p>Early one-shot <span class="math inline">\hat x_0</span> predictions are blurry and ImageReward scores barely separate samples there; they became distinguishable only near the end of a 40-step chain.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">Why does Flow-GRPO train with 10 steps but sample with 40?</span>
+</summary><div class="qa-body">
+<p>Rollouts dominate cost and the reward only needs a recognizable image; this sped data collection over 4x without hurting final reward.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">Why does null-text inversion tune the null embedding, not the prompt?</span>
+</summary><div class="qa-body">
+<p>With CFG the unconditional branch strongly shapes every step, so it can steer reconstruction; tuning the prompt embedding would distort the cross-attention maps that Prompt-to-Prompt edits.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Rombach et al., “High-Resolution Image Synthesis with Latent Diffusion Models,” 2021. <a href="https://arxiv.org/abs/2112.10752" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2112.10752</a></li>
+<li>Saharia et al., “Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding” (Imagen), 2022. <a href="https://arxiv.org/abs/2205.11487" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2205.11487</a></li>
+<li>Betker et al., “Improving Image Generation with Better Captions” (DALL-E 3), OpenAI, 2023. <a href="https://cdn.openai.com/papers/dall-e-3.pdf" class="uri" target="_blank" rel="noopener">https://cdn.openai.com/papers/dall-e-3.pdf</a></li>
+<li>Podell et al., “SDXL: Improving Latent Diffusion Models for High-Resolution Image Synthesis,” 2023. <a href="https://arxiv.org/abs/2307.01952" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2307.01952</a></li>
+<li>Esser et al., “Scaling Rectified Flow Transformers for High-Resolution Image Synthesis” (SD3), 2024. <a href="https://arxiv.org/abs/2403.03206" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2403.03206</a></li>
+<li>Peebles and Xie, “Scalable Diffusion Models with Transformers” (DiT), 2022. <a href="https://arxiv.org/abs/2212.09748" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2212.09748</a></li>
+<li>Chen et al., “PixArt-α: Fast Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis,” 2023. <a href="https://arxiv.org/abs/2310.00426" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2310.00426</a></li>
+<li>Black Forest Labs, “FLUX.1 Kontext: Flow Matching for In-Context Image Generation and Editing in Latent Space,” 2025. <a href="https://arxiv.org/abs/2506.15742" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2506.15742</a></li>
+<li>Black Forest Labs, FLUX.1 reference implementation. <a href="https://github.com/black-forest-labs/flux" class="uri" target="_blank" rel="noopener">https://github.com/black-forest-labs/flux</a></li>
+<li>Radford et al., “Learning Transferable Visual Models From Natural Language Supervision” (CLIP), 2021. <a href="https://arxiv.org/abs/2103.00020" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2103.00020</a></li>
+<li>Raffel et al., “Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer” (T5), 2019. <a href="https://arxiv.org/abs/1910.10683" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/1910.10683</a></li>
+<li>Yuksekgonul et al., “When and Why Vision-Language Models Behave like Bags-of-Words, and What to Do About It?,” 2022. <a href="https://arxiv.org/abs/2210.01936" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2210.01936</a></li>
+<li>Liu et al., “Character-Aware Models Improve Visual Text Rendering,” 2022. <a href="https://arxiv.org/abs/2212.10562" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2212.10562</a></li>
+<li>Liu et al., “Playground v3: Improving Text-to-Image Alignment with Deep-Fusion Large Language Models,” 2024. <a href="https://arxiv.org/abs/2409.10695" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2409.10695</a></li>
+<li>Xie et al., “SANA: Efficient High-Resolution Image Synthesis with Linear Diffusion Transformers,” 2024. <a href="https://arxiv.org/abs/2410.10629" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2410.10629</a></li>
+<li>Wu et al., “Qwen-Image Technical Report,” 2025. <a href="https://arxiv.org/abs/2508.02324" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2508.02324</a></li>
+<li>Dai et al., “Emu: Enhancing Image Generation Models Using Photogenic Needles in a Haystack,” 2023. <a href="https://arxiv.org/abs/2309.15807" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2309.15807</a></li>
+<li>Dehghani et al., “Patch n’ Pack: NaViT, a Vision Transformer for any Aspect Ratio and Resolution,” 2023. <a href="https://arxiv.org/abs/2307.06304" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2307.06304</a></li>
+<li>Lu et al., “FiT: Flexible Vision Transformer for Diffusion Model,” 2024. <a href="https://arxiv.org/abs/2402.12376" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2402.12376</a></li>
+<li>Zhuo et al., “Lumina-Next: Making Lumina-T2X Stronger and Faster with Next-DiT,” 2024. <a href="https://arxiv.org/abs/2406.18583" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2406.18583</a></li>
+<li>Ho and Salimans, “Classifier-Free Diffusion Guidance,” 2022. <a href="https://arxiv.org/abs/2207.12598" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2207.12598</a></li>
+<li>Meng et al., “On Distillation of Guided Diffusion Models,” 2022. <a href="https://arxiv.org/abs/2210.03142" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2210.03142</a></li>
+<li>Lin et al., “Common Diffusion Noise Schedules and Sample Steps are Flawed,” 2023. <a href="https://arxiv.org/abs/2305.08891" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.08891</a></li>
+<li>Ban et al., “Understanding the Impact of Negative Prompts: When and How Do They Take Effect?,” 2024. <a href="https://arxiv.org/abs/2406.02965" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2406.02965</a></li>
+<li>Hu et al., “LoRA: Low-Rank Adaptation of Large Language Models,” 2021. <a href="https://arxiv.org/abs/2106.09685" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2106.09685</a></li>
+<li>Hayou et al., “The Impact of Initialization on LoRA Finetuning Dynamics,” 2024. <a href="https://arxiv.org/abs/2406.08447" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2406.08447</a></li>
+<li>Meng et al., “PiSSA: Principal Singular Values and Singular Vectors Adaptation of Large Language Models,” 2024. <a href="https://arxiv.org/abs/2404.02948" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2404.02948</a></li>
+<li>Ruiz et al., “DreamBooth: Fine Tuning Text-to-Image Diffusion Models for Subject-Driven Generation,” 2022. <a href="https://arxiv.org/abs/2208.12242" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2208.12242</a></li>
+<li>Gal et al., “An Image is Worth One Word: Personalizing Text-to-Image Generation using Textual Inversion,” 2022. <a href="https://arxiv.org/abs/2208.01618" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2208.01618</a></li>
+<li>Zhang et al., “Adding Conditional Control to Text-to-Image Diffusion Models” (ControlNet), 2023. <a href="https://arxiv.org/abs/2302.05543" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2302.05543</a></li>
+<li>Mou et al., “T2I-Adapter: Learning Adapters to Dig out More Controllable Ability for Text-to-Image Diffusion Models,” 2023. <a href="https://arxiv.org/abs/2302.08453" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2302.08453</a></li>
+<li>Ye et al., “IP-Adapter: Text Compatible Image Prompt Adapter for Text-to-Image Diffusion Models,” 2023. <a href="https://arxiv.org/abs/2308.06721" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2308.06721</a></li>
+<li>Meng et al., “SDEdit: Guided Image Synthesis and Editing with Stochastic Differential Equations,” 2021. <a href="https://arxiv.org/abs/2108.01073" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2108.01073</a></li>
+<li>Hertz et al., “Prompt-to-Prompt Image Editing with Cross Attention Control,” 2022. <a href="https://arxiv.org/abs/2208.01626" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2208.01626</a></li>
+<li>Mokady et al., “Null-text Inversion for Editing Real Images using Guided Diffusion Models,” 2022. <a href="https://arxiv.org/abs/2211.09794" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2211.09794</a></li>
+<li>Brooks et al., “InstructPix2Pix: Learning to Follow Image Editing Instructions,” 2022. <a href="https://arxiv.org/abs/2211.09800" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2211.09800</a></li>
+<li>Sheynin et al., “Emu Edit: Precise Image Editing via Recognition and Generation Tasks,” 2023. <a href="https://arxiv.org/abs/2311.10089" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2311.10089</a></li>
+<li>Zhang et al., “MagicBrush: A Manually Annotated Dataset for Instruction-Guided Image Editing,” 2023. <a href="https://arxiv.org/abs/2306.10012" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2306.10012</a></li>
+<li>Liu et al., “Step1X-Edit: A Practical Framework for General Image Editing,” 2025. <a href="https://arxiv.org/abs/2504.17761" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2504.17761</a></li>
+<li>Google, “Introducing Gemini 2.5 Flash Image,” 2025. <a href="https://developers.googleblog.com/en/introducing-gemini-2-5-flash-image/" class="uri" target="_blank" rel="noopener">https://developers.googleblog.com/en/introducing-gemini-2-5-flash-image/</a></li>
+<li>Chameleon Team, “Chameleon: Mixed-Modal Early-Fusion Foundation Models,” 2024. <a href="https://arxiv.org/abs/2405.09818" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2405.09818</a></li>
+<li>Zhou et al., “Transfusion: Predict the Next Token and Diffuse Images with One Multi-Modal Model,” 2024. <a href="https://arxiv.org/abs/2408.11039" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2408.11039</a></li>
+<li>Xie et al., “Show-o: One Single Transformer to Unify Multimodal Understanding and Generation,” 2024. <a href="https://arxiv.org/abs/2408.12528" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2408.12528</a></li>
+<li>Wu et al., “Janus: Decoupling Visual Encoding for Unified Multimodal Understanding and Generation,” 2024. <a href="https://arxiv.org/abs/2410.13848" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2410.13848</a></li>
+<li>Chen et al., “Janus-Pro: Unified Multimodal Understanding and Generation with Data and Model Scaling,” 2025. <a href="https://arxiv.org/abs/2501.17811" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2501.17811</a></li>
+<li>Deng et al., “Emerging Properties in Unified Multimodal Pretraining” (BAGEL), 2025. <a href="https://arxiv.org/abs/2505.14683" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2505.14683</a></li>
+<li>Xu et al., “ImageReward: Learning and Evaluating Human Preferences for Text-to-Image Generation,” 2023. <a href="https://arxiv.org/abs/2304.05977" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2304.05977</a></li>
+<li>Kirstain et al., “Pick-a-Pic: An Open Dataset of User Preferences for Text-to-Image Generation,” 2023. <a href="https://arxiv.org/abs/2305.01569" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.01569</a></li>
+<li>Wu et al., “Human Preference Score v2: A Solid Benchmark for Evaluating Human Preferences of Text-to-Image Synthesis,” 2023. <a href="https://arxiv.org/abs/2306.09341" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2306.09341</a></li>
+<li>Ghosh et al., “GenEval: An Object-Focused Framework for Evaluating Text-to-Image Alignment,” 2023. <a href="https://arxiv.org/abs/2310.11513" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2310.11513</a></li>
+<li>Clark et al., “Directly Fine-Tuning Diffusion Models on Differentiable Rewards” (DRaFT), 2023. <a href="https://arxiv.org/abs/2309.17400" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2309.17400</a></li>
+<li>Prabhudesai et al., “Aligning Text-to-Image Diffusion Models with Reward Backpropagation” (AlignProp), 2023. <a href="https://arxiv.org/abs/2310.03739" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2310.03739</a></li>
+<li>Wallace et al., “Diffusion Model Alignment Using Direct Preference Optimization,” 2023. <a href="https://arxiv.org/abs/2311.12908" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2311.12908</a></li>
+<li>Black et al., “Training Diffusion Models with Reinforcement Learning” (DDPO), 2023. <a href="https://arxiv.org/abs/2305.13301" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.13301</a></li>
+<li>Fan et al., “DPOK: Reinforcement Learning for Fine-tuning Text-to-Image Diffusion Models,” 2023. <a href="https://arxiv.org/abs/2305.16381" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2305.16381</a></li>
+<li>Liu et al., “Flow-GRPO: Training Flow Matching Models via Online RL,” 2025. <a href="https://arxiv.org/abs/2505.05470" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2505.05470</a></li>
+<li>Shao et al., “DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models” (GRPO), 2024. <a href="https://arxiv.org/abs/2402.03300" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2402.03300</a></li>
+<li>Yu et al., “DAPO: An Open-Source LLM Reinforcement Learning System at Scale,” 2025. <a href="https://arxiv.org/abs/2503.14476" class="uri" target="_blank" rel="noopener">https://arxiv.org/abs/2503.14476</a></li>
+<li>Interview reports cited in <code>asked=</code> tags (Nowcoder): image-generation intern 2024 <a href="https://www.nowcoder.com/feed/main/detail/2b94140c0cc54718b4cd1c8ba02d35a2" class="uri" target="_blank" rel="noopener">https://www.nowcoder.com/feed/main/detail/2b94140c0cc54718b4cd1c8ba02d35a2</a>; Baidu multimodal intern 2026 <a href="https://www.nowcoder.com/feed/main/detail/32dd1dff10bd4cce90d314be29793000" class="uri" target="_blank" rel="noopener">https://www.nowcoder.com/feed/main/detail/32dd1dff10bd4cce90d314be29793000</a>; Taotian AIGC 2025 <a href="https://www.nowcoder.com/discuss/730099920601907200" class="uri" target="_blank" rel="noopener">https://www.nowcoder.com/discuss/730099920601907200</a>; Meituan CV 2024 <a href="https://www.nowcoder.com/feed/main/detail/0d1475aec6ec4f4d92a16bc71d7bd7f9" class="uri" target="_blank" rel="noopener">https://www.nowcoder.com/feed/main/detail/0d1475aec6ec4f4d92a16bc71d7bd7f9</a>; Kuaishou multimodal 2026 <a href="https://www.nowcoder.com/discuss/942532364704534528" class="uri" target="_blank" rel="noopener">https://www.nowcoder.com/discuss/942532364704534528</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="vision-backbones.html"><span class="pager-dir">Previous</span><span class="pager-title">Vision Backbones and Representations</span></a>
+        <a class="pager-next" href="video-generation.html"><span class="pager-dir">Next</span><span class="pager-title">Video Generation</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>
