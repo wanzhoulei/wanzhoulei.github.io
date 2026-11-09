@@ -19,28 +19,85 @@ $$
 
 Nothing is learned here. DDPM uses $T = 1000$ and $\beta_t$ rising linearly from $10^{-4}$ to $0.02$.
 
-**Closed form.** Write $x_t = \sqrt{1-\beta_t}\, x_{t-1} + \sqrt{\beta_t}\, \epsilon_t$ and assume by induction $x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}\, x_0 + \sqrt{1-\bar{\alpha}_{t-1}}\, \bar{\epsilon}$. Then
+**Closed form.** Each forward step draws its own fresh noise. Written as a sampling rule,
 
 $$
-x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \underbrace{\sqrt{1-\beta_t}\sqrt{1-\bar{\alpha}_{t-1}}\, \bar{\epsilon} + \sqrt{\beta_t}\, \epsilon_t}_{\text{sum of independent Gaussians}} .
+x_t = \sqrt{1-\beta_t}\, x_{t-1} + \sqrt{\beta_t}\, \epsilon_t, \qquad \epsilon_1, \dots, \epsilon_T \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0, I), \ \text{independent of } x_0 .
 $$
 
-The noise term has variance $(1-\beta_t)(1-\bar{\alpha}_{t-1}) + \beta_t = 1 - \bar{\alpha}_t$, so
+Claim: for every $t$ there is a single standard Gaussian $\bar{\epsilon}_t \sim \mathcal{N}(0, I)$ such that
 
 $$
-q(x_t \mid x_0) = \mathcal{N}\big(\sqrt{\bar{\alpha}_t}\, x_0,\ (1-\bar{\alpha}_t) I\big), \qquad x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1-\bar{\alpha}_t}\, \epsilon .
+x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1-\bar{\alpha}_t}\, \bar{\epsilon}_t .
 $$
 
-This is why training is cheap: pick $t$, draw $\epsilon$, form $x_t$ in one shot, with no simulation of the chain.
+Here $\bar{\epsilon}_t$ is not any one step's noise. It is all the noise added in steps $1, \dots, t$, combined and rescaled to unit variance, so it is a fixed linear combination of $\epsilon_1, \dots, \epsilon_t$. Proof by induction on $t$:
 
-**The posterior given $x_0$.** The true reverse marginal $q(x_{t-1} \mid x_t)$ needs $p_{\text{data}}$, but conditioning on $x_0$ makes everything Gaussian. By Bayes, $q(x_{t-1} \mid x_t, x_0) \propto q(x_t \mid x_{t-1})\, q(x_{t-1} \mid x_0)$. Adding the two precisions gives $\frac{1-\beta_t}{\beta_t} + \frac{1}{1-\bar{\alpha}_{t-1}} = \frac{1-\bar{\alpha}_t}{\beta_t (1-\bar{\alpha}_{t-1})}$, and the mean is the precision-weighted combination:
+- *Base case $t = 1$.* $\bar{\alpha}_1 = 1 - \beta_1$, so $x_1 = \sqrt{\bar{\alpha}_1}\, x_0 + \sqrt{1-\bar{\alpha}_1}\, \epsilon_1$. Take $\bar{\epsilon}_1 = \epsilon_1$.
+- *Inductive step.* Assume the claim for $t-1$, so $x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}\, x_0 + \sqrt{1-\bar{\alpha}_{t-1}}\, \bar{\epsilon}_{t-1}$. Since $\bar{\epsilon}_{t-1}$ is built only from $\epsilon_1, \dots, \epsilon_{t-1}$, it is independent of the new noise $\epsilon_t$. Substitute into the one-step rule:
 
 $$
 \begin{aligned}
-q(x_{t-1} \mid x_t, x_0) &= \mathcal{N}(\tilde{\mu}_t, \tilde{\beta}_t I), \qquad \tilde{\beta}_t = \frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}\beta_t, \\
-\tilde{\mu}_t &= \frac{\sqrt{\bar{\alpha}_{t-1}}\,\beta_t}{1-\bar{\alpha}_t}\, x_0 + \frac{\sqrt{1-\beta_t}\,(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}\, x_t .
+x_t &= \sqrt{1-\beta_t}\,\Big(\sqrt{\bar{\alpha}_{t-1}}\, x_0 + \sqrt{1-\bar{\alpha}_{t-1}}\, \bar{\epsilon}_{t-1}\Big) + \sqrt{\beta_t}\, \epsilon_t \\
+&= \underbrace{\sqrt{(1-\beta_t)\,\bar{\alpha}_{t-1}}}_{=\sqrt{\bar{\alpha}_t}\ \text{(definition of } \bar{\alpha}_t)}\, x_0 \;+\; \underbrace{\sqrt{1-\beta_t}\sqrt{1-\bar{\alpha}_{t-1}}\; \bar{\epsilon}_{t-1} + \sqrt{\beta_t}\; \epsilon_t}_{\text{noise part}} .
 \end{aligned}
 $$
+
+  The noise part is a sum of two independent zero-mean Gaussians, so it is a zero-mean Gaussian whose covariance is the sum of the two covariances:
+
+$$
+\begin{aligned}
+(1-\beta_t)(1-\bar{\alpha}_{t-1}) + \beta_t
+&= 1 - \bar{\alpha}_{t-1} - \beta_t + \beta_t\bar{\alpha}_{t-1} + \beta_t && \text{(expand the product)} \\
+&= 1 - \bar{\alpha}_{t-1}(1-\beta_t) && \text{(the } \beta_t \text{ terms cancel)} \\
+&= 1 - \bar{\alpha}_t && \text{(definition of } \bar{\alpha}_t) .
+\end{aligned}
+$$
+
+  So the noise part equals $\sqrt{1-\bar{\alpha}_t}\,\bar{\epsilon}_t$ with $\bar{\epsilon}_t \sim \mathcal{N}(0, I)$, which proves the claim for $t$.
+
+Equivalently,
+
+$$
+q(x_t \mid x_0) = \mathcal{N}\big(\sqrt{\bar{\alpha}_t}\, x_0,\ (1-\bar{\alpha}_t) I\big), \qquad x_t = \sqrt{\bar{\alpha}_t}\, x_0 + \sqrt{1-\bar{\alpha}_t}\, \epsilon, \quad \epsilon \sim \mathcal{N}(0, I).
+$$
+
+From here on, $\epsilon$ in this formula means that combined noise $\bar{\epsilon}_t$, and it is exactly the quantity an $\epsilon$-prediction network is trained to recover. This is why training is cheap: pick $t$, draw one $\epsilon$, and form $x_t$ in one shot, with no simulation of the chain.
+
+**The posterior given $x_0$.** The true reverse marginal $q(x_{t-1} \mid x_t)$ depends on the unknown $p_{\text{data}}$, but once we also condition on $x_0$ everything is Gaussian. By Bayes' rule (the Markov property lets us drop $x_0$ from the first factor),
+
+$$
+q(x_{t-1} \mid x_t, x_0) = \frac{q(x_t \mid x_{t-1})\, q(x_{t-1} \mid x_0)}{q(x_t \mid x_0)} \;\propto\; q(x_t \mid x_{t-1})\, q(x_{t-1} \mid x_0) \quad \text{(as a function of } x_{t-1}) .
+$$
+
+Take logs and keep only the terms that depend on $x_{t-1}$:
+
+$$
+\log q(x_{t-1} \mid x_t, x_0) = -\frac{1}{2}\left[\frac{\lVert x_t - \sqrt{1-\beta_t}\, x_{t-1}\rVert^2}{\beta_t} + \frac{\lVert x_{t-1} - \sqrt{\bar{\alpha}_{t-1}}\, x_0\rVert^2}{1-\bar{\alpha}_{t-1}}\right] + \text{const}.
+$$
+
+Expand both squares and collect powers of $x_{t-1}$. The result has the form $-\tfrac12\big(A\lVert x_{t-1}\rVert^2 - 2\,b^\top x_{t-1}\big) + \text{const}$ with
+
+$$
+A = \frac{1-\beta_t}{\beta_t} + \frac{1}{1-\bar{\alpha}_{t-1}}, \qquad b = \frac{\sqrt{1-\beta_t}}{\beta_t}\, x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1-\bar{\alpha}_{t-1}}\, x_0 .
+$$
+
+A log-density of this form is a Gaussian with variance $1/A$ and mean $b/A$ (complete the square: $A\lVert x\rVert^2 - 2b^\top x = A\lVert x - b/A\rVert^2 - \lVert b\rVert^2/A$). Over a common denominator, and using the identity proved above,
+
+$$
+A = \frac{(1-\beta_t)(1-\bar{\alpha}_{t-1}) + \beta_t}{\beta_t\,(1-\bar{\alpha}_{t-1})} = \frac{1-\bar{\alpha}_t}{\beta_t\,(1-\bar{\alpha}_{t-1})} .
+$$
+
+So the variance is $\tilde{\beta}_t = 1/A$, and the mean is $\tilde{\beta}_t\, b$, which we multiply out term by term:
+
+$$
+\begin{aligned}
+q(x_{t-1} \mid x_t, x_0) &= \mathcal{N}(\tilde{\mu}_t, \tilde{\beta}_t I), \qquad \tilde{\beta}_t = \frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}\,\beta_t, \\
+\tilde{\mu}_t &= \tilde{\beta}_t\, b = \frac{\sqrt{\bar{\alpha}_{t-1}}\,\beta_t}{1-\bar{\alpha}_t}\, x_0 + \frac{\sqrt{1-\beta_t}\,(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}\, x_t .
+\end{aligned}
+$$
+
+In words, the posterior mean is a fixed weighted average of the clean image and the current noisy image. The weights depend only on the schedule, and the variance $\tilde{\beta}_t$ is smaller than the forward step's $\beta_t$ because $\bar{\alpha}_{t-1} > \bar{\alpha}_t$ (at $t = 1$ it is exactly 0, since $x_0$ is then known). The reverse model will try to match this Gaussian without knowing $x_0$.
 
 ::: {.qa asked="Mistral AI SWE screen, PracHub 2026"}
 **Explain the forward and reverse processes of a diffusion model.**
@@ -319,8 +376,10 @@ with $x = x_0 + \sigma\epsilon$ and data standard deviation $\sigma_{\text{data}
 - Amplify network errors as little as possible: minimize $c_{\text{out}}$ over $c_{\text{skip}}$. Setting the derivative to zero gives
 
 $$
-c_{\text{skip}} = \frac{\sigma_{\text{data}}^2}{\sigma^2 + \sigma_{\text{data}}^2}, \qquad c_{\text{out}} = \frac{\sigma\,\sigma_{\text{data}}}{\sqrt{\sigma^2 + \sigma_{\text{data}}^2}}, \qquad c_{\text{noise}} = \tfrac{1}{4}\ln\sigma .
+c_{\text{skip}} = \frac{\sigma_{\text{data}}^2}{\sigma^2 + \sigma_{\text{data}}^2}, \qquad c_{\text{out}} = \frac{\sigma\,\sigma_{\text{data}}}{\sqrt{\sigma^2 + \sigma_{\text{data}}^2}} .
 $$
+
+  The noise conditioning $c_{\text{noise}} = \tfrac{1}{4}\ln\sigma$ does not follow from these requirements; the paper says it was chosen empirically.
 
 - Equalize the effective weight ($\lambda(\sigma)$ here is EDM's loss weight, not log-SNR): $\lambda(\sigma) = 1/c_{\text{out}}^2 = (\sigma^2 + \sigma_{\text{data}}^2)/(\sigma\,\sigma_{\text{data}})^2$.
 
@@ -351,7 +410,7 @@ It needs roughly as many steps as training because the Gaussian approximation re
 **DDIM.** Look for non-Markovian forward processes with the same marginals $q(x_t \mid x_0)$. Try
 
 $$
-q_\sigma(x_{t-1} \mid x_t, x_0) = \mathcal{N}\big(\sqrt{\bar{\alpha}_{t-1}}\,x_0 + k_t\,(x_t - \sqrt{\bar{\alpha}_t}\,x_0),\ \varsigma_t^2 I\big).
+q_\varsigma(x_{t-1} \mid x_t, x_0) = \mathcal{N}\big(\sqrt{\bar{\alpha}_{t-1}}\,x_0 + k_t\,(x_t - \sqrt{\bar{\alpha}_t}\,x_0),\ \varsigma_t^2 I\big).
 $$
 
 Because $x_t - \sqrt{\bar{\alpha}_t}x_0 = \sqrt{1-\bar{\alpha}_t}\,\epsilon$, the marginal of $x_{t-1}$ has variance $k_t^2(1-\bar{\alpha}_t) + \varsigma_t^2$, which must equal $1 - \bar{\alpha}_{t-1}$. So $k_t = \sqrt{1-\bar{\alpha}_{t-1}-\varsigma_t^2}/\sqrt{1-\bar{\alpha}_t}$. Replacing $x_0$ and $\epsilon$ by network estimates gives
@@ -556,7 +615,7 @@ Sample quality fluctuates noticeably between nearby checkpoints (for example col
 ::: qa
 **What does $\sigma_{\min}$ control?**
 
-The smallest noise level the model is trained on and sampled at. Too large leaves visible noise; too small wastes training on imperceptible noise where the $\epsilon$-target is very hard to estimate. EDM uses 0.002 for data in $[-1, 1]$.
+The smallest noise level the sampler steps down to before the final jump to $\sigma = 0$ (and, for some schedules, the lowest level used in training). Too large leaves visible noise; too small spends steps on imperceptible noise. EDM samples down to $\sigma_{\min} = 0.002$ for data in $[-1, 1]$, but its training draws $\ln\sigma \sim \mathcal{N}(-1.2, 1.2^2)$ with no lower cutoff; the VE baseline trained down to 0.02.
 :::
 
 ::: qa
