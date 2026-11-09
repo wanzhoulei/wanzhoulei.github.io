@@ -94,11 +94,11 @@ def build_page(note, prev, nxt):
         out.write_text(page, encoding="utf-8")
 
 
-def card(n, featured=False):
+def card(n, featured=False, num=None):
     e = html.escape
     stats = f"{n['qcount']} questions · {n['minutes']} min read"
     cls = "note-card featured" if featured else "note-card"
-    num = "" if featured else f'<span class="note-num">{int(n["order"]):02d}</span>'
+    num = "" if featured else f'<span class="note-num">{num:02d}</span>'
     return (f'<a class="{cls}" href="{e(n["slug"])}.html">{num}'
             f'<span class="note-card-title">{e(n["title"])}</span>'
             f'<span class="note-card-sub">{e(n["subtitle"])}</span>'
@@ -108,11 +108,12 @@ def card(n, featured=False):
 def build_index(notes):
     bank = [n for n in notes if n["slug"] == "interview-question-bank"]
     topics = [n for n in notes if n["slug"] != "interview-question-bank"]
-    total_q = sum(n["qcount"] for n in notes)
+    topic_q = sum(n["qcount"] for n in topics)
+    bank_q = sum(n["qcount"] for n in bank)
     updated = max((n["updated"] for n in notes), default="")
     featured = card(bank[0], featured=True) if bank else ""
-    cards = "\n      ".join(card(n) for n in topics)
-    page = INDEX.format(featured=featured, cards=cards, total_q=total_q,
+    cards = "\n      ".join(card(n, num=i) for i, n in enumerate(topics, 1))
+    page = INDEX.format(featured=featured, cards=cards, topic_q=topic_q, bank_q=bank_q,
                         n_topics=len(topics), updated=html.escape(updated))
     (OUT / "index.html").write_text(page, encoding="utf-8")
 
@@ -150,7 +151,7 @@ INDEX = """<!DOCTYPE html>
   <div class="notes-head">
     <h1 class="page-title">Notes</h1>
     <p class="page-lede">Notes on generative modeling, computer vision and deep learning. Each page builds the core ideas from first principles, derives the key equations, and ends with practice questions you can expand one at a time.</p>
-    <p class="note-meta"><span>{n_topics} topics</span><span>{total_q} practice questions</span><span>Updated {updated}</span></p>
+    <p class="note-meta"><span>{n_topics} topics</span><span>{topic_q} practice questions in the topic notes</span><span>{bank_q} questions from real interviews in the bank</span><span>Updated {updated}</span></p>
   </div>
   {featured}
   <div class="note-grid">
