@@ -1,7 +1,7 @@
 ---
 title: "Text-to-Image and Multimodal Generation"
 subtitle: "How text gets into an image generator: conditioning blocks, text encoders, captions, guidance, adapters, editing, unified models, and post-training."
-order: 7
+order: 9
 updated: 2026-11-08
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: "Video Generation"
 subtitle: "How text- and image-to-video models compress, model, condition, train, speed up and evaluate spacetime data, from 3D U-Nets to video DiTs and autoregressive world models."
-order: 8
+order: 10
 updated: 2026-11-08
 ---
 

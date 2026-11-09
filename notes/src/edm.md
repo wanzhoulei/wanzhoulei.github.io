@@ -1,7 +1,7 @@
 ---
 title: "EDM: The Design Space of Diffusion Models"
 subtitle: "A guided reading of Karras et al. (2022): the common framework, the Heun sampler and step grid, stochastic churn, preconditioning and training, with every step derived, plus the EDM2 follow-up."
-order: 1.5
+order: 3
 updated: 2026-11-08
 ---
 

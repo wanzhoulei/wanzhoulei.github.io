@@ -1,7 +1,7 @@
 ---
 title: "Flow Matching and Few-Step Generation"
 subtitle: "Continuous flows, flow matching and rectified flow, why they coincide with diffusion, and the distillation and consistency methods that cut sampling to one to four steps."
-order: 2
+order: 4
 updated: 2026-11-08
 ---
 

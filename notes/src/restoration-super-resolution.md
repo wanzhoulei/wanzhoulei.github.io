@@ -1,7 +1,7 @@
 ---
 title: "Image and Video Restoration"
 subtitle: "Super-resolution and restoration as inverse problems: signal-processing basics, degradation models, regression, GAN and diffusion restorers, posterior samplers, and video SR."
-order: 5
+order: 7
 updated: 2026-11-08
 ---
 

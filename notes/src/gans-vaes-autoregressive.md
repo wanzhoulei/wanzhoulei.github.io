@@ -1,7 +1,7 @@
 ---
 title: "GANs, VAEs and Autoregressive Models"
 subtitle: "Adversarial, variational, quantized, autoregressive and flow-based generators: their objectives, failure modes, and where each one still appears in modern image generation."
-order: 3
+order: 5
 updated: 2026-11-08
 ---
 

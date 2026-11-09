@@ -1,7 +1,7 @@
 ---
 title: "Vision Backbones and Representations"
 subtitle: "Convolution and attention arithmetic, residual and normalization layers, ViTs, self-supervised features, and how pretrained encoders now feed into generative models."
-order: 6
+order: 8
 updated: 2026-11-08
 ---
 

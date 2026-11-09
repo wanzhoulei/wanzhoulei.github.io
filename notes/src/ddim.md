@@ -1,7 +1,7 @@
 ---
 title: "DDIM: Denoising Diffusion Implicit Models"
 subtitle: "A guided, fully derived reading of Song, Meng and Ermon (ICLR 2021): why a network trained as a DDPM also defines a family of non-Markovian samplers, including a deterministic one that skips steps, what the paper proves, and what its experiments show."
-order: 1.25
+order: 2
 updated: 2026-11-08
 ---
 

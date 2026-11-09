@@ -1,7 +1,7 @@
 ---
 title: "Evaluating Generative and Restoration Models"
 subtitle: "What FID and its alternatives, precision/recall, alignment and preference scores, PSNR/SSIM/LPIPS, no-reference IQA and human studies actually measure, and the perception–distortion trade-off that makes them disagree."
-order: 4
+order: 6
 updated: 2026-11-08
 ---
 

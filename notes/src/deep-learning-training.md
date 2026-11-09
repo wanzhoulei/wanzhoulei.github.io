@@ -1,7 +1,7 @@
 ---
 title: "Deep Learning Training Essentials"
 subtitle: "Losses as likelihoods, gradient flow, initialization, optimizers, schedules, numerics, EMA, regularization, scale and debugging, with the derivations interviewers ask for."
-order: 9
+order: 11
 updated: 2026-11-08
 ---
 
