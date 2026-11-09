@@ -7,7 +7,7 @@ updated: 2026-11-08
 
 A diffusion model learns to reverse a fixed process that slowly corrupts data with Gaussian noise. Training is a plain regression problem at random noise levels, and sampling calls the same network many times, removing a little noise each time. Most current image and video generators are diffusion models or close relatives, and flow matching reuses most of the same ideas. Interviewers like the topic because short derivations separate memorized slogans ("predict the noise") from real understanding: why the loss is a mean-squared error, what the network actually estimates, why samplers can skip steps, and why guidance trades diversity for fidelity.
 
-**Roadmap.** This page is written as a guided reading for someone who knows ML and probability but has not worked through the derivations. It first fixes notation in a table and lists twelve probability and calculus facts ("tools") that every later proof cites by number; tools 1 to 5 have the same numbers as on the [DDIM page](ddim.html). Then it goes in teaching order. "The forward process" builds the noising chain and its two closed forms. "The reverse process and the ELBO" derives the training loss from the likelihood bound, step by step, and shows what dropping the weights does. "Score matching and Tweedie's formula" proves that the noise-prediction loss is denoising score matching and that the trained network is a rescaled score. "The SDE view" takes the number of steps to infinity, states the reverse-time SDE and derives the probability-flow ODE. "Parameterizations" derives every conversion between $\epsilon$, $x_0$, $v$ and the score and says where each is well conditioned. "Noise schedules and SNR" and "Loss weighting" explain what the schedule and the weights really control. "Samplers" covers ancestral DDPM, DDIM, DPM-Solver (derived in full), EDM's Heun sampler and the stochastic versus deterministic choice. "Guidance" derives classifier guidance and classifier-free guidance, explains the diversity loss with a solvable toy, and covers autoguidance. "Latent diffusion and DiT" closes the main text. Each derivation ends with a short "What this says" paragraph, each major section ends with a spoken interview answer and with interview questions, and a rapid-fire review closes the page. The full paper readings of [DDIM](ddim.html) and [EDM](edm.html) are on their own pages; this page summarizes them so it can stand alone.
+**Roadmap.** This page is written as a guided reading for someone who knows ML and probability but has not worked through the derivations. It first fixes notation in a table and lists twelve probability and calculus facts ("tools") that every later proof cites by number; tools 1 to 5 have the same numbers as on the [DDIM page](ddim.html). Then it goes in teaching order. "The forward process" builds the noising chain and its two closed forms. "The reverse process and the ELBO" derives the training loss from the likelihood bound, step by step, and shows what dropping the weights does. "Score matching and Tweedie's formula" proves that the noise-prediction loss is denoising score matching and that the trained network is a rescaled score. "The SDE view" takes the number of steps to infinity, states the reverse-time SDE and derives the probability-flow ODE. "Parameterizations" derives every conversion between $\epsilon$, $x_0$, $v$ and the score and says where each is well conditioned. "Noise schedules and SNR" and "Loss weighting" explain what the schedule and the weights really control. "Samplers" covers ancestral DDPM, DDIM, DPM-Solver (derived in full), EDM's Heun sampler and the stochastic versus deterministic choice. "Guidance" derives classifier guidance and classifier-free guidance, explains the diversity loss with a solvable toy, and covers autoguidance. "Latent diffusion and DiT" closes the main text. Each major derivation ends with a short "What this says" paragraph, each major section ends with a spoken interview answer and with interview questions, and a rapid-fire review closes the page. The full paper readings of [DDIM](ddim.html) and [EDM](edm.html) are on their own pages; this page summarizes them so it can stand alone.
 
 ## Notation
 
@@ -23,7 +23,9 @@ DDPM writes $\alpha_t = 1-\beta_t$ for the per-step factor. This page never uses
 | $q$ | the fixed forward (noising) process; also all its marginals and conditionals | nothing in $q$ is learned |
 | $p_\theta$ | the learned reverse (generative) process, with network weights $\theta$ | |
 | $\epsilon_1, \dots, \epsilon_T$ | the fresh standard Gaussian noise drawn at each forward step | |
-| $\epsilon$ | a standard Gaussian vector, $\epsilon \sim \mathcal{N}(0, I)$; in $x_t = \alpha_t x_0 + \sigma_t\epsilon$ it is the combined noise $\bar\epsilon_t$ | |
+| $\bar\epsilon_t$ | all the noise added in forward steps $1, \dots, t$, combined into one standard Gaussian vector | constructed and proved in "Closed form" below |
+| $\epsilon$ | a standard Gaussian vector, $\epsilon \sim \mathcal{N}(0, I)$; in $x_t = \alpha_t x_0 + \sigma_t\epsilon$ it is the combined noise $\bar\epsilon_t$ of the row above | |
+| $z$ | a fresh standard Gaussian vector drawn inside one sampler or SDE step | in the latent-diffusion section, $z_0$ and $z_t$ instead mean a clean and a noisy latent |
 | $\beta_t$ | variance of the noise added by forward step $t$ | linear schedule: $10^{-4}$ to $0.02$ |
 | $\bar\alpha_t = \prod_{s \le t}(1-\beta_s)$ | fraction of the signal's variance left at level $t$ | $\bar\alpha_0 = 1$ |
 | $\alpha_t$, $\sigma_t$ | signal scale and noise scale, $x_t = \alpha_t x_0 + \sigma_t\epsilon$ | DDPM: $\alpha_t = \sqrt{\bar\alpha_t}$, $\sigma_t = \sqrt{1-\bar\alpha_t}$ |
@@ -33,8 +35,8 @@ DDPM writes $\alpha_t = 1-\beta_t$ for the per-step factor. This page never uses
 | $\ell_t = \log(\alpha_t/\sigma_t) = \lambda_t/2$ | half the log-SNR, the time variable of DPM-Solver | that paper calls it $\lambda_t$ |
 | $\tilde\mu_t$, $\tilde\beta_t$ | mean and variance of the forward posterior $q(x_{t-1} \mid x_t, x_0)$ | |
 | $\mu_\theta$, $\varsigma_t^2$ | mean and variance of a learned reverse step $p_\theta(x_{t-1} \mid x_t)$ | DDPM and DDIM write $\sigma_t^2$; renamed here to avoid a clash |
-| $\epsilon_\theta(x_t, t)$, short $\hat\epsilon$ | the network's estimate of the noise in $x_t$ | |
-| $\hat x_0$ | the clean sample implied by the network's output | |
+| $\epsilon_\theta(x_t, t)$, short $\hat\epsilon$ or $\hat\epsilon_\theta$ | the network's estimate of the noise in $x_t$ | |
+| $\hat x_0$, also $\hat x_\theta(x_t, t)$ | the clean sample implied by the network's output | $\hat x_\theta$ stresses that it is a function computed by the network |
 | $v = \alpha_t\epsilon - \sigma_t x_0$, $\hat v$ | the "velocity" target and its estimate | |
 | $p_t$ | the density of $x_t$ (data pushed through the forward process) | |
 | $\nabla\log p_t(x)$, $s_\theta(x, t)$ | the score of $p_t$ and a network that estimates it | gradient with respect to $x$ |
@@ -44,6 +46,7 @@ DDPM writes $\alpha_t = 1-\beta_t$ for the per-step factor. This page never uses
 | $f(x, t)$, $g(t)$ | drift and diffusion coefficient of a forward SDE | |
 | $W_t$, $\bar W_t$ | standard Brownian motion forward in time, and backward in time | |
 | $c$, $\varnothing$ | a condition (class label, text) and the null condition | |
+| $\epsilon_c$, $\epsilon_u$ | the noise predictions $\epsilon_\theta(x_t, c)$ with the condition and $\epsilon_\theta(x_t, \varnothing)$ without it ("unconditional") | |
 | $w$ | guidance weight in Ho and Salimans' convention: $w = 0$ means no guidance | libraries use the scale $s_{\text{cfg}} = 1 + w$ |
 | $w(\lambda)$, $w_t$ | loss weight per noise level | always written with an argument or subscript |
 | $\eta$ | DDIM's noise knob: $\eta = 0$ deterministic, $\eta = 1$ DDPM | |
@@ -56,7 +59,7 @@ Reading papers with the wrong $\alpha$. DDPM's $\alpha_t$ is $1-\beta_t$; DDIM's
 
 ## Twelve tools
 
-Every derivation below uses only these facts. They are stated once with a short reason and then cited by number.
+The derivations below cite these facts by number; everything else they use is ordinary algebra and calculus (Taylor expansion, the chain rule, integration by parts). Each fact is stated once with a short reason.
 
 **Tool 1 (linear-Gaussian marginalization).** If $x \sim \mathcal{N}(\mu, \Sigma)$ and $y \mid x \sim \mathcal{N}(Ax + b, \Lambda)$, then
 
@@ -197,13 +200,22 @@ $$
 \log q(x_{t-1} \mid x_t, x_0) = -\frac{1}{2}\left[\frac{\lVert x_t - \sqrt{1-\beta_t}\, x_{t-1}\rVert^2}{\beta_t} + \frac{\lVert x_{t-1} - \sqrt{\bar{\alpha}_{t-1}}\, x_0\rVert^2}{1-\bar{\alpha}_{t-1}}\right] + \text{const}.
 $$
 
-Expand both squares and collect powers of $x_{t-1}$. The result has the form $-\tfrac12\big(A\lVert x_{t-1}\rVert^2 - 2\,b^\top x_{t-1}\big) + \text{const}$ with
+Expand both squares with $\lVert a - b\rVert^2 = \lVert a\rVert^2 - 2a^\top b + \lVert b\rVert^2$, and put every term without $x_{t-1}$ into the constant:
+
+$$
+\begin{aligned}
+\frac{\lVert x_t - \sqrt{1-\beta_t}\, x_{t-1}\rVert^2}{\beta_t} &= \frac{1-\beta_t}{\beta_t}\lVert x_{t-1}\rVert^2 - 2\,\frac{\sqrt{1-\beta_t}}{\beta_t}\,x_t^\top x_{t-1} + \text{const},\\
+\frac{\lVert x_{t-1} - \sqrt{\bar{\alpha}_{t-1}}\, x_0\rVert^2}{1-\bar{\alpha}_{t-1}} &= \frac{1}{1-\bar{\alpha}_{t-1}}\lVert x_{t-1}\rVert^2 - 2\,\frac{\sqrt{\bar{\alpha}_{t-1}}}{1-\bar{\alpha}_{t-1}}\,x_0^\top x_{t-1} + \text{const}.
+\end{aligned}
+$$
+
+Adding the two lines, the bracket has the form $A\lVert x_{t-1}\rVert^2 - 2\,b^\top x_{t-1} + \text{const}$ with
 
 $$
 A = \frac{1-\beta_t}{\beta_t} + \frac{1}{1-\bar{\alpha}_{t-1}}, \qquad b = \frac{\sqrt{1-\beta_t}}{\beta_t}\, x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1-\bar{\alpha}_{t-1}}\, x_0 .
 $$
 
-A log-density of this form is a Gaussian with variance $1/A$ and mean $b/A$ (complete the square: $A\lVert x\rVert^2 - 2b^\top x = A\lVert x - b/A\rVert^2 - \lVert b\rVert^2/A$). Over a common denominator, and using the identity proved above,
+By Tool 6 (vector form), a log-density $-\tfrac12\big(A\lVert x_{t-1}\rVert^2 - 2\,b^\top x_{t-1}\big) + \text{const}$ is a Gaussian with variance $1/A$ and mean $b/A$. Over a common denominator, and using the identity proved above,
 
 $$
 A = \frac{(1-\beta_t)(1-\bar{\alpha}_{t-1}) + \beta_t}{\beta_t\,(1-\bar{\alpha}_{t-1})} = \frac{1-\bar{\alpha}_t}{\beta_t\,(1-\bar{\alpha}_{t-1})} .
@@ -214,7 +226,7 @@ So the variance is $\tilde{\beta}_t = 1/A$, and the mean is $\tilde{\beta}_t\, b
 $$
 \begin{aligned}
 q(x_{t-1} \mid x_t, x_0) &= \mathcal{N}(\tilde{\mu}_t, \tilde{\beta}_t I), \qquad \tilde{\beta}_t = \frac{1-\bar{\alpha}_{t-1}}{1-\bar{\alpha}_t}\,\beta_t, \\
-\tilde{\mu}_t &= \tilde{\beta}_t\, b = \frac{\sqrt{\bar{\alpha}_{t-1}}\,\beta_t}{1-\bar{\alpha}_t}\, x_0 + \frac{\sqrt{1-\beta_t}\,(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}\, x_t .
+\tilde{\mu}_t &= \tilde{\beta}_t\, b = \frac{(1-\bar{\alpha}_{t-1})\beta_t}{1-\bar{\alpha}_t}\Big(\frac{\sqrt{1-\beta_t}}{\beta_t}\, x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1-\bar{\alpha}_{t-1}}\, x_0\Big) = \frac{\sqrt{\bar{\alpha}_{t-1}}\,\beta_t}{1-\bar{\alpha}_t}\, x_0 + \frac{\sqrt{1-\beta_t}\,(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}\, x_t .
 \end{aligned}
 $$
 
@@ -241,7 +253,7 @@ Three entries you can check by hand:
 - *$t = 1000$.* For small $\beta$, $\log(1-\beta) \approx -\beta - \beta^2/2$. The sum of the $\beta_s$ is $1000 \times (10^{-4} + 0.02)/2 = 10.05$, and the sum of the $\beta_s^2/2$ is about $0.067$, so $\log\bar\alpha_{1000} \approx -10.12$ and $\bar\alpha_{1000} \approx 4.0 \times 10^{-5}$. Hence $x_{1000} = 0.00635\,x_0 + 0.99998\,\epsilon$.
 - *Where the SNR crosses 1.* $\mathrm{SNR}(250) = 0.5241/0.4759 = 1.10$; the first step with $\mathrm{SNR} < 1$ is $t = 260$.
 
-**What this says.** Under the linear schedule, roughly the last three quarters of the steps have more noise than signal, and the last quarter has an SNR below $0.004$, which is nearly pure noise. The final level is close to $\mathcal{N}(0, I)$ but not exactly: a fraction $0.00635$ of the image survives, which matters for the zero-terminal-SNR discussion later. The posterior variance $\tilde\beta_t$ equals $\beta_t$ to within 2% for every $t \ge 100$ and differs only in the first few dozen steps, which is why DDPM found that the two fixed reverse variances $\beta_t$ and $\tilde\beta_t$ give similar samples.
+**What this says.** Under the linear schedule, roughly the last three quarters of the steps have more noise than signal, and the last quarter has an SNR below $0.004$, which is nearly pure noise. The final level is close to $\mathcal{N}(0, I)$ but not exactly: a fraction $0.00635$ of the image survives, which matters for the zero-terminal-SNR discussion later. The posterior variance $\tilde\beta_t$ equals $\beta_t$ to within 2% for every $t \ge 91$ and differs by more than that only in the first 90 steps, which helps explain why DDPM found that the two fixed reverse variances $\beta_t$ and $\tilde\beta_t$ give similar samples.
 
 ::: key
 **How to say it in an interview.** "The forward process is a fixed Gaussian Markov chain, $x_t = \sqrt{1-\beta_t}\,x_{t-1} + \sqrt{\beta_t}\,\epsilon_t$, that shrinks the signal and adds noise so the variance stays at one. Because each step is linear-Gaussian, the noise from all steps combines into one Gaussian, so $x_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1-\bar\alpha_t}\,\epsilon$ and training can jump to any level in one shot. Conditioned on $x_0$, one step backwards is also Gaussian, with a mean that blends $x_0$ and $x_t$ and a variance $\tilde\beta_t$ slightly below $\beta_t$; that Gaussian is what the learned reverse step imitates."
@@ -262,7 +274,7 @@ Diffusion models are trained with a stable regression loss, so there is no adver
 ::: qa
 **Derive $q(x_t \mid x_0)$ for the DDPM forward process.**
 
-By induction on $t$. For $t = 1$ the claim is the one-step kernel itself, since $\bar\alpha_1 = 1 - \beta_1$. If $x_{t-1} \mid x_0 \sim \mathcal{N}(\sqrt{\bar\alpha_{t-1}}x_0, (1-\bar\alpha_{t-1})I)$, then $x_t = \sqrt{1-\beta_t}\,x_{t-1} + \sqrt{\beta_t}\,\epsilon_t$ with fresh independent noise, so by linear-Gaussian marginalization $x_t \mid x_0$ is Gaussian with mean $\sqrt{1-\beta_t}\sqrt{\bar\alpha_{t-1}}\,x_0 = \sqrt{\bar\alpha_t}\,x_0$ and variance $(1-\beta_t)(1-\bar\alpha_{t-1}) + \beta_t = 1 - \bar\alpha_t$. The last identity is one line of algebra: expand the product and the $\beta_t$ terms cancel. The noise in the closed form, $\bar\epsilon_t$, is the sum of all per-step noises, rescaled to unit variance, not any single step's noise. This is what makes training cheap: one Gaussian draw gives a sample at any level.
+By induction on $t$. For $t = 1$ the claim is the one-step kernel itself, since $\bar\alpha_1 = 1 - \beta_1$. If $x_{t-1} \mid x_0 \sim \mathcal{N}(\sqrt{\bar\alpha_{t-1}}x_0, (1-\bar\alpha_{t-1})I)$, then $x_t = \sqrt{1-\beta_t}\,x_{t-1} + \sqrt{\beta_t}\,\epsilon_t$ with fresh independent noise, so by linear-Gaussian marginalization $x_t \mid x_0$ is Gaussian with mean $\sqrt{1-\beta_t}\sqrt{\bar\alpha_{t-1}}\,x_0 = \sqrt{\bar\alpha_t}\,x_0$ and variance $(1-\beta_t)(1-\bar\alpha_{t-1}) + \beta_t = 1 - \bar\alpha_t$. The last identity is one line of algebra: expand the product and the $\beta_t$ terms cancel. The noise in the closed form, $\bar\epsilon_t$, is a fixed weighted combination of all the per-step noises $\epsilon_1, \dots, \epsilon_t$, rescaled to unit variance, not any single step's noise. This is what makes training cheap: one Gaussian draw gives a sample at any level.
 :::
 
 ## The reverse process and the ELBO
@@ -281,7 +293,7 @@ Here $\mu_\theta$ is a neural network and $\varsigma_t^2$ is a fixed number per 
 
 Why a Gaussian per step? The true reverse step is $q(x_{t-1} \mid x_t) = \int q(x_{t-1} \mid x_t, x_0)\,q(x_0 \mid x_t)\,dx_0$: an average of the Gaussian posteriors from the forward process section, one for each clean image $x_0$ that could have produced $x_t$. Each component has variance $\tilde\beta_t$, and its mean depends on $x_0$ through the coefficient $c_t = \sqrt{\bar\alpha_{t-1}}\,\beta_t/(1-\bar\alpha_t)$. So the mixture is close to a single Gaussian when $c_t$ times the spread of the plausible $x_0$ is small compared with $\sqrt{\tilde\beta_t}$.
 
-For one step of the linear schedule at $t = 500$, $c_{500} = 0.0031$ while $\sqrt{\tilde\beta_{500}} = 0.100$; even if the plausible clean pixels spanned the whole range $[-1, 1]$, the component means would differ by at most $0.006$, a small fraction of the component width. Large jumps are different. For the same kind of posterior from $t = 500$ straight to $t = 250$ the coefficient on $x_0$ is $0.67$ and the width is $0.66$, and from $t = 250$ straight to $t = 1$ the coefficient is $1.00$ and the width is $0.010$: the step back is essentially "draw a clean image from $q(x_0 \mid x_t)$", which is as multimodal as the data.
+For one step of the linear schedule at $t = 500$, $c_{500} = 0.0031$ while $\sqrt{\tilde\beta_{500}} = 0.100$; even if the plausible clean pixels spanned the whole range $[-1, 1]$, the component means would differ by at most $0.006$, a small fraction of the component width. Large jumps are different. A jump from $t$ straight back to an earlier level $s < t$ has the same algebra as one step, with $\bar\alpha_s$ in place of $\bar\alpha_{t-1}$ and $1 - \bar\alpha_t/\bar\alpha_s$ in place of $\beta_t$ (because $x_t = \sqrt{\bar\alpha_t/\bar\alpha_s}\,x_s + \sqrt{1 - \bar\alpha_t/\bar\alpha_s}\,\epsilon$ by the closed form applied from $s$ to $t$). So its coefficient on $x_0$ is $\sqrt{\bar\alpha_s}\,(1 - \bar\alpha_t/\bar\alpha_s)/(1-\bar\alpha_t)$ and its variance is $(1-\bar\alpha_s)(1 - \bar\alpha_t/\bar\alpha_s)/(1-\bar\alpha_t)$. From $t = 500$ straight to $t = 250$ the coefficient on $x_0$ is $0.67$ and the width (square root of the variance) is $0.66$, and from $t = 250$ straight to $t = 1$ the coefficient is $1.00$ and the width is $0.010$: the step back is essentially "draw a clean image from $q(x_0 \mid x_t)$", which is as multimodal as the data.
 
 **What this says.** A Gaussian reverse step is an accurate model only for small steps. This is why ancestral DDPM sampling needs many steps, and why fast samplers either change the update (DDIM, ODE solvers) or change the training (distillation).
 
@@ -469,16 +481,16 @@ $$
 
 Every step gets weight one, the $t = 1$ term stands in for $L_0$, and $L_T$ is dropped because it has no parameters. Relative to the bound, which weights the smallest noise levels most (Step 7), $L_{\text{simple}}$ down-weights the low-noise terms. The paper's reason: those terms train the network to remove tiny amounts of noise, which is easy, so it is better to spend capacity on the harder denoising tasks at larger $t$. On CIFAR-10 the trade is large. With fixed variances and the noise parameterization, training on the true bound gave FID 13.51, and $L_{\text{simple}}$ gave FID 3.17; the likelihood bound moved the other way, from at most 3.70 to at most 3.75 bits per dimension.
 
-**Fixed versus learned variance.** DDPM fixed $\varsigma_t^2$ to $\beta_t$ or to $\tilde\beta_t$ and saw similar samples; these are the reverse-variance choices that are optimal when the data is $\mathcal{N}(0, I)$ and when it is a single point. Improved DDPM (Nichol and Dhariwal) learns the variance instead. Because $\tilde\beta_t$ and $\beta_t$ are almost equal except near $t = 0$ (the last column of the table above), predicting the variance directly is hard, so the network outputs a number $v$ per dimension and
+**Fixed versus learned variance.** DDPM fixed $\varsigma_t^2$ to $\beta_t$ or to $\tilde\beta_t$ and saw similar samples; these are the reverse-variance choices that are optimal when the data is $\mathcal{N}(0, I)$ and when it is a single point. Improved DDPM (Nichol and Dhariwal) learns the variance instead. Because $\tilde\beta_t$ and $\beta_t$ are almost equal except near $t = 0$ (the last column of the table above), predicting the variance directly is hard, so the network outputs an interpolation number $r$ per dimension (the paper calls it $v$; renamed here because $v$ is the velocity on this page) and
 
 $$
-\Sigma_\theta(x_t, t) = \exp\big(v\log\beta_t + (1-v)\log\tilde\beta_t\big).
+\Sigma_\theta(x_t, t) = \exp\big(r\log\beta_t + (1-r)\log\tilde\beta_t\big).
 $$
 
 It is trained with $L_{\text{hybrid}} = L_{\text{simple}} + 0.001\,L_{\text{vlb}}$, with a stop-gradient on $\mu_\theta$ inside $L_{\text{vlb}}$ so that the bound only steers the variance. The motivation is that the first few steps contribute most of the bound, which is exactly where the variance choice matters. Models trained this way (with $T = 4000$) gave near-optimal FID with 100 sampling steps, where fixed-variance models degraded much more.
 
 ::: pitfall
-"$L_{\text{simple}}$ is the ELBO." It is a reweighted ELBO. Kingma & Gao show that the common objectives are all the same per-noise-level loss integrated with different weights $w(\lambda)$; only $w(\lambda) = 1$ is the ELBO.
+"$L_{\text{simple}}$ is the ELBO." It is a reweighted ELBO. Kingma & Gao show that the common objectives are all the same per-noise-level loss integrated with different weights $w(\lambda)$; only $w(\lambda) = 1$ is the ELBO of the data itself. (They also show that any weight that is monotone in the noise level equals the ELBO of noise-augmented data.)
 :::
 
 ::: key
@@ -567,7 +579,7 @@ $$
 \end{aligned}
 $$
 
-*The remaining terms do not involve $s$.* They are $\mathbb{E}_{p_\sigma}\lVert\nabla\log p_\sigma\rVert^2$ and $\mathbb{E}\lVert\nabla_{\tilde x}\log q(\tilde x \mid x)\rVert^2$, so $C = \mathbb{E}_{p_\sigma}\lVert\nabla\log p_\sigma\rVert^2 - \mathbb{E}\lVert\nabla_{\tilde x}\log q(\tilde x \mid x)\rVert^2$. $\square$
+*The remaining terms do not involve $s$.* They are $\mathbb{E}_{p_\sigma}\lVert\nabla\log p_\sigma\rVert^2$ in $J_{\text{ESM}}$ and $\mathbb{E}\lVert\nabla_{\tilde x}\log q(\tilde x \mid x)\rVert^2$ in $J_{\text{DSM}}$, so $C = J_{\text{ESM}} - J_{\text{DSM}} = \mathbb{E}_{p_\sigma}\lVert\nabla\log p_\sigma\rVert^2 - \mathbb{E}\lVert\nabla_{\tilde x}\log q(\tilde x \mid x)\rVert^2$. $\square$
 
 **What this says.** Regressing onto the score of the corruption kernel, which is known in closed form, is as good as regressing onto the unknown score of the noisy data distribution, up to a constant. The target $\nabla_{\tilde x}\log q(\tilde x \mid x)$ is noisy (it depends on the particular $x$), but its average over all $x$ that could have produced $\tilde x$ is the true score, which is why the regression works.
 
@@ -585,11 +597,11 @@ $$
 \mathbb{E}\Big\lVert -\frac{\epsilon_\theta}{\sigma_t} + \frac{\epsilon}{\sigma_t}\Big\rVert^2 = \frac{1}{\sigma_t^2}\,\mathbb{E}\big\lVert\epsilon_\theta(x_t, t) - \epsilon\big\rVert^2 .
 $$
 
-**What this says.** The DDPM loss at level $t$ equals $\sigma_t^2$ times the denoising score matching loss. The score SDE paper's recommended weighting, $\lambda(t) \propto 1/\mathbb{E}\lVert\nabla\log q(x_t \mid x_0)\rVert^2 \propto \sigma_t^2$, is exactly this factor, so "train a score model with DSM" and "train a noise predictor with $L_{\text{simple}}$" are the same procedure written in two units.
+**What this says.** The DDPM loss at level $t$ equals $\sigma_t^2$ times the denoising score matching loss. The score SDE paper's recommended per-level weight, $w_t \propto 1/\mathbb{E}\lVert\nabla\log q(x_t \mid x_0)\rVert^2 = 1/\mathbb{E}\lVert\epsilon/\sigma_t\rVert^2 = \sigma_t^2/d$ (the paper writes this weight as $\lambda(t)$, which is not the log-SNR), is exactly this factor up to a constant, so "train a score model with DSM" and "train a noise predictor with $L_{\text{simple}}$" are the same procedure written in two units.
 
 ### The constant is not zero: the loss has a floor
 
-The constant $C$ is the reason a well-trained diffusion model's loss stays well above zero. At the optimum, the DSM loss equals its floor, the average conditional variance of the target given the input (Tool 4): $\mathbb{E}\big[\lVert\epsilon/\sigma_t - \mathbb{E}[\epsilon \mid x_t]/\sigma_t\rVert^2\big]$. The noise in $x_t$ cannot be recovered exactly, because many pairs $(x_0, \epsilon)$ produce the same $x_t$. The worked example below puts a number on it.
+The constant $C$ is the reason a well-trained diffusion model's loss stays well above zero. Rearranged, the claim says $J_{\text{DSM}}(s) = J_{\text{ESM}}(s) - C$. The best possible score, $s = \nabla\log p_\sigma$, makes $J_{\text{ESM}} = 0$, so the smallest value the DSM loss can reach is $-C$, and $-C \ge 0$ (so $C \le 0$). By Tool 4 this floor is the average conditional variance of the DSM target given the input; for Gaussian noise the target is $-\epsilon/\sigma_t$, so the floor is $\mathbb{E}\big[\lVert\epsilon/\sigma_t - \mathbb{E}[\epsilon \mid x_t]/\sigma_t\rVert^2\big]$. It is positive because the noise in $x_t$ cannot be recovered exactly: many pairs $(x_0, \epsilon)$ produce the same $x_t$. The worked example below puts a number on it.
 
 ### Tweedie's formula
 
@@ -612,7 +624,7 @@ $$
 
 Multiply by $\sigma_t^2$, move $x$ across and divide by $\alpha_t$ to get the first formula. For the second, $\epsilon = (x_t - \alpha_t x_0)/\sigma_t$ exactly, so $\mathbb{E}[\epsilon \mid x_t] = (x_t - \alpha_t\mathbb{E}[x_0 \mid x_t])/\sigma_t = -\sigma_t\nabla\log p_t(x_t)$ by the last line. $\square$
 
-With $\alpha_t = 1$ this is Tool 5 and the classical statement of Tweedie's formula (Efron 2011): the posterior mean under Gaussian noise is the observation plus the noise variance times the score of the observed density.
+The second formula is Tool 5. With $\alpha_t = 1$ the first formula is the classical statement of Tweedie's formula (Efron 2011): the posterior mean under Gaussian noise is the observation plus the noise variance times the score of the observed density.
 
 ### What the network converges to
 
@@ -666,7 +678,7 @@ At high noise many clean images are consistent with $x_t$, and the MSE-optimal p
 ::: qa
 **State and prove the denoising score matching identity.**
 
-Let $p_\sigma(\tilde x) = \int q(\tilde x \mid x)\,p(x)\,dx$. Then $\mathbb{E}_{p_\sigma}\lVert s - \nabla\log p_\sigma\rVert^2 = \mathbb{E}_{p(x)q(\tilde x \mid x)}\lVert s - \nabla_{\tilde x}\log q(\tilde x \mid x)\rVert^2 + C$. Expand both squares. The $\lVert s\rVert^2$ terms match because the marginal of $\tilde x$ is $p_\sigma$. For the cross term, $\mathbb{E}_{p_\sigma}[s^\top\nabla\log p_\sigma] = \int s^\top\nabla p_\sigma\,d\tilde x$; substitute $p_\sigma = \int q\,p\,dx$, move the gradient inside, and write $\nabla q = q\,\nabla\log q$ to get $\mathbb{E}_{p(x)q(\tilde x \mid x)}[s^\top\nabla\log q]$. The leftover squared-target terms do not involve $s$. For Gaussian corruption the target is $-\epsilon/\sigma_t$, so with $s = -\epsilon_\theta/\sigma_t$ the DSM loss is $\sigma_t^{-2}\mathbb{E}\lVert\epsilon_\theta - \epsilon\rVert^2$. The constant $C$ is generally positive, which is why the training loss plateaus above zero.
+Let $p_\sigma(\tilde x) = \int q(\tilde x \mid x)\,p(x)\,dx$. Then $\mathbb{E}_{p_\sigma}\lVert s - \nabla\log p_\sigma\rVert^2 = \mathbb{E}_{p(x)q(\tilde x \mid x)}\lVert s - \nabla_{\tilde x}\log q(\tilde x \mid x)\rVert^2 + C$. Expand both squares. The $\lVert s\rVert^2$ terms match because the marginal of $\tilde x$ is $p_\sigma$. For the cross term, $\mathbb{E}_{p_\sigma}[s^\top\nabla\log p_\sigma] = \int s^\top\nabla p_\sigma\,d\tilde x$; substitute $p_\sigma = \int q\,p\,dx$, move the gradient inside, and write $\nabla q = q\,\nabla\log q$ to get $\mathbb{E}_{p(x)q(\tilde x \mid x)}[s^\top\nabla\log q]$. The leftover squared-target terms do not involve $s$. For Gaussian corruption the target is $-\epsilon/\sigma_t$, so with $s = -\epsilon_\theta/\sigma_t$ the DSM loss is $\sigma_t^{-2}\mathbb{E}\lVert\epsilon_\theta - \epsilon\rVert^2$. The constant is $C = \mathbb{E}\lVert\nabla\log p_\sigma\rVert^2 - \mathbb{E}\lVert\nabla_{\tilde x}\log q\rVert^2 \le 0$: at the true score the ESM loss is zero, so the DSM loss stops at $-C \ge 0$, the average conditional variance of the target. That is why the training loss plateaus above zero.
 :::
 
 ::: qa
@@ -729,7 +741,7 @@ $$
 \alpha(t) = \exp\big(-\tfrac{1}{4}t^2(\bar\beta_{\max} - \bar\beta_{\min}) - \tfrac{1}{2}t\,\bar\beta_{\min}\big), \qquad \bar\beta_{\min} = 0.1,\ \bar\beta_{\max} = 20 .
 $$
 
-*Check against the discrete chain.* At $t = 0.5$: $\alpha = \exp(-\tfrac{1}{4}(0.25)(19.9) - 0.025) = \exp(-1.269) = 0.2812$, against $\sqrt{\bar\alpha_{500}} = 0.2803$ from the table. At $t = 1$: $\exp(-4.975 - 0.05) = 0.00657$, against $0.00635$. The small gaps come from $\log(1 - \beta) \ne -\beta$.
+*Check against the discrete chain.* At $t = 0.5$: $\alpha = \exp(-\tfrac{1}{4}(0.25)(19.9) - 0.025) = \exp(-1.269) = 0.2812$, against $\sqrt{\bar\alpha_{500}} = 0.2803$ from the table. At $t = 1$: $\exp(-4.975 - 0.05) = 0.00657$, against $0.00635$. The small gaps come mostly from $\log(1 - \beta) \approx -\beta - \beta^2/2$ rather than $-\beta$. At $t = 1$ that is the whole gap, because $\sum_{i=1}^{1000}\beta_i = 10.05 = \int_0^1\beta(t)\,dt$ exactly; at $t = 0.5$ a smaller part comes from the sum $\sum_{i \le 500}\beta_i = 2.535$ differing from the integral $2.5375$.
 
 **What this says.** DDPM is a discretization of one linear SDE. The SDE's drift shrinks the signal at rate $\tfrac{1}{2}\beta(t)$ while its noise refills the variance at rate $\beta(t)$, and the two balance exactly at unit variance.
 
@@ -772,7 +784,7 @@ $$
 dx = \big[f(x, t) - g(t)^2\,\nabla_x\log p_t(x)\big]\,dt + g(t)\,d\bar W_t ,
 $$
 
-has the same marginal $p_t$ at every time. Here $dt$ is negative and $\bar W_t$ is a Brownian motion running backwards. Everything in it is known except the score, which is what the network estimates.
+has the same marginal $p_t$ at every time. Here $dt$ is negative and $\bar W_t$ is a Brownian motion running backwards. Everything in it is known except the score, which is what the network estimates. This form uses the fact that the diffusion coefficient $g(t)$ does not depend on $x$; when it does, Anderson's reverse drift has an extra term, the divergence of $g g^\top$. Like Tool 11, Anderson's theorem is used here as a known result; the heuristic below shows where its terms come from.
 
 *Intuition.* Forward diffusion spreads mass out. To undo that, the reverse process needs an extra drift that pushes mass back toward high-density regions, and the push must be strong enough to beat the fresh noise it still injects. The score points uphill in density, and $g^2$ is the rate at which noise is injected, so $g^2\nabla\log p_t$ is the natural correction.
 
@@ -822,7 +834,16 @@ If $x(0) \sim p_0$ and $x$ moves by this ODE, its density solves the same linear
 
 ### A whole family with the same marginals
 
-The split above can be done partially. For any $\zeta \ge 0$, write $\tfrac{1}{2}g^2\Delta p = \tfrac{1}{2}\zeta^2 g^2\Delta p + \tfrac{1}{2}(1 - \zeta^2)\,g^2\,\nabla\cdot(p\,\nabla\log p)$. The same algebra shows that the forward SDE with drift $f - \tfrac{1}{2}(1-\zeta^2)g^2\nabla\log p_t$ and diffusion $\zeta g$ has marginals $p_t$. Its time reversal, by Anderson's formula, subtracts another $\zeta^2 g^2\nabla\log p_t$ from the drift:
+The split above can be done partially. For any $\zeta \ge 0$, split the diffusion term into two parts and rewrite only the second one with $\Delta p = \nabla\cdot(p\,\nabla\log p)$:
+
+$$
+\begin{aligned}
+\partial_t p_t &= -\nabla\cdot(f\,p_t) + \tfrac{1}{2}\zeta^2 g^2\,\Delta p_t + \tfrac{1}{2}(1 - \zeta^2)\,g^2\,\nabla\cdot\big(p_t\,\nabla\log p_t\big) && \tfrac12 g^2 = \tfrac12\zeta^2 g^2 + \tfrac12(1-\zeta^2)g^2\\
+&= -\nabla\cdot\Big[\big(f - \tfrac{1}{2}(1-\zeta^2)\,g^2\,\nabla\log p_t\big)\,p_t\Big] + \tfrac{1}{2}(\zeta g)^2\,\Delta p_t && \text{collect the divergences.}
+\end{aligned}
+$$
+
+The last line is the Fokker-Planck equation (Tool 11) of the SDE with drift $f - \tfrac{1}{2}(1-\zeta^2)g^2\nabla\log p_t$ and diffusion coefficient $\zeta g$, so that SDE also has marginals $p_t$. Its time reversal, by Anderson's formula (forward drift minus the squared diffusion coefficient $\zeta^2 g^2$ times the score), subtracts another $\zeta^2 g^2\nabla\log p_t$ from the drift:
 
 $$
 dx = \Big[f - \frac{1 + \zeta^2}{2}\,g^2\,\nabla\log p_t\Big]dt + \zeta\,g\,d\bar W_t .
@@ -1052,7 +1073,7 @@ Think of a schedule as a curve $\lambda_t$ in log-SNR. It decides which noise le
 
 ### For training, the schedule is an importance-sampling distribution
 
-Kingma and Gao (2023) write every common objective in one form. In continuous time with $t \sim \mathcal{U}(0, 1)$, a weighted noise-prediction loss is
+Kingma and Gao (2023) write every common objective in one form. In continuous time with $t \sim \mathcal{U}(0, 1)$ (uniform on $[0, 1]$), and writing the noise prediction as $\hat\epsilon_\theta(x_t; \lambda_t)$ to stress that the network is told the log-SNR, a weighted noise-prediction loss is
 
 $$
 \mathcal{L}_w = \tfrac{1}{2}\,\mathbb{E}_{t \sim \mathcal{U}(0,1),\,\epsilon}\Big[w(\lambda_t)\,\Big(-\frac{d\lambda_t}{dt}\Big)\,\big\lVert\hat\epsilon_\theta(x_t; \lambda_t) - \epsilon\big\rVert^2\Big].
@@ -1066,6 +1087,8 @@ $$
 &= \tfrac{1}{2}\int_{\lambda_{\min}}^{\lambda_{\max}} w(\lambda)\,\mathbb{E}_\epsilon\big\lVert\hat\epsilon_\theta(x_\lambda; \lambda) - \epsilon\big\rVert^2\,d\lambda && \text{substitute } \lambda = \lambda_t\text{; the minus sign flips the limits.}
 \end{aligned}
 $$
+
+Here $x_\lambda$ is the noisy sample at the level whose log-SNR is $\lambda$. The second line uses $d\lambda = \frac{d\lambda_t}{dt}dt$: as $t$ runs from 0 to 1, $\lambda$ runs down from $\lambda_0$ to $\lambda_1$, and $\int_0^1 (\cdot)\big(-\frac{d\lambda_t}{dt}\big)dt = -\int_{\lambda_0}^{\lambda_1}(\cdot)\,d\lambda = \int_{\lambda_1}^{\lambda_0}(\cdot)\,d\lambda$.
 
 The integral no longer mentions the schedule, except through its endpoints $\lambda_{\min} = \lambda_1$ and $\lambda_{\max} = \lambda_0$. What the schedule does change is the Monte Carlo estimate: drawing $t$ uniformly draws $\lambda$ from the density $p(\lambda) = -dt/d\lambda$, so the same integral is estimated as $\tfrac{1}{2}\mathbb{E}_{\lambda \sim p}[w(\lambda)/p(\lambda)\cdot\lVert\hat\epsilon_\theta - \epsilon\rVert^2]$. The schedule is an importance-sampling distribution: it changes the variance of the gradient, not the objective. Conversely, plain $\epsilon$-MSE with uniform $t$ is $\int p(\lambda)\,\mathbb{E}\lVert\hat\epsilon_\theta - \epsilon\rVert^2\,d\lambda$, so its implied weight is $w(\lambda) \propto p(\lambda)$.
 
@@ -1085,7 +1108,7 @@ So $p(\lambda) = \operatorname{sech}(\lambda/2)/(2\pi)$: $0.159$ at $\lambda = 0
 
 ### Why the linear schedule was replaced: the cosine schedule
 
-Nichol and Dhariwal found that DDPM's linear schedule wastes steps at low resolution: the end of the forward process is so noisy that it contributes little to sample quality. A model trained with the linear schedule barely got worse in FID when up to the first 20% of the reverse process was skipped (at $64 \times 64$ and $32 \times 32$; the linear schedule worked well at high resolution). Their replacement defines $\bar\alpha_t$ directly:
+Nichol and Dhariwal found that DDPM's linear schedule wastes steps at low resolution: the end of the forward process is so noisy that it contributes little to sample quality. On ImageNet $64 \times 64$, a model trained with the linear schedule barely got worse in FID when up to the first 20% of the reverse process was skipped. They found the linear schedule sub-optimal at $64 \times 64$ and $32 \times 32$ but good at high resolution. Their replacement defines $\bar\alpha_t$ directly:
 
 $$
 \bar{\alpha}_t = \frac{f(t)}{f(0)}, \qquad f(t) = \cos^2\Big(\frac{t/T + s}{1+s}\cdot\frac{\pi}{2}\Big), \quad s = 0.008,
@@ -1277,7 +1300,7 @@ with $x = x_0 + \sigma\epsilon$ and data standard deviation $\sigma_{\text{data}
 
 As $\sigma \to 0$, $c_{\text{skip}} \to 1$ and $D \approx x$ (the network only adds a small correction); as $\sigma \to \infty$, $c_{\text{skip}} \to 0$ and the network predicts $x_0$ directly. Training noise levels follow a log-normal, $\ln\sigma \sim \mathcal{N}(P_{\text{mean}}, P_{\text{std}}^2)$ with $P_{\text{mean}} = -1.2$, $P_{\text{std}} = 1.2$ and $\sigma_{\text{data}} = 0.5$, because the loss can only be reduced substantially at intermediate noise: at tiny $\sigma$ the noise is hard to detect and irrelevant, and at huge $\sigma$ the best answer is close to the dataset mean.
 
-**What this says.** EDM separates three things older papers bundled: how the network's input and output are scaled (preconditioning), how much each level counts once it is sampled ($\lambda(\sigma)$, set so the effective weight is one), and how often each level is sampled ($p_{\text{train}}$, which is where the real emphasis lives).
+**What this says.** EDM separates three things older papers bundled: how the network's input and output are scaled (preconditioning), how much each level counts once it is sampled ($\lambda(\sigma)$, set so the effective weight is one), and how often each level is sampled (the training distribution of noise levels, which EDM calls $p_{\text{train}}$: the log-normal above, and where the real emphasis lives).
 
 ::: key
 **How to say it in an interview.** "Put every objective in clean-image units. The $\epsilon$-loss weights a level by its SNR, the $v$-loss by $1 + \mathrm{SNR}$, the ELBO by half the SNR drop per step, and the $x_0$-loss uniformly. The $\epsilon$-loss therefore spends most of its weight on nearly clean inputs; Min-SNR caps the weight at $\gamma = 5$, which for an $\epsilon$-model means multiplying by $\min(1, \gamma/\mathrm{SNR})$. EDM normalizes the network's input and target to unit variance, picks the skip connection that minimizes error amplification, sets the per-level weight to make the effective weight one, and puts the emphasis in the log-normal sampling of noise levels."
@@ -1386,7 +1409,7 @@ $$
 
 using $\sigma_\tau/\alpha_\tau = e^{-\ell_\tau}$.
 
-**Step 4: change variables to $\ell$.** $\ell_t$ is monotone in $t$, so substitute $\ell = \ell_\tau$, $d\ell = \frac{d\ell_\tau}{d\tau}d\tau$, and write $\hat\epsilon_\theta(\hat x_\ell, \ell)$ for the network evaluated along the path at the time with half-log-SNR $\ell$:
+**Step 4: change variables to $\ell$.** $\ell_t$ is monotone in $t$, so substitute $\ell = \ell_\tau$, $d\ell = \frac{d\ell_\tau}{d\tau}d\tau$. Write $\hat x_\ell$ for the ODE solution at the time whose half-log-SNR is $\ell$ (DPM-Solver's notation; this hat does not mean a network estimate), and $\hat\epsilon_\theta(\hat x_\ell, \ell)$ for the network evaluated there:
 
 $$
 x_t = \frac{\alpha_t}{\alpha_s}\,x_s - \alpha_t\int_{\ell_s}^{\ell_t} e^{-\ell}\,\hat\epsilon_\theta(\hat x_\ell, \ell)\,d\ell .
@@ -1413,29 +1436,29 @@ Compare DDIM with $\eta = 0$: $x_t = \alpha_t\hat x_0 + \sigma_t\hat\epsilon_s$ 
 
 **Step 6: why this beats plain Euler.** Euler in $t$ freezes the whole right side, $f x + \frac{g^2}{2\sigma}\hat\epsilon$, over the step, so it makes an error on the linear part too, and that part changes by orders of magnitude between noise levels. DPM-Solver makes no error on the linear part, and the only frozen quantity is $\hat\epsilon_\theta$, which has unit scale and varies slowly in $\ell$. This is why DDIM is much better than Euler in $t$ at the same number of steps.
 
-**Step 7: second order.** Expand the network to first order in $\ell$: $\hat\epsilon_\theta(\hat x_\ell, \ell) \approx \hat\epsilon_s + (\ell - \ell_s)\,\hat\epsilon^{(1)}_s$, where $\hat\epsilon^{(1)}$ is the total derivative along the path. The new term needs one more integral; with $u = \ell - \ell_s$ and integration by parts,
+**Step 7: second order.** Expand the network to first order in $\ell$: $\hat\epsilon_\theta(\hat x_\ell, \ell) \approx \hat\epsilon_s + (\ell - \ell_s)\,\hat\epsilon^{(1)}_s$, where $\hat\epsilon^{(1)}$ is the total derivative along the path. The new term needs one more integral; with $\kappa = \ell - \ell_s$ and integration by parts,
 
 $$
 \begin{aligned}
-\int_{\ell_s}^{\ell_t} e^{-\ell}(\ell - \ell_s)\,d\ell &= e^{-\ell_s}\int_0^h u\,e^{-u}\,du && \text{substitute } \ell = \ell_s + u\\
-&= e^{-\ell_s}\Big[-u\,e^{-u}\Big]_0^h + e^{-\ell_s}\int_0^h e^{-u}\,du && \text{integration by parts}\\
+\int_{\ell_s}^{\ell_t} e^{-\ell}(\ell - \ell_s)\,d\ell &= e^{-\ell_s}\int_0^h \kappa\,e^{-\kappa}\,d\kappa && \text{substitute } \ell = \ell_s + \kappa\\
+&= e^{-\ell_s}\Big[-\kappa\,e^{-\kappa}\Big]_0^h + e^{-\ell_s}\int_0^h e^{-\kappa}\,d\kappa && \text{integration by parts}\\
 &= e^{-\ell_s}\big(1 - e^{-h} - h\,e^{-h}\big) && \text{evaluate.}
 \end{aligned}
 $$
 
-Multiplying by $\alpha_t$ and using $\alpha_t e^{-\ell_s} = \sigma_t e^{h}$ gives $\sigma_t(e^h - 1 - h)$, so the exact second-order update is
+Multiplying by $\alpha_t$ and using $\alpha_t e^{-\ell_s} = \alpha_t e^{-\ell_t}e^{h} = \sigma_t e^{h}$ gives $\sigma_t(e^h - 1 - h)$, so the update that keeps both terms of the expansion is
 
 $$
 x_t \approx \frac{\alpha_t}{\alpha_s}\,x_s - \sigma_t\big(e^h - 1\big)\,\hat\epsilon_s - \sigma_t\big(e^h - 1 - h\big)\,\hat\epsilon^{(1)}_s .
 $$
 
-The derivative is unknown, so evaluate the network once more at the midpoint $\ell_s + h/2$: first take a DPM-Solver-1 step of size $h/2$ to get a point $u$ there, then use $\hat\epsilon^{(1)}_s \approx (\hat\epsilon_\theta(u) - \hat\epsilon_s)/(h/2)$. DPM-Solver-2 uses the slightly simpler combination $-\sigma_t(e^h - 1)\,\hat\epsilon_\theta(u)$, which equals the line above except that the derivative's coefficient $(e^h - 1 - h)$ is replaced by $(e^h - 1)\,h/2$. The paper's appendix shows that the difference is $(2e^h - h - 2 - h e^h)/2 = -h^3/12 + O(h^4)$; for example, at $h = 0.1$ it is $-8.76 \times 10^{-5}$ against $-h^3/12 = -8.33 \times 10^{-5}$. That is small enough to keep the method second order. The final update is
+The derivative is unknown, so evaluate the network once more at the midpoint $\ell_s + h/2$: first take a DPM-Solver-1 step of size $h/2$ to get a point $u$ there, then use $\hat\epsilon^{(1)}_s \approx (\hat\epsilon_\theta(u) - \hat\epsilon_s)/(h/2)$. DPM-Solver-2 uses the slightly simpler combination $-\sigma_t(e^h - 1)\,\hat\epsilon_\theta(u)$. Since $\hat\epsilon_\theta(u) \approx \hat\epsilon_s + (h/2)\,\hat\epsilon^{(1)}_s$, this equals the line above except that the derivative's coefficient $(e^h - 1 - h)$ is replaced by $(e^h - 1)\,h/2$. The paper's appendix shows that the difference of the two coefficients, $(e^h - 1 - h) - (e^h - 1)h/2 = (2e^h - h - 2 - h e^h)/2$, is $O(h^3)$. Inserting $e^h = 1 + h + h^2/2 + h^3/6 + O(h^4)$ gives $\big(h^2/2 + h^3/6\big) - \big(h^2/2 + h^3/4\big) + O(h^4) = -h^3/12 + O(h^4)$; for example, at $h = 0.1$ it is $-8.76 \times 10^{-5}$ against $-h^3/12 = -8.33 \times 10^{-5}$. That is small enough to keep the method second order. The final update is
 
 $$
-u = \frac{\alpha_{m}}{\alpha_s}\,x_s - \sigma_{m}\big(e^{h/2} - 1\big)\,\hat\epsilon_s, \qquad x_t = \frac{\alpha_t}{\alpha_s}\,x_s - \sigma_t\big(e^{h} - 1\big)\,\hat\epsilon_\theta(u, m),
+u = \frac{\alpha_{t_{\text{mid}}}}{\alpha_s}\,x_s - \sigma_{t_{\text{mid}}}\big(e^{h/2} - 1\big)\,\hat\epsilon_s, \qquad x_t = \frac{\alpha_t}{\alpha_s}\,x_s - \sigma_t\big(e^{h} - 1\big)\,\hat\epsilon_\theta(u, t_{\text{mid}}),
 $$
 
-where $m$ is the time with $\ell_m = \ell_s + h/2$. Each step costs two network calls; DPM-Solver-3 costs three. The paper reports FID 4.70 with 10 network calls and 2.87 with 20 on CIFAR-10.
+where $t_{\text{mid}}$ is the time with $\ell_{t_{\text{mid}}} = \ell_s + h/2$ (the paper calls it $s_i$; the $u$ formula is DPM-Solver-1 from $s$ to $t_{\text{mid}}$). Each step costs two network calls; DPM-Solver-3 costs three. The paper reports FID 4.70 with 10 network calls and 2.87 with 20 on CIFAR-10.
 
 **What this says.** The probability-flow ODE of a diffusion model is semi-linear. Solving the linear part in closed form and expanding only the network output in half-log-SNR gives DDIM at first order and accurate 10 to 20 step samplers at second and third order, with no training.
 
@@ -1451,19 +1474,19 @@ $$
 \end{aligned}
 $$
 
-Tool 12 with $e^{\int_s^t d\log\sigma} = \sigma_t/\sigma_s$, and $\frac{\sigma_t}{\sigma_\tau}\alpha_\tau = \sigma_t e^{\ell_\tau}$, gives the exact solution
+Tool 12 with $a = \frac{d\log\sigma_t}{dt}$ and $b = \frac{d\ell_t}{dt}\alpha_t\hat x_\theta$, using $e^{\int_\tau^t d\log\sigma} = \sigma_t/\sigma_\tau$ and $\frac{\sigma_t}{\sigma_\tau}\alpha_\tau = \sigma_t e^{\ell_\tau}$, and then changing variables to $\ell$ as in Step 4, gives the exact solution
 
 $$
 x_t = \frac{\sigma_t}{\sigma_s}\,x_s + \sigma_t\int_{\ell_s}^{\ell_t} e^{\ell}\,\hat x_\theta(\hat x_\ell, \ell)\,d\ell .
 $$
 
-Freezing $\hat x_\theta$ gives the first-order step $x_t = \frac{\sigma_t}{\sigma_s}x_s - \alpha_t(e^{-h} - 1)\,\hat x_\theta(x_s, s)$, which is again DDIM. The second-order multistep version, DPM-Solver++(2M), reuses the previous step's prediction instead of a new midpoint evaluation: with $h_i = \ell_{t_i} - \ell_{t_{i-1}}$ and $r_i = h_{i-1}/h_i$,
+Freezing $\hat x_\theta$ gives the first-order step: $\sigma_t\int_{\ell_s}^{\ell_t}e^{\ell}\,d\ell = \sigma_t\big(e^{\ell_t} - e^{\ell_s}\big) = \sigma_t e^{\ell_t}\big(1 - e^{-h}\big) = \alpha_t\big(1 - e^{-h}\big)$, so $x_t = \frac{\sigma_t}{\sigma_s}x_s - \alpha_t(e^{-h} - 1)\,\hat x_\theta(x_s, s)$, which is again DDIM. The second-order multistep version, DPM-Solver++(2M), reuses the previous step's prediction instead of a new midpoint evaluation. Write the sampling times as $t_0 > t_1 > \dots > t_M$, $\tilde x_{t_i}$ for the solver's approximation of $x$ at time $t_i$, $h_i = \ell_{t_i} - \ell_{t_{i-1}}$ for the step in half-log-SNR, and $r_i = h_{i-1}/h_i$ for the ratio of consecutive steps. Then
 
 $$
 D_i = \Big(1 + \frac{1}{2r_i}\Big)\hat x_\theta(\tilde x_{t_{i-1}}, t_{i-1}) - \frac{1}{2r_i}\,\hat x_\theta(\tilde x_{t_{i-2}}, t_{i-2}), \qquad \tilde x_{t_i} = \frac{\sigma_{t_i}}{\sigma_{t_{i-1}}}\,\tilde x_{t_{i-1}} - \alpha_{t_i}\big(e^{-h_i} - 1\big)\,D_i .
 $$
 
-$D_i$ is a linear extrapolation of the clean-image prediction to the middle of the step. Two advantages under guidance: $\hat x_0$ is bounded, so it can be clipped or dynamically thresholded, and a multistep method costs one network call per step, so for a fixed budget its steps are smaller. The paper reports good guided samples in 15 to 20 steps for pixel and latent models.
+$D_i$ (DPM-Solver++'s name; it is an estimate of the clean image, like EDM's denoiser output) is a linear extrapolation of the clean-image prediction to the middle of the step: writing $\hat x_{\theta, j} = \hat x_\theta(\tilde x_{t_j}, t_j)$, the slope of $\hat x_\theta$ in $\ell$ over the previous step is about $(\hat x_{\theta, i-1} - \hat x_{\theta, i-2})/h_{i-1}$, and moving half a step, $h_i/2$, along it adds $\frac{h_i}{2h_{i-1}} = \frac{1}{2r_i}$ times the difference. The first step, which has no previous prediction, uses the first-order update. Two advantages under guidance: $\hat x_0$ is bounded, so it can be clipped or dynamically thresholded, and a multistep method costs one network call per step, so for a fixed budget its steps are smaller. The paper reports good guided samples in 15 to 20 steps for pixel and latent models.
 
 **What this says.** The noise form and the data form are the same ODE, solved exactly in their linear parts; they differ in which network output is assumed to vary slowly. Under strong guidance $\hat x_0$ is the better-behaved quantity, and reusing past evaluations (multistep) gets second order at the cost of one call per step.
 
@@ -1488,7 +1511,7 @@ skipping the correction on the final step to $\sigma = 0$, so $N$ steps cost $2N
 
 ### Worked example: deterministic samplers on Gaussian data
 
-The Gaussian example of the SDE section can be run through the samplers exactly. Data $\mathcal{N}(m, 0.5^2)$; the exact denoiser is $D(x; \sigma) = m + \frac{0.25}{0.25 + \sigma^2}(x - m)$, so the ODE's slope is $d(x; \sigma) = \sigma(x - m)/(0.25 + \sigma^2)$. Every sampler maps $x - m$ to a multiple of itself, so the output standard deviation can be computed exactly; the true answer is $0.5$. The table uses EDM's $\rho = 7$ grid with $N$ levels from $80$ to $0.002$, then a final step to $0$.
+The Gaussian example of the SDE section can be run through the samplers exactly. Data $\mathcal{N}(m, 0.5^2)$; the exact denoiser is $D(x; \sigma) = m + \frac{0.25}{0.25 + \sigma^2}(x - m)$, so the ODE's slope is $d(x; \sigma) = \sigma(x - m)/(0.25 + \sigma^2)$. Start from the exact noisy marginal, $x(80) \sim \mathcal{N}(m, 0.25 + 80^2)$. Every sampler maps $x - m$ to a multiple of itself, so the output standard deviation can be computed exactly; the true answer is $0.5$. The table uses EDM's $\rho = 7$ grid with $N$ levels from $80$ to $0.002$, then a final step to $0$. All numbers in this subsection are for this one-dimensional toy, not measurements on image models.
 
 | Levels $N$ | DDIM (Euler in $\sigma$): output std | network calls | Heun: output std | network calls |
 |---|---|---|---|---|
@@ -1502,10 +1525,10 @@ The Gaussian example of the SDE section can be run through the samplers exactly.
 Read it in three parts.
 
 - *One step returns the posterior mean.* With $N = 1$ the only step goes from $\sigma = 80$ to $0$: $x_0 = x + (0 - 80)\,(x - D)/80 = D(x; 80)$. For this data $D(x; 80) - m = \frac{0.25}{6400.25}(x - m)$, so a typical input with $x - m = 80$ lands $0.0031$ from the mean. Every sample is almost the dataset mean: the one-dimensional version of a blurry one-step image.
-- *Euler is first order.* Its error falls roughly in proportion to $1/N$ (0.077 at 18 levels, 0.028 at 50), and in this example it undershoots at every $N$ in the table, because each step aims at a posterior mean that is too wide.
-- *Heun is second order, but needs small enough steps.* With very few levels, the corrector evaluates the slope at a tiny $\sigma$ where it is nearly zero, averages it with the large slope, and moves only half way: 3 levels overshoot to a standard deviation of 2.05. From about 18 levels on, the error falls roughly as $1/N^2$ (0.028 at 18, 0.003 at 50). At a matched budget of about 35 network calls, Euler with 35 levels gives 0.460 (error 0.040) and Heun with 18 gives 0.528 (error 0.028); at about 99 calls the errors are 0.014 and 0.003. A midpoint method in $\log\sigma$, which is what DPM-Solver-2 reduces to here, gives 0.516 at 35 calls.
+- *Euler is first order.* Its error falls roughly in proportion to $1/N$ (0.077 at 18 levels, 0.028 at 50), and in this example it undershoots at every $N$. The reason can be checked by hand. One Euler step from $\sigma_i$ to $\sigma_{i+1}$ multiplies $x - m$ by $1 - (\sigma_i - \sigma_{i+1})\,\sigma_i/(0.25 + \sigma_i^2) = (0.25 + \sigma_i\sigma_{i+1})/(0.25 + \sigma_i^2)$, while the exact solution of the ODE (the formula in the SDE section's Gaussian example) multiplies it by $\sqrt{(0.25 + \sigma_{i+1}^2)(0.25 + \sigma_i^2)}\,/\,(0.25 + \sigma_i^2)$. By the Cauchy-Schwarz inequality, $0.5 \cdot 0.5 + \sigma_i\sigma_{i+1} \le \sqrt{(0.25 + \sigma_i^2)(0.25 + \sigma_{i+1}^2)}$, so every Euler step shrinks the sample toward the mean a little more than it should.
+- *Heun is second order, but needs small enough steps.* With very few levels, the corrector evaluates the slope at a tiny $\sigma$ where it is nearly zero, averages it with the large slope, and moves only half way: 3 levels overshoot to a standard deviation of 2.05. From about 18 levels on, the error falls roughly as $1/N^2$ (0.028 at 18, 0.003 at 50). At a matched budget of about 35 network calls, Euler with 35 levels gives 0.460 (error 0.040) and Heun with 18 gives 0.528 (error 0.028); at about 99 calls the errors are 0.014 and 0.003. DPM-Solver-2 also fits in 35 calls (17 two-call steps on the 18 levels, then a one-call final step to 0) and gives 0.516. In VE coordinates ($\alpha_t = 1$, $\ell = -\log\sigma$) it reduces to the midpoint method in $\sigma$ with the extra evaluation at the geometric mean $\sqrt{\sigma_i\sigma_{i+1}}$, the midpoint in $\log\sigma$.
 
-**What this says.** Few-step blur is not a network failure: it is what a deterministic solver does with large steps, because each step is aimed at a posterior mean. Higher-order solvers fix this only once the steps are small enough for the slope to be smooth across a step, which is why there is a practical floor of roughly 10 steps below which distillation is used instead.
+**What this says.** In this toy, few-step blur is not a network failure (the denoiser is exact): it is what a deterministic solver does with large steps, because each step is aimed at a posterior mean. Higher-order solvers fix it only once the steps are small enough for the slope to change little across a step. The same mechanism is one reason why, for real image models, solvers degrade sharply below roughly 10 steps and distillation is used instead.
 
 ### Stochastic versus deterministic sampling
 
@@ -1526,7 +1549,7 @@ Define a family of forward processes whose conditional $q(x_{t-1} \mid x_t, x_0)
 ::: qa
 **How do DDIM, the probability-flow ODE and DPM-Solver relate?**
 
-Deterministic DDIM is a first-order solver of the probability-flow ODE: in coordinates $\bar{x} = x/\alpha_t$, $\bar{\sigma} = \sigma_t/\alpha_t$ it is exactly an Euler step of $d\bar{x}/d\bar{\sigma} = \hat{\epsilon}$. DPM-Solver writes the VP ODE as a linear term plus a nonlinear term, solves the linear term exactly, and expresses the rest as an exponentially weighted integral of $\hat{\epsilon}$ over half-log-SNR. Its first-order version coincides with DDIM; higher orders approximate $\hat{\epsilon}$ along $\lambda$ with a Taylor expansion. That is why DDIM already beats naive Euler in $t$, and why second and third order buy another large reduction in steps.
+Deterministic DDIM is a first-order solver of the probability-flow ODE: in coordinates $\bar{x} = x/\alpha_t$, $\bar{\sigma} = \sigma_t/\alpha_t$ it is exactly an Euler step of $d\bar{x}/d\bar{\sigma} = \hat{\epsilon}$. DPM-Solver writes the VP ODE as a linear term plus a nonlinear term, solves the linear term exactly, and expresses the rest as an exponentially weighted integral of $\hat{\epsilon}$ over half-log-SNR. Its first-order version coincides with DDIM; higher orders approximate $\hat{\epsilon}$ along the half-log-SNR $\ell_t = \log(\alpha_t/\sigma_t)$ with a Taylor expansion. That is why DDIM already beats naive Euler in $t$, and why second and third order buy another large reduction in steps.
 :::
 
 ::: qa
@@ -1559,7 +1582,7 @@ $$
 \nabla_{x_t}\log p(x_t \mid c) = \nabla_{x_t}\log p(x_t) + \nabla_{x_t}\log p(c \mid x_t).
 $$
 
-Dhariwal and Nichol (2021) train a classifier $p_\phi(c \mid x_t)$ on noisy images at all levels and add its gradient, scaled by a weight $w$ (their "gradient scale"), to a diffusion model's score. Starting from a conditional model, as the CFG paper writes it, the guided score is $\nabla\log p(x_t \mid c) + w\nabla\log p_\phi(c \mid x_t)$. Convert to noise units with $\epsilon = -\sigma_t\times\text{score}$:
+Dhariwal and Nichol (2021) train a classifier $p_\phi(c \mid x_t)$ with parameters $\phi$ on noisy images at all levels and add its gradient, multiplied by a "gradient scale" $s$, to a diffusion model's score. The CFG paper writes the same construction with weight $w$ and starts from a conditional model, so the guided score is $\nabla\log p(x_t \mid c) + w\nabla\log p_\phi(c \mid x_t)$. Convert to noise units with $\epsilon = -\sigma_t\times\text{score}$:
 
 $$
 \tilde{\epsilon} = \epsilon_\theta(x_t, c) - w\,\sigma_t\,\nabla_{x_t}\log p_\phi(c \mid x_t) \approx -\sigma_t\nabla_{x_t}\big[\log p(x_t \mid c) + w\log p_\phi(c \mid x_t)\big],
@@ -1567,18 +1590,18 @@ $$
 
 which targets $p(x_t \mid c)\,p_\phi(c \mid x_t)^w$. Because $p(x_t \mid c) \propto p(x_t)\,p(c \mid x_t)$, this equals $p(x_t)\,p_\phi(c \mid x_t)^{1+w}$ up to normalization: guiding a conditional model with weight $w$ is in theory the same as guiding an unconditional model with weight $1 + w$. In ADM's DDIM sampler, the guided noise is $\hat\epsilon - \sqrt{1-\bar\alpha_t}\,s\,\nabla\log p_\phi(c \mid x_t)$ with scale $s$, the same formula with $\sigma_t = \sqrt{1-\bar\alpha_t}$.
 
-*ADM's derivation for the ancestral sampler* uses the same Taylor-and-complete-the-square trick as the reverse-SDE heuristic. A conditional reverse step is proportional to $p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})$. Write the model step as $\mathcal{N}(\mu, \Sigma)$ and expand $\log p_\phi(c \mid x_{t-1}) \approx \text{const} + (x_{t-1} - \mu)^\top g$ around $\mu$, with $g = \nabla\log p_\phi(c \mid x)\vert_{x = \mu}$; this is accurate when $\Sigma$ is small. Then
+*ADM's derivation for the ancestral sampler* uses the same Taylor-and-complete-the-square trick as the reverse-SDE heuristic. A conditional reverse step is proportional to $p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})$. Write the model step as $\mathcal{N}(\mu, \Sigma)$, with $\Sigma$ diagonal as in DDPM and ADM, and expand $\log p_\phi(c \mid x_{t-1}) \approx \text{const} + (x_{t-1} - \mu)^\top g_\phi$ around $\mu$, with $g_\phi = \nabla\log p_\phi(c \mid x)\vert_{x = \mu}$ the classifier gradient (ADM calls it $g$; renamed here because $g(t)$ is the SDE's diffusion coefficient); this is accurate when $\Sigma$ is small. Then
 
 $$
 \begin{aligned}
-\log\big[p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})\big] &\approx -\tfrac{1}{2}(x_{t-1} - \mu)^\top\Sigma^{-1}(x_{t-1} - \mu) + (x_{t-1} - \mu)^\top g + \text{const}\\
-&= -\tfrac{1}{2}(x_{t-1} - \mu - \Sigma g)^\top\Sigma^{-1}(x_{t-1} - \mu - \Sigma g) + \text{const} && \text{Tool 6,}
+\log\big[p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})\big] &\approx -\tfrac{1}{2}(x_{t-1} - \mu)^\top\Sigma^{-1}(x_{t-1} - \mu) + (x_{t-1} - \mu)^\top g_\phi + \text{const}\\
+&= -\tfrac{1}{2}(x_{t-1} - \mu - \Sigma g_\phi)^\top\Sigma^{-1}(x_{t-1} - \mu - \Sigma g_\phi) + \text{const} && \text{Tool 6, one coordinate at a time,}
 \end{aligned}
 $$
 
-so the guided step is $\mathcal{N}(\mu + \Sigma g, \Sigma)$: the same Gaussian with its mean shifted by the covariance times the classifier gradient. ADM samples $\mathcal{N}(\mu + s\,\Sigma\,\nabla\log p_\phi(c \mid x_t), \Sigma)$.
+so the guided step is $\mathcal{N}(\mu + \Sigma g_\phi, \Sigma)$: the same Gaussian with its mean shifted by the covariance times the classifier gradient. ADM samples $\mathcal{N}(\mu + s\,\Sigma\,\nabla\log p_\phi(c \mid x_t), \Sigma)$.
 
-**What this says.** Whether you shift the score (deterministic samplers) or shift the mean of each Gaussian step by $\Sigma g$ (ancestral sampler), classifier guidance moves each step uphill on the classifier's log-probability, scaled by the step's own noise level.
+**What this says.** Whether you shift the score (deterministic samplers) or shift the mean of each Gaussian step by $\Sigma g_\phi$ (ancestral sampler), classifier guidance moves each step uphill on the classifier's log-probability, scaled by the step's own noise level.
 
 *Why the scale matters.* $s\,\nabla\log p_\phi = \nabla\log\big(p_\phi^s/Z\big)$, so the scale sharpens the classifier's distribution. On unconditional ImageNet models, a scale of 1 gave samples to which the classifier assigned about 50% probability for the requested class but which did not look like that class; a scale of 10 gave class-consistent images. Raising the scale traded recall (diversity) for precision and Inception score. Their guided ImageNet $256 \times 256$ model reached FID 4.59 with 250 steps (3.94 with an upsampling stack). The drawbacks: a separate classifier must be trained on noisy inputs, and following its gradients can behave like an adversarial attack on it rather than adding meaningful features.
 
@@ -1604,7 +1627,7 @@ $$
 \end{aligned}
 $$
 
-In score form, the guided score is $(1 + w)\nabla\log p(x_t \mid c) - w\nabla\log p(x_t)$, the score of $p(x_t \mid c)^{1+w}/p(x_t)^w$. Most code writes $\epsilon_u + s_{\text{cfg}}(\epsilon_c - \epsilon_u)$ with $s_{\text{cfg}} = 1 + w$ ($s_{\text{cfg}} = 1$ means no guidance). Each step costs two forward passes, usually batched. A negative prompt simply replaces $\epsilon_u$ with the prediction under that prompt.
+In score form, the guided score is $(1 + w)\nabla\log p(x_t \mid c) - w\nabla\log p(x_t)$, the score of $p(x_t \mid c)^{1+w}/p(x_t)^w$. With $\epsilon_c = \epsilon_\theta(x_t, c)$ and $\epsilon_u = \epsilon_\theta(x_t, \varnothing)$, most code writes $\epsilon_u + s_{\text{cfg}}(\epsilon_c - \epsilon_u)$ with $s_{\text{cfg}} = 1 + w$ ($s_{\text{cfg}} = 1$ means no guidance); expanding gives $(1 + w)\epsilon_c - w\epsilon_u$, the same thing. Each step costs two forward passes, usually batched. A negative prompt simply replaces $\epsilon_u$ with the prediction under that prompt.
 
 **The same formula works for any target.** The guided combination has weights $(1 + w)$ and $-w$, which sum to one, so it commutes with any affine conversion that uses the same $x_t$. For example, for the clean image:
 
@@ -1618,7 +1641,7 @@ So guiding $\hat x_0$, $v$ or EDM's $D$ with the same weights gives the same sam
 
 **A caveat in the paper.** With learned networks, $\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t)$ is in general not the gradient of any classifier, because unconstrained networks do not output conservative vector fields. CFG is "inspired by" an implicit classifier rather than equal to one.
 
-**Results.** On ImageNet, the best FID came from small guidance ($w = 0.1$ or $0.3$, depending on resolution), while Inception score kept rising up to the largest weights tried ($w \ge 4$). At $64 \times 64$ with $p_{\text{uncond}} = 0.1$, FID went from 1.80 unguided to 1.55 at $w = 0.1$ and up to 12.6 at $w = 1$. Text-to-image systems use $s_{\text{cfg}}$ of roughly 5 to 10 because prompt alignment and perceived quality matter more than coverage.
+**Results.** On ImageNet, the best FID came from small guidance ($w = 0.1$ at $64 \times 64$, $w = 0.3$ at $128 \times 128$), while Inception score kept rising up to the largest weight tried, $w = 4$. At $64 \times 64$ with $p_{\text{uncond}} = 0.1$, FID went from 1.80 unguided to 1.55 at $w = 0.1$ and up to 12.6 at $w = 1$. Text-to-image systems use $s_{\text{cfg}}$ of roughly 5 to 10 because prompt alignment and perceived quality matter more than coverage.
 
 ### Why fidelity goes up and diversity down
 
@@ -1630,13 +1653,19 @@ $$
 (1+w)\Big(-\frac{(x - 1)^2}{2}\Big) - w\Big(-\frac{x^2}{8}\Big) + \text{const} = -\frac{1}{2}\Big[\Big((1+w) - \frac{w}{4}\Big)x^2 - 2(1+w)\,x\Big] + \text{const}.
 $$
 
-By Tool 6 it is Gaussian with precision $(1 + w) - w/4$ and mean $(1 + w)$ divided by that precision. At $w = 3$ ($s_{\text{cfg}} = 4$): precision $4 - 0.75 = 3.25$, standard deviation $1/\sqrt{3.25} = 0.555$, mean $4/3.25 = 1.23$. Guidance narrows the distribution (from 1 to 0.555) and pushes it away from where the unconditional model puts mass (from 1 to 1.23).
+To get the right side, expand $(x - 1)^2 = x^2 - 2x + 1$, drop the constant, and collect: the coefficient of $x^2$ inside the bracket is $(1 + w) - w/4$ and the coefficient of $-2x$ is $(1 + w)$. By Tool 6 it is Gaussian with precision $(1 + w) - w/4$ and mean $(1 + w)$ divided by that precision. At $w = 3$ ($s_{\text{cfg}} = 4$): precision $4 - 0.75 = 3.25$, standard deviation $1/\sqrt{3.25} = 0.555$, mean $4/3.25 = 1.23$. In this toy, guidance narrows the distribution (from 1 to 0.555) and pushes it away from where the unconditional model puts mass (from 1 to 1.23).
 
 ### The nuance: guided sampling does not sample the tilted distribution
 
 The guided score at noise level $\sigma$ is $(1+w)\nabla\log p_\sigma(x \mid c) - w\nabla\log p_\sigma(x)$, built from the noised conditional and unconditional densities. That is not the score of the noised tilted distribution, because noising does not commute with taking powers and ratios of densities. So the sampler does not follow the tilted family, and different samplers give different answers.
 
-The toy shows it exactly. In VE coordinates the noised models are $\mathcal{N}(1, 1 + \sigma^2)$ and $\mathcal{N}(0, 4 + \sigma^2)$, so the guided score is linear in $x$ at every $\sigma$, and both the guided probability-flow ODE and the guided reverse SDE keep Gaussians Gaussian. Integrating their mean and variance numerically from $\sigma = 80$ to $0$:
+The toy shows it exactly. In VE coordinates ($x = x_0 + \sigma\epsilon$, time $t = \sigma$, so $g^2 = 2\sigma$ as in the SDE section) the noised models are $\mathcal{N}(1, 1 + \sigma^2)$ and $\mathcal{N}(0, 4 + \sigma^2)$ by Tool 1. By Tool 7 the guided score is linear in $x$:
+
+$$
+(1+w)\Big(-\frac{x - 1}{1 + \sigma^2}\Big) - w\Big(-\frac{x}{4 + \sigma^2}\Big) = -a(\sigma)\,x + b(\sigma), \qquad a = \frac{1+w}{1+\sigma^2} - \frac{w}{4+\sigma^2},\quad b = \frac{1+w}{1+\sigma^2}.
+$$
+
+A linear update keeps Gaussians Gaussian, so it is enough to track the mean $\bar m$ and variance $V$ of the samples while $\sigma$ decreases. The guided probability-flow ODE, $dx/d\sigma = -\sigma(-a x + b)$, gives $d\bar m/d\sigma = \sigma(a\bar m - b)$ and $dV/d\sigma = 2\sigma a V$. One step of the guided reverse SDE from $\sigma$ down to $\sigma - \delta$ is $x \leftarrow x + 2\sigma(-a x + b)\,\delta + \sqrt{2\sigma\delta}\,z$, which gives $d\bar m/d\sigma = 2\sigma(a\bar m - b)$ and $dV/d\sigma = 4\sigma a V - 2\sigma$ (the last term is the injected noise). Both start from the conditional model's marginal at $\sigma = 80$, $\mathcal{N}(1, 1 + 80^2)$. Integrating these equations numerically down to $\sigma = 0$:
 
 | Guidance | Target $p(x \mid c)^{1+w}/p(x)^w$ | Guided reverse SDE | Guided ODE |
 |---|---|---|---|
@@ -1644,25 +1673,25 @@ The toy shows it exactly. In VE coordinates the noised models are $\mathcal{N}(1
 | $w = 1$ ($s_{\text{cfg}} = 2$) | mean 1.14, std 0.76 | mean 1.25, std 0.66 | mean 1.37, std 0.50 |
 | $w = 3$ ($s_{\text{cfg}} = 4$) | mean 1.23, std 0.55 | mean 1.33, std 0.44 | mean 1.51, std 0.13 |
 
-Without guidance all three agree, as they must. With guidance, the stochastic and deterministic samplers both land on distributions that are narrower and further from the unconditional mass than the tilted target, and they disagree with each other. (Method: the mean and variance obey linear ODEs in $\sigma$, integrated with a stiff solver at tight tolerance; at $w = 0$ the integration reproduces $\mathcal{N}(1, 1)$, a check on the setup.) Bradley and Nakkiran (2024) prove the general version: CFG with DDPM and with DDIM sample different distributions, and neither is the "gamma-powered" target; in the SDE limit CFG equals a DDIM step for the conditional model followed by Langevin steps toward a sharpened distribution. Karras et al. (2024) make the same point: the guided density at noise level $\sigma$ is not a valid diffusion of the guided density at zero noise, so trajectories are distorted and truncation is exaggerated. In practice, guidance at high noise pulls many seeds toward a few template layouts, and at high scale the extrapolated prediction leaves the range of real data, giving oversaturated, over-exposed images.
+Without guidance all three agree, as they must. With guidance, in this toy the stochastic and deterministic samplers both land on distributions that are narrower and further from the unconditional mass than the tilted target, and they disagree with each other. (Method: the four linear equations above, integrated with a stiff solver at tight tolerance; at $w = 0$ the integration reproduces $\mathcal{N}(1, 1)$, a check on the setup, and a direct simulation of the guided SDE with 200,000 samples gives mean 1.33 and standard deviation 0.44 at $w = 3$.) The direction and size of these gaps are specific to this toy; the general statement is the one below. Bradley and Nakkiran (2024) prove the general version: CFG with DDPM and with DDIM sample different distributions, and neither is the "gamma-powered" target; in the SDE limit CFG equals a DDIM step for the conditional model followed by Langevin steps toward a sharpened distribution. Karras et al. (2024) make the same point: the guided density at noise level $\sigma$ is not a valid diffusion of the guided density at zero noise, so trajectories are distorted and truncation is exaggerated. In practice, guidance at high noise pulls many seeds toward a few template layouts, and at high scale the extrapolated prediction leaves the range of real data, giving oversaturated, over-exposed images.
 
 ### Fixes and refinements
 
 - *Dynamic thresholding* (Imagen, pixel space): set $s$ to a high percentile of $\lvert\hat{x}_0\rvert$ per sample; if $s > 1$, clip $\hat{x}_0$ to $[-s, s]$ and divide by $s$.
-- *CFG rescale* (Lin et al.): match the standard deviation of the guided output to the conditional one, $x_{\text{rescaled}} = x_{\text{cfg}}\cdot\operatorname{std}(x_{\text{pos}})/\operatorname{std}(x_{\text{cfg}})$, then blend $x_{\text{final}} = \phi\,x_{\text{rescaled}} + (1-\phi)\,x_{\text{cfg}}$ with $\phi = 0.7$.
-- *Adaptive projected guidance* (Sadat et al.): split the guidance update $D_c - D_u$ into components parallel and orthogonal to the conditional denoised prediction $D_c$; the parallel part mostly increases saturation, like a gain on the image, so down-weight it.
+- *CFG rescale* (Lin et al.): with $x_{\text{pos}}$ the network's prediction under the prompt and $x_{\text{cfg}}$ the guided prediction, match the standard deviation (over all entries of one sample) of the guided output to the conditional one, $x_{\text{rescaled}} = x_{\text{cfg}}\cdot\operatorname{std}(x_{\text{pos}})/\operatorname{std}(x_{\text{cfg}})$, then blend $x_{\text{final}} = \phi\,x_{\text{rescaled}} + (1-\phi)\,x_{\text{cfg}}$ with $\phi = 0.7$ (a blend factor, unrelated to the classifier parameters $\phi$).
+- *Adaptive projected guidance* (Sadat et al.): with $D_c$ and $D_u$ the conditional and unconditional denoised predictions, split the guidance update $D_c - D_u$ into components parallel and orthogonal to $D_c$; the parallel part mostly increases saturation, like a gain on the image, so down-weight it.
 - *Guidance interval* (Kynkäänniemi et al.): apply guidance only in a middle range of noise levels (details in the question below).
 - *Autoguidance* (Karras et al. 2024): guide with a worse version of the same conditional model, $D_w = w\,D_1(x;\sigma,c) + (1-w)\,D_0(x;\sigma,c)$, where $D_0$ is smaller and/or trained for less time on the same task and conditioning. It reached FID 1.01 on ImageNet-64 and 1.25 on ImageNet-512, and it also works for unconditional models. In the EDM2-S ablation the best guide was one size smaller (XS) and trained for 1/16 as long; the 1.25 result guided EDM2-XXL with an M-size model.
 
 ### Autoguidance, in more detail
 
-Karras et al. write any guidance as an extrapolation between two denoisers, $D_w = w D_1 + (1 - w) D_0$. Note the convention: here $w = 1$ means no guidance, so their $w$ is $s_{\text{cfg}}$, not Ho and Salimans' $w$. Using $D \approx x + \sigma^2\nabla\log p$ (Tweedie in VE form), the extrapolated denoiser corresponds to the score
+Karras et al. write any guidance as an extrapolation between two denoisers, $D_w = w D_1 + (1 - w) D_0$. Note the convention: here $w = 1$ means no guidance, so their $w$ is $s_{\text{cfg}}$, not Ho and Salimans' $w$. Let $p_1(x \mid c; \sigma)$ and $p_0(x \mid c; \sigma)$ be the noisy densities that $D_1$ and $D_0$ implicitly model, so that $D_i \approx x + \sigma^2\nabla\log p_i$ (Tweedie in VE form). Then $D_w = x + \sigma^2\big[w\nabla\log p_1 + (1 - w)\nabla\log p_0\big]$, and with $wa + (1-w)b = a + (w-1)(a - b)$ the bracket, the score that the guided sampler follows, is
 
 $$
 \nabla\log p_1(x \mid c; \sigma) + (w - 1)\,\nabla\log\frac{p_1(x \mid c; \sigma)}{p_0(x \mid c; \sigma)} .
 $$
 
-The second term pushes samples toward where the main model's density is high relative to the guiding model's. With CFG, $p_0$ is the unconditional model, so this term mixes two effects: it raises the class likelihood (narrowing toward prototypes), and, because the unconditional model is a worse fit to the data (it has a harder task and a small share of the training), it also pulls samples away from regions both models fit poorly, toward the core of the data manifold. Karras et al. argue that the second effect is what improves image quality.
+The second term pushes samples toward where the main model's density is high relative to the guiding model's. With CFG, $p_0$ is the unconditional model's density $p_0(x; \sigma)$, so this term mixes two effects: it raises the class likelihood (narrowing toward prototypes), and, because the unconditional model is a worse fit to the data (it has a harder task and a small share of the training), it also pulls samples away from regions both models fit poorly, toward the core of the data manifold. Karras et al. argue that the second effect is what improves image quality.
 
 Autoguidance keeps only that effect: $D_0$ is a weaker model trained on the same task and conditioning, so the ratio $p_1/p_0$ mostly flags regions the weak model gets wrong, not class boundaries. Results on ImageNet-512 with EDM2: FID 2.56 to 1.34 for EDM2-S (guided by an XS model trained $1/16$ as long, an extra 3.6% of training cost), 1.25 for EDM2-XXL guided by an M model, and 1.01 on ImageNet-64. For an unconditional EDM2-S model, FID fell from 11.67 to 3.86. Autoguidance needs a second network, does not by itself improve prompt adherence, and its guidance weight and EMA lengths were tuned per setup by grid search.
 
@@ -1697,7 +1726,7 @@ At high noise, the guided update changes the global layout, and with strong guid
 ::: qa
 **Derive classifier guidance from Bayes' rule, as Dhariwal and Nichol do for the ancestral sampler.**
 
-A conditional reverse step is proportional to the unconditional step times the classifier, $p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})$. The model step is $\mathcal{N}(\mu, \Sigma)$. When $\Sigma$ is small, expand $\log p_\phi(c \mid x_{t-1})$ to first order around $\mu$: $(x_{t-1} - \mu)^\top g$ plus a constant, with $g$ the classifier gradient at $\mu$. Adding this linear term to the Gaussian's quadratic and completing the square gives $\mathcal{N}(\mu + \Sigma g, \Sigma)$. ADM scales the gradient by $s$, which corresponds to the sharpened classifier $p_\phi^s$. For deterministic samplers the score form is used instead: $\tilde\epsilon = \hat\epsilon - \sigma_t\,s\,\nabla\log p_\phi(c \mid x_t)$, from $\nabla\log[p(x_t)p(c \mid x_t)^s] = -\hat\epsilon/\sigma_t + s\nabla\log p_\phi$.
+A conditional reverse step is proportional to the unconditional step times the classifier, $p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})$. The model step is $\mathcal{N}(\mu, \Sigma)$. When $\Sigma$ is small, expand $\log p_\phi(c \mid x_{t-1})$ to first order around $\mu$: $(x_{t-1} - \mu)^\top g_\phi$ plus a constant, with $g_\phi$ the classifier gradient at $\mu$. Adding this linear term to the Gaussian's quadratic and completing the square gives $\mathcal{N}(\mu + \Sigma g_\phi, \Sigma)$. ADM scales the gradient by $s$, which corresponds to the sharpened classifier $p_\phi^s$. For deterministic samplers the score form is used instead: $\tilde\epsilon = \hat\epsilon - \sigma_t\,s\,\nabla\log p_\phi(c \mid x_t)$, from $\nabla\log[p(x_t)p(c \mid x_t)^s] = -\hat\epsilon/\sigma_t + s\nabla\log p_\phi$.
 :::
 
 ::: qa
@@ -1714,7 +1743,7 @@ Mixing up guidance conventions. In Ho & Salimans, $w = 0$ is unguided and $\tild
 
 ### Why diffuse in a latent space
 
-Likelihood-style models spend most of their capacity on imperceptible high-frequency detail. Latent diffusion (Rombach et al.) splits the job: an autoencoder does perceptual compression and the diffusion model does semantic composition in a latent that is $f$ times smaller per side. The autoencoder is trained with a perceptual loss plus a patch-based adversarial loss and a light regularizer, either a KL term toward $\mathcal{N}(0, I)$ weighted by about $10^{-6}$ or a vector-quantization layer, so reconstructions stay sharp.
+Likelihood-style models spend most of their capacity on imperceptible high-frequency detail. Latent diffusion (Rombach et al.) splits the job: an autoencoder does perceptual compression and the diffusion model does semantic composition in a latent that is $f$ times smaller per side ($f$ is LDM's downsampling factor, unrelated to the SDE drift $f$). Write $z_0$ for the latent of an image and $z_t = \alpha_t z_0 + \sigma_t\epsilon$ for its noisy version; diffusion runs on $z$ exactly as it ran on $x$. The autoencoder is trained with a perceptual loss plus a patch-based adversarial loss and a light regularizer, either a KL term toward $\mathcal{N}(0, I)$ weighted by about $10^{-6}$ or a vector-quantization layer, so reconstructions stay sharp.
 
 LDM compared $f \in \{1, 2, 4, 8, 16, 32\}$ ($f = 1$ is pixel space) on one A100 each, with the same number of training steps and parameters, and found $f$ between 4 and 16 a good trade-off: $f = 1, 2$ train slowly, because the diffusion model still has to do the perceptual compression itself, and large $f$ loses too much information, so fidelity stalls early. After 2M training steps on ImageNet, the FID gap between pixel-space diffusion and $f = 8$ was 38.
 
@@ -1726,13 +1755,13 @@ The schedule's SNR assumes the signal has roughly unit variance. If the latent h
 
 ### Conditioning by cross-attention
 
-For text and other modalities, a domain-specific encoder $\tau_\theta$ maps the condition $y$ to a sequence of tokens, and the U-Net's intermediate features attend to them: $\mathrm{Attention}(Q, K, V) = \mathrm{softmax}(QK^\top/\sqrt{d})\,V$ with $Q = W_Q\,\varphi_i(z_t)$ from the image features and $K = W_K\,\tau_\theta(y)$, $V = W_V\,\tau_\theta(y)$ from the condition. Each spatial position picks the parts of the prompt it needs. See [GANs, VAEs and autoregressive models](gans-vaes-autoregressive.html) for the autoencoder.
+For text and other modalities, a domain-specific encoder $\tau_\theta$ maps the condition $y$ to a sequence of tokens, and the U-Net's intermediate features attend to them: $\mathrm{Attention}(Q, K, V) = \mathrm{softmax}(QK^\top/\sqrt{d_k})\,V$ with $Q = W_Q\,\varphi_i(z_t)$ from the U-Net's intermediate features $\varphi_i(z_t)$ at layer $i$, and $K = W_K\,\tau_\theta(y)$, $V = W_V\,\tau_\theta(y)$ from the condition; $W_Q, W_K, W_V$ are learned projections and $d_k$ is the width of $Q$ and $K$. (In this formula $V$ is the attention "value", not a variance, and $\varphi_i$ is unrelated to the classifier parameters $\phi$.) Each spatial position picks the parts of the prompt it needs. See [GANs, VAEs and autoregressive models](gans-vaes-autoregressive.html) for the autoencoder.
 
 ### DiT
 
-**Architecture.** Diffusion Transformers (Peebles and Xie) patchify the latent into tokens and replace the U-Net with a transformer. With patch size $p$, an $I \times I \times C$ latent becomes $(I/p)^2$ tokens; for the $32 \times 32 \times 4$ latent of a $256^2$ image and $p = 2$ that is 256 tokens. Halving $p$ quadruples the tokens and roughly the compute, while barely changing the parameter count.
+**Architecture.** Diffusion Transformers (Peebles and Xie) patchify the latent into tokens and replace the U-Net with a transformer. With patch size $p$, an $I \times I \times C$ latent becomes $(I/p)^2$ tokens; for the $32 \times 32 \times 4$ latent of a $256^2$ image and $p = 2$ that is 256 tokens. Halving $p$ quadruples the tokens and at least quadruples the Gflops, while barely changing the parameter count.
 
-**Conditioning on timestep and class.** DiT compared four ways: in-context tokens, cross-attention, adaptive layer norm (adaLN) and adaLN-Zero. In adaLN, an MLP on the sum of the timestep and class embeddings regresses a per-block scale $\gamma$ and shift $\beta$ for each layer norm. adaLN-Zero also regresses a per-dimension gate $\alpha$ applied before each residual connection and initializes the MLP so that every $\alpha$ is zero, which makes every block start as the identity function, the transformer analogue of zero-initializing the last layer of each residual block. adaLN-Zero gave the lowest FID of the four, with nearly half the FID of in-context conditioning at 400K iterations, and outperformed vanilla adaLN by a wide margin at the same cost; the two adaLN variants were also the cheapest (cross-attention added about 15% Gflops).
+**Conditioning on timestep and class.** DiT compared four ways: in-context tokens, cross-attention, adaptive layer norm (adaLN) and adaLN-Zero. In adaLN, an MLP on the sum of the timestep and class embeddings regresses a per-block scale $\gamma$ and shift $\beta$ for each layer norm (DiT's names; unrelated to the schedule's $\beta_t$ and to Min-SNR's $\gamma$). adaLN-Zero also regresses a per-dimension gate $\alpha$ (unrelated to the signal scale $\alpha_t$) applied before each residual connection and initializes the MLP so that every $\alpha$ is zero, which makes every block start as the identity function, the transformer analogue of zero-initializing the last layer of each residual block. adaLN-Zero gave the lowest FID of the four, with nearly half the FID of in-context conditioning at 400K iterations, and outperformed vanilla adaLN by a wide margin at the same cost; the two adaLN variants were also the cheapest (cross-attention added about 15% Gflops).
 
 **Scaling.** FID tracked model Gflops closely: deeper or wider models, or smaller patches, all lowered FID, and at a fixed parameter count, more tokens helped. DiT-XL/2 reached FID 2.27 on ImageNet $256 \times 256$ with classifier-free guidance at scale 1.5 (library convention) and 250 DDPM sampling steps, and 3.04 at $512 \times 512$. It kept ADM's diffusion settings: the linear schedule from $10^{-4}$ to $0.02$, learned variances, and Stable Diffusion's $f = 8$ autoencoder. Architecture depth (MMDiT, text conditioning) is on [text-to-image and multimodal](text-to-image-multimodal.html).
 
@@ -1763,7 +1792,7 @@ The timestep and class must modulate every block. adaLN does this cheaply: an ML
 ::: {.qa asked="TikTok AI research scientist, Interview Query"}
 **Name two activation functions used in diffusion networks and how they differ.**
 
-DDPM and ADM U-Nets use SiLU (Swish), $x\,\sigma(x)$; DiT uses tanh-approximated GELU, $x\,\Phi(x)$, in its MLPs and SiLU before the adaLN projection. Both are smooth, non-monotone near zero, and close in shape; GELU weights by the Gaussian CDF, SiLU by the logistic sigmoid.
+DDPM and ADM U-Nets use SiLU (Swish), $x \cdot \mathrm{sigmoid}(x) = x/(1 + e^{-x})$; DiT uses tanh-approximated GELU, $x\,\Phi(x)$ with $\Phi$ the standard normal CDF, in its MLPs and SiLU before the adaLN projection. Both are smooth, non-monotone near zero (each dips slightly below zero for negative inputs), and close in shape; GELU weights $x$ by the Gaussian CDF, SiLU by the logistic sigmoid.
 :::
 
 ::: qa
