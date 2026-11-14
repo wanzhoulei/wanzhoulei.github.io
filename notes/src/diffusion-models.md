@@ -2,7 +2,7 @@
 title: "Diffusion Models"
 subtitle: "A guided, fully derived reading of DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, in one notation, with worked numbers you can check by hand."
 order: 1
-updated: 2026-11-08
+updated: 2026-11-13
 ---
 
 A diffusion model learns to reverse a fixed process that slowly corrupts data with Gaussian noise. Training is a plain regression problem at random noise levels, and sampling calls the same network many times, removing a little noise each time. Most current image and video generators are diffusion models or close relatives, and flow matching reuses most of the same ideas. Interviewers like the topic because short derivations separate memorized slogans ("predict the noise") from real understanding: why the loss is a mean-squared error, what the network actually estimates, why samplers can skip steps, and why guidance trades diversity for fidelity.
@@ -350,17 +350,101 @@ $$
 
 ### Step 4: group the terms into KL divergences
 
-Substitute this into Step 2 and pair each forward term with the matching model term:
+This step has two parts. Part (a) is bookkeeping: put the result of Step 3 into Step 2 and pair up terms. Part (b) carries the real idea: the expected log-ratio of two densities of the same variable is a KL divergence, provided you average over that variable first.
+
+**Part (a): regroup the terms.** Start from the bracket in Step 2 and make two edits.
+
+1. Replace the forward sum by the result of Step 3: $\sum_{t=1}^{T}\log q(x_t \mid x_{t-1}) = \sum_{t=2}^{T}\log q(x_{t-1} \mid x_t, x_0) + \log q(x_T \mid x_0)$.
+2. Split the model sum into its $t = 1$ term and the rest: $\sum_{t=1}^{T}\log p_\theta(x_{t-1} \mid x_t) = \sum_{t=2}^{T}\log p_\theta(x_{t-1} \mid x_t) + \log p_\theta(x_0 \mid x_1)$.
+
+Then collect the terms:
 
 $$
-L = \mathbb{E}_q\Big[\log\frac{q(x_T \mid x_0)}{p(x_T)} + \sum_{t=2}^{T}\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)} - \log p_\theta(x_0 \mid x_1)\Big].
+\begin{aligned}
+L &= \mathbb{E}_q\Big[-\log p(x_T) - \sum_{t=2}^{T}\log p_\theta(x_{t-1} \mid x_t) - \log p_\theta(x_0 \mid x_1) + \sum_{t=2}^{T}\log q(x_{t-1} \mid x_t, x_0) + \log q(x_T \mid x_0)\Big] && \text{edits 1 and 2}\\
+&= \mathbb{E}_q\Big[\big(\log q(x_T \mid x_0) - \log p(x_T)\big) + \sum_{t=2}^{T}\big(\log q(x_{t-1} \mid x_t, x_0) - \log p_\theta(x_{t-1} \mid x_t)\big) - \log p_\theta(x_0 \mid x_1)\Big] && \text{reorder into pairs}\\
+&= \mathbb{E}_q\Big[\log\frac{q(x_T \mid x_0)}{p(x_T)} + \sum_{t=2}^{T}\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)} - \log p_\theta(x_0 \mid x_1)\Big] && \log a - \log b = \log\tfrac{a}{b} .
+\end{aligned}
 $$
 
-Each log-ratio is a KL once the innermost variable is integrated out. Take the middle terms. The integrand depends only on $(x_0, x_t, x_{t-1})$, whose joint law under $q$ factorizes as $q(x_0)\,q(x_t \mid x_0)\,q(x_{t-1} \mid x_t, x_0)$ (the chain rule of probability). Integrating over $x_{t-1}$ first gives $\int q(x_{t-1} \mid x_t, x_0)\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)}\,dx_{t-1}$, which is a KL by definition. The same argument with $x_T$ handles the first term. The result is DDPM's decomposition:
+The pairing rule is: put together the two terms that are densities of the same variable, the one written in front of the bar. The first pair is about $x_T$. The forward side $q(x_T \mid x_0)$ is "where the forward process puts $x_T$, given the clean image", and the model side $p(x_T)$ is "where sampling starts". Each middle pair, one for every $t = 2, \dots, T$, is about $x_{t-1}$. The forward side $q(x_{t-1} \mid x_t, x_0)$ is the true one-step-back distribution when the clean image is known, and the model side $p_\theta(x_{t-1} \mid x_t)$ is the learned step that must work without $x_0$. The last term, $-\log p_\theta(x_0 \mid x_1)$, has no partner. The forward term that could have paired with it, $\log q(x_1 \mid x_0)$, was used up in Step 3 to cancel the leftover of the telescoping sum.
+
+**Part (b): why each expected log-ratio is a KL.** Recall the definition from the notation table. For two densities $Q$ and $P$ of the same variable $y$,
+
+$$
+\mathrm{KL}(Q \,\Vert\, P) = \int Q(y)\log\frac{Q(y)}{P(y)}\,dy = \mathbb{E}_{y \sim Q}\Big[\log\frac{Q(y)}{P(y)}\Big].
+$$
+
+Two features of this formula matter. The log-ratio is averaged over the one variable $y$, and the distribution doing the averaging is $Q$, the density in the numerator. In the last line of Part (a) neither feature is visible yet. There, $\mathbb{E}_q$ averages over the whole trajectory $(x_0, x_1, \dots, x_T)$ at once, and nothing singles out one variable. Three moves expose the KL. Fix one $t \in \{2, \dots, T\}$ and call its middle term
+
+$$
+f(x_0, x_t, x_{t-1}) = \log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)} .
+$$
+
+*Move 1: drop the variables that $f$ does not use.* The expectation $\mathbb{E}_q[f]$ is an integral of $f$ against the joint density $q(x_0, x_1, \dots, x_T)$. But $f$ involves only $x_0$, $x_t$ and $x_{t-1}$. Integrate out every other variable first. They appear only in the density, and integrating a joint density over some of its variables leaves the marginal density of the others. So
+
+$$
+\mathbb{E}_q[f] = \iiint f(x_0, x_t, x_{t-1})\;q(x_0, x_t, x_{t-1})\;dx_{t-1}\,dx_t\,dx_0 .
+$$
+
+*Move 2: factor the three-variable joint in a chosen order.* The chain rule of probability, $p(a, b, c) = p(a)\,p(b \mid a)\,p(c \mid a, b)$, holds for any ordering of the variables. Choose the order $x_0$, then $x_t$, then $x_{t-1}$:
+
+$$
+q(x_0, x_t, x_{t-1}) = q(x_0)\;q(x_t \mid x_0)\;q(x_{t-1} \mid x_t, x_0) .
+$$
+
+This order is chosen on purpose, so that the last factor is exactly the numerator of $f$. Every factor is something already known. $q(x_0)$ is the data distribution. $q(x_t \mid x_0)$ is the closed form, $\mathcal{N}(\sqrt{\bar\alpha_t}\,x_0, (1-\bar\alpha_t)I)$. $q(x_{t-1} \mid x_t, x_0)$ is the Gaussian posterior $\mathcal{N}(\tilde\mu_t(x_t, x_0), \tilde\beta_t I)$ from the forward process section.
+
+*Move 3: do the innermost integral first.* Substitute the factorization and nest the integrals with $x_{t-1}$ innermost. Each factor goes into the innermost integral that involves its own variable:
+
+$$
+\mathbb{E}_q[f] = \int q(x_0)\int q(x_t \mid x_0)\,\underbrace{\Big[\int q(x_{t-1} \mid x_t, x_0)\,\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)}\,dx_{t-1}\Big]}_{\text{inner bracket}}\,dx_t\,dx_0 .
+$$
+
+Inside the bracket, $x_0$ and $x_t$ are held fixed, and only $x_{t-1}$ varies. Rename things to match the definition:
+- $y = x_{t-1}$;
+- $Q(y) = q(y \mid x_t, x_0)$, the posterior Gaussian;
+- $P(y) = p_\theta(y \mid x_t)$, the model's Gaussian step $\mathcal{N}(\mu_\theta(x_t, t), \varsigma_t^2 I)$.
+
+Both are densities of the same variable $y$. The bracket is $\int Q(y)\log\frac{Q(y)}{P(y)}\,dy$, so it equals $\mathrm{KL}(Q \,\Vert\, P)$ by definition. This KL is a single number for each fixed pair $(x_0, x_t)$. The two outer integrals then average that number over $x_0 \sim q(x_0)$ and $x_t \sim q(x_t \mid x_0)$:
+
+$$
+\mathbb{E}_q\Big[\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)}\Big] = \mathbb{E}_{q(x_0,\, x_t)}\Big[\mathrm{KL}\big(q(x_{t-1} \mid x_t, x_0)\,\Vert\,p_\theta(x_{t-1} \mid x_t)\big)\Big].
+$$
+
+In probability language, Moves 1 to 3 are the tower rule, $\mathbb{E}[f] = \mathbb{E}\big[\,\mathbb{E}[f \mid x_0, x_t]\,\big]$, and the inner conditional expectation is the KL. This also explains the direction of the KL, with the forward posterior first. The variable $x_{t-1}$ is averaged under $q(x_{t-1} \mid x_t, x_0)$, because that is the conditional law of $x_{t-1}$ in the forward process, and the averaging density is always the first argument of a KL.
+
+*The first term, by the same three moves.* $\log\frac{q(x_T \mid x_0)}{p(x_T)}$ involves only $x_0$ and $x_T$.
+- Move 1 reduces the expectation to the pair $(x_0, x_T)$.
+- Move 2 factors their joint as $q(x_0)\,q(x_T \mid x_0)$.
+- Move 3 fixes $x_0$ and integrates over $x_T$:
+
+$$
+\int q(x_T \mid x_0)\log\frac{q(x_T \mid x_0)}{p(x_T)}\,dx_T = \mathrm{KL}\big(q(x_T \mid x_0)\,\Vert\,p(x_T)\big),
+$$
+
+a KL between $Q = \mathcal{N}(\sqrt{\bar\alpha_T}\,x_0, (1-\bar\alpha_T)I)$ and $P = \mathcal{N}(0, I)$. The outer integral averages it over $x_0 \sim q(x_0)$.
+
+*The last term stays as it is.* $-\log p_\theta(x_0 \mid x_1)$ contains no $q$ density, so there is no KL to form. Move 1 still applies: it is an expected log-likelihood over the pair $x_0 \sim q(x_0)$, $x_1 \sim q(x_1 \mid x_0)$. It measures how well the final model step reconstructs the clean image from the least noisy one.
+
+**A one-dimensional check that the average of a log-ratio is the KL.** Take $Q = \mathcal{N}(0, 1)$ and $P = \mathcal{N}(1, 1)$.
+- *The log-ratio.* Both densities have the same normalizing constant $1/\sqrt{2\pi}$, which cancels in the ratio, so $\log\frac{Q(y)}{P(y)} = -\frac{y^2}{2} + \frac{(y-1)^2}{2} = \frac{1}{2} - y$.
+- *Its average under $Q$.* $y$ has mean $0$ under $Q$, so the average is $\frac{1}{2}$.
+- *Tool 3 agrees.* With $d = 1$, $a = b = 1$ and $\lVert\mu_1 - \mu_2\rVert^2 = 1$, it gives $\frac{1}{2}[1 + 1 - 1 + \ln 1] = \frac{1}{2}$.
+- *Single samples.* $y = 0.8$ gives $-0.3$, a negative value. $y = -1.2$ gives $1.7$. In general the single-sample value $\frac{1}{2} - y$ has standard deviation $1$, twice the KL itself.
+
+So one log-ratio is a noisy number that can even be negative. Only its average under the numerator density is the KL, which is never negative. That is what Part (b) buys. The trajectory form of Step 2, evaluated at one sampled $x_{t-1}$, is like using a single $y$. The KL form does the $x_{t-1}$ average exactly, in closed form.
+
+Putting the three pieces back into $L$ gives DDPM's decomposition:
 
 $$
 L = \mathbb{E}_q\Big[\underbrace{\mathrm{KL}\big(q(x_T \mid x_0)\,\Vert\,p(x_T)\big)}_{L_T} + \sum_{t=2}^{T}\underbrace{\mathrm{KL}\big(q(x_{t-1} \mid x_t, x_0)\,\Vert\,p_\theta(x_{t-1} \mid x_t)\big)}_{L_{t-1}}\ \underbrace{-\ \log p_\theta(x_0 \mid x_1)}_{L_0}\Big].
 $$
+
+The single $\mathbb{E}_q$ in front is DDPM's shorthand. By Move 1, each term needs only the variables it still contains:
+- $L_T$ averages over $x_0$;
+- each $L_{t-1}$ averages over the pair $(x_0, x_t)$, because $x_{t-1}$ has already been integrated out inside the KL;
+- $L_0$ averages over $(x_0, x_1)$.
 
 **What this says.** The bound is a sum of comparisons, one per step, between the learned reverse step and the Gaussian posterior derived in the forward process section. All three kinds of terms are cheap:
 
@@ -369,6 +453,10 @@ $$
 - $L_0$ is a reconstruction term. DDPM makes it a discrete decoder: the Gaussian $\mathcal{N}(\mu_\theta(x_1, 1), \varsigma_1^2 I)$ integrated over each pixel's bin of width $2/255$, so it gives a proper discrete likelihood for 8-bit images.
 
 To evaluate $L_{t-1}$ you need only a pair $(x_0, x_t)$, drawn as $x_0 \sim q(x_0)$ and $x_t \sim q(x_t \mid x_0)$ in one shot, plus the formula for the posterior.
+
+::: key
+**How to say it in an interview.** "After the Bayes-rule rewrite, each term of the negative ELBO compares two densities of the same variable. For $x_{t-1}$, those are the forward posterior $q(x_{t-1} \mid x_t, x_0)$ and the model step $p_\theta(x_{t-1} \mid x_t)$. If you take the expectation over $x_{t-1}$ first, holding $x_0$ and $x_t$ fixed, the log-ratio averaged under the posterior is exactly their KL. Both are Gaussians, so the KL has a closed form. The loss becomes a parameter-free prior term, a sum over $t$ of Gaussian KLs, and a reconstruction term. Integrating $x_{t-1}$ out exactly instead of sampling it is why DDPM calls the terms Rao-Blackwellized."
+:::
 
 ### Step 5: each KL is a squared distance between means
 
