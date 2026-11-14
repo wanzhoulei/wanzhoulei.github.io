@@ -69,7 +69,7 @@
       <header class="note-head">
         <h1 class="page-title">Diffusion Models</h1>
         <p class="page-lede">A guided, fully derived reading of DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, in one notation, with worked numbers you can check by hand.</p>
-        <p class="note-meta"><span>Updated 2026-11-13</span><span>54 practice questions</span><span>93 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+        <p class="note-meta"><span>Updated 2026-11-13</span><span>54 practice questions</span><span>97 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
       </header>
       <details class="toc-mobile"><summary>On this page</summary><ul>
 <li><a href="#notation">Notation</a></li>
@@ -552,7 +552,7 @@ p_\theta(x_{0:T}) = p(x_T)\prod_{t=1}^{T} p_\theta(x_{t-1} \mid x_t), \qquad p(x
 <p>Here <span class="math inline">\mu_\theta</span> is a neural network and <span class="math inline">\varsigma_t^2</span> is a fixed number per step (DDPM uses <span class="math inline">\beta_t</span> or <span class="math inline">\tilde\beta_t</span>). The likelihood of a data point is the marginal <span class="math inline">p_\theta(x_0) = \int p_\theta(x_{0:T})\,dx_{1:T}</span>, which cannot be computed directly.</p>
 <p>Why a Gaussian per step? The true reverse step is <span class="math inline">q(x_{t-1} \mid x_t) = \int q(x_{t-1} \mid x_t, x_0)\,q(x_0 \mid x_t)\,dx_0</span>: an average of the Gaussian posteriors from the forward process section, one for each clean image <span class="math inline">x_0</span> that could have produced <span class="math inline">x_t</span>. Each component has variance <span class="math inline">\tilde\beta_t</span>, and its mean depends on <span class="math inline">x_0</span> through the coefficient <span class="math inline">c_t = \sqrt{\bar\alpha_{t-1}}\,\beta_t/(1-\bar\alpha_t)</span>. So the mixture is close to a single Gaussian when <span class="math inline">c_t</span> times the spread of the plausible <span class="math inline">x_0</span> is small compared with <span class="math inline">\sqrt{\tilde\beta_t}</span>.</p>
 <p>For one step of the linear schedule at <span class="math inline">t = 500</span>, <span class="math inline">c_{500} = 0.0031</span> while <span class="math inline">\sqrt{\tilde\beta_{500}} = 0.100</span>; even if the plausible clean pixels spanned the whole range <span class="math inline">[-1, 1]</span>, the component means would differ by at most <span class="math inline">0.006</span>, a small fraction of the component width. Large jumps are different. A jump from <span class="math inline">t</span> straight back to an earlier level <span class="math inline">s &lt; t</span> has the same algebra as one step, with <span class="math inline">\bar\alpha_s</span> in place of <span class="math inline">\bar\alpha_{t-1}</span> and <span class="math inline">1 - \bar\alpha_t/\bar\alpha_s</span> in place of <span class="math inline">\beta_t</span> (because <span class="math inline">x_t = \sqrt{\bar\alpha_t/\bar\alpha_s}\,x_s + \sqrt{1 - \bar\alpha_t/\bar\alpha_s}\,\epsilon</span> by the closed form applied from <span class="math inline">s</span> to <span class="math inline">t</span>). So its coefficient on <span class="math inline">x_0</span> is <span class="math inline">\sqrt{\bar\alpha_s}\,(1 - \bar\alpha_t/\bar\alpha_s)/(1-\bar\alpha_t)</span> and its variance is <span class="math inline">(1-\bar\alpha_s)(1 - \bar\alpha_t/\bar\alpha_s)/(1-\bar\alpha_t)</span>. From <span class="math inline">t = 500</span> straight to <span class="math inline">t = 250</span> the coefficient on <span class="math inline">x_0</span> is <span class="math inline">0.67</span> and the width (square root of the variance) is <span class="math inline">0.66</span>, and from <span class="math inline">t = 250</span> straight to <span class="math inline">t = 1</span> the coefficient is <span class="math inline">1.00</span> and the width is <span class="math inline">0.010</span>: the step back is essentially “draw a clean image from <span class="math inline">q(x_0 \mid x_t)</span>”, which is as multimodal as the data.</p>
-<p><strong>What this says.</strong> A Gaussian reverse step is an accurate model only for small steps. This is why ancestral DDPM sampling needs many steps, and why fast samplers either change the update (DDIM, ODE solvers) or change the training (distillation).</p>
+<p><strong>What this says.</strong> A Gaussian reverse step is an accurate model only for small steps. This is why ancestral DDPM sampling needs many steps, and why fast samplers either change the update (DDIM, ODE solvers) or change the training (distillation). The practice question “Why is each reverse step modeled as a Gaussian, and when does that assumption fail?” at the end of this section works this out step by step, with a toy you can compute by hand.</p>
 <h3 id="step-1-the-variational-bound">Step 1: the variational bound</h3>
 <p>Multiply and divide by the forward process inside the integral, then apply Jensen:</p>
 <p><span class="math display">
@@ -768,7 +768,103 @@ L_{\text{simple}} = \mathbb{E}_{t \sim \mathcal{U}\{1, \dots, T\},\ x_0,\ \epsil
 <details class="qa" id="q5"><summary>
 <span class="qa-n">Q5</span><span class="qa-q">Why is each reverse step modeled as a Gaussian, and when does that assumption fail?</span>
 </summary><div class="qa-body">
-<p>The true reverse step <span class="math inline">q(x_{t-1} \mid x_t)</span> is a mixture over all clean images consistent with <span class="math inline">x_t</span>. When the forward step is small, <span class="math inline">x_{t-1}</span> is pinned close to <span class="math inline">x_t</span> and this mixture is close to a Gaussian, so a Gaussian model loses little. With large jumps (few sampling steps), the reverse conditional becomes multimodal, and a Gaussian centered on the conditional mean averages the modes, which produces blur. This is why naive few-step sampling degrades and why few-step generators use distillation or adversarial losses, covered on the <a href="flow-matching.html">flow matching</a> page. Concretely, each mixture component has variance <span class="math inline">\tilde\beta_t</span> and a mean that moves with <span class="math inline">x_0</span> through the coefficient <span class="math inline">\sqrt{\bar\alpha_{t-1}}\beta_t/(1-\bar\alpha_t)</span>; for one linear-schedule step at <span class="math inline">t = 500</span> that coefficient is <span class="math inline">0.003</span> against a width of <span class="math inline">0.1</span>, but for a jump from <span class="math inline">t = 250</span> straight to <span class="math inline">t = 1</span> it is <span class="math inline">1.0</span> against a width of <span class="math inline">0.01</span>.</p>
+<p><strong>Short answer.</strong> One true reverse step is the sum of two independent pieces: a scaled copy of “which clean image was it?” plus Gaussian noise. For a small step the noise piece dominates, so the step is almost exactly Gaussian. For a large jump the clean-image piece dominates, so the step is as multimodal as the data. A Gaussian model then sits at the average of the modes, and the average of several sharp images is a blurry image. The steps below show this with formulas and then with numbers.</p>
+<p><strong>Step 1: the true reverse step is a mixture of Gaussians.</strong> Bring <span class="math inline">x_0</span> in and integrate it back out. The second equality is the chain rule of probability:</p>
+<p><span class="math display">
+q(x_{t-1} \mid x_t) = \int q(x_{t-1}, x_0 \mid x_t)\,dx_0 = \int \underbrace{q(x_{t-1} \mid x_t, x_0)}_{\text{component}}\;\underbrace{q(x_0 \mid x_t)}_{\text{weight}}\,dx_0 .
+</span></p>
+<p>The weight <span class="math inline">q(x_0 \mid x_t)</span> says how plausible each clean image is, given the noisy <span class="math inline">x_t</span>. Each component is the Gaussian posterior derived in “The posterior given <span class="math inline">x_0</span>”. Name its two mean coefficients <span class="math inline">c_t</span> (on <span class="math inline">x_0</span>) and <span class="math inline">c_t&#39;</span> (on <span class="math inline">x_t</span>):</p>
+<p><span class="math display">
+q(x_{t-1} \mid x_t, x_0) = \mathcal{N}\big(c_t&#39;\,x_t + c_t\,x_0,\ \tilde\beta_t I\big), \qquad c_t = \frac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1-\bar\alpha_t}, \quad c_t&#39; = \frac{\sqrt{1-\beta_t}\,(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}, \quad \tilde\beta_t = \frac{(1-\bar\alpha_{t-1})\,\beta_t}{1-\bar\alpha_t} .
+</span></p>
+<p>So every component has the same width <span class="math inline">\sqrt{\tilde\beta_t}</span>. The components differ only in their centers, and a center moves with <span class="math inline">x_0</span> at rate <span class="math inline">c_t</span>.</p>
+<p><strong>Step 2: write the mixture as a sum of two independent pieces.</strong> To sample from a mixture, first draw a component from the weights, then draw from that component. Here that means:</p>
+<p><span class="math display">
+x_{t-1} = c_t&#39;\,x_t + \underbrace{c_t\,x_0}_{x_0 \,\sim\, q(x_0 \mid x_t)} + \underbrace{\sqrt{\tilde\beta_t}\,z}_{z \,\sim\, \mathcal{N}(0, I)}, \qquad z \text{ independent of } x_0 .
+</span></p>
+<p>For independent pieces, means add and covariances add, as in Tool 1. So</p>
+<p><span class="math display">
+\mathbb{E}[x_{t-1} \mid x_t] = c_t&#39;\,x_t + c_t\,\mathbb{E}[x_0 \mid x_t], \qquad \mathrm{Cov}[x_{t-1} \mid x_t] = \tilde\beta_t I + c_t^2\,\mathrm{Cov}[x_0 \mid x_t] .
+</span></p>
+<p>The shape of the sum depends on which piece is larger. Compare the two spreads, per pixel:</p>
+<p><span class="math display">
+\underbrace{c_t \cdot \operatorname{std}(x_0 \mid x_t)}_{\text{spread from not knowing } x_0} \qquad\text{versus}\qquad \underbrace{\sqrt{\tilde\beta_t}}_{\text{spread of the Gaussian noise}} .
+</span></p>
+<ul>
+<li><strong>Left side much smaller.</strong> The Gaussian noise swamps the clean-image piece. The sum is almost exactly <span class="math inline">\mathcal{N}\big(\mathbb{E}[x_{t-1} \mid x_t],\ \tilde\beta_t I\big)</span>, so a Gaussian model loses almost nothing.</li>
+<li><strong>Left side much larger.</strong> The noise is only a thin blur on a scaled copy of <span class="math inline">q(x_0 \mid x_t)</span>. The step looks like the distribution over clean images, which has a separate mode for each plausible image.</li>
+</ul>
+<p>The criterion uses <span class="math inline">\operatorname{std}(x_0 \mid x_t)</span>, not the range of the data. Late in sampling, at small <span class="math inline">t</span>, <span class="math inline">c_t</span> is large: <span class="math inline">c_{10} = 0.15</span> against <span class="math inline">\sqrt{\tilde\beta_{10}} = 0.015</span>. But there <span class="math inline">x_t</span> is only about <span class="math inline">0.04</span> of noise away from <span class="math inline">x_0</span>. So <span class="math inline">\operatorname{std}(x_0 \mid x_t)</span> is about that small, <span class="math inline">c_t \cdot \operatorname{std} \approx 0.15 \times 0.04 = 0.006</span>, and the step stays close to Gaussian.</p>
+<p><strong>Step 3: a large jump is the same formula with different coefficients.</strong> A fast sampler jumps from level <span class="math inline">t</span> straight to an earlier level <span class="math inline">s &lt; t</span>. The closed form applied from <span class="math inline">s</span> to <span class="math inline">t</span> is <span class="math inline">x_t = \sqrt{\bar\alpha_t/\bar\alpha_s}\,x_s + \sqrt{1-\bar\alpha_t/\bar\alpha_s}\,\epsilon</span>. So the jump is “one step” whose noise variance is <span class="math inline">\beta&#39; = 1 - \bar\alpha_t/\bar\alpha_s</span>, starting from level <span class="math inline">s</span>. Redo the posterior with <span class="math inline">\bar\alpha_s</span> in place of <span class="math inline">\bar\alpha_{t-1}</span> and <span class="math inline">\beta&#39;</span> in place of <span class="math inline">\beta_t</span>:</p>
+<p><span class="math display">
+q(x_s \mid x_t, x_0) = \mathcal{N}\big(c_{t \to s}&#39;\,x_t + c_{t \to s}\,x_0,\ \tilde\beta_{t \to s} I\big), \qquad c_{t \to s} = \frac{\sqrt{\bar\alpha_s}\,\beta&#39;}{1-\bar\alpha_t}, \quad \tilde\beta_{t \to s} = \frac{(1-\bar\alpha_s)\,\beta&#39;}{1-\bar\alpha_t} .
+</span></p>
+<p>Here <span class="math inline">c_{t \to s}&#39; = \sqrt{1-\beta&#39;}\,(1-\bar\alpha_s)/(1-\bar\alpha_t)</span>. With <span class="math inline">s = t - 1</span>, <span class="math inline">\beta&#39; = \beta_t</span> and you get back Step 1. Now push <span class="math inline">s</span> toward the clean end. Then <span class="math inline">\bar\alpha_s \to 1</span>, so <span class="math inline">\beta&#39; \to 1 - \bar\alpha_t</span>, which gives <span class="math inline">c_{t \to s} \to 1</span> and <span class="math inline">\tilde\beta_{t \to s} \to 0</span>. The jump becomes <span class="math inline">x_s \approx x_0</span> with <span class="math inline">x_0 \sim q(x_0 \mid x_t)</span>: “draw a clean image that fits <span class="math inline">x_t</span>”, which is exactly as multimodal as the data.</p>
+<p><strong>Step 4: a toy you can compute by hand.</strong> Let each pixel of the clean data be <span class="math inline">-1</span> or <span class="math inline">+1</span> with probability <span class="math inline">\tfrac{1}{2}</span>, so there are two “images”. Look at the noisy value <span class="math inline">x_t = 0</span>. It sits halfway between them, so by symmetry <span class="math inline">q(x_0 = +1 \mid x_t = 0) = q(x_0 = -1 \mid x_t = 0) = \tfrac{1}{2}</span>. Because <span class="math inline">x_t = 0</span>, the <span class="math inline">c&#39;</span> term vanishes, and Step 1 gives</p>
+<p><span class="math display">
+q(x_s \mid x_t = 0) = \tfrac{1}{2}\,\mathcal{N}\big(+c,\ \tilde\beta\big) + \tfrac{1}{2}\,\mathcal{N}\big(-c,\ \tilde\beta\big),
+</span></p>
+<p>with <span class="math inline">c</span> and <span class="math inline">\tilde\beta</span> the coefficients of the step or jump in question. This is two bumps of width <span class="math inline">\sqrt{\tilde\beta}</span>, centered <span class="math inline">2c</span> apart. When is it one bump or two? Each Gaussian <span class="math inline">\mathcal{N}(\pm c, \tilde\beta)</span> has second derivative <span class="math inline">\mathcal{N}(0; \pm c, \tilde\beta)\,(c^2 - \tilde\beta)/\tilde\beta^2</span> at <span class="math inline">0</span>. So the middle of the mixture turns from a peak into a dip exactly when <span class="math inline">c &gt; \sqrt{\tilde\beta}</span>. That makes <span class="math inline">c/\sqrt{\tilde\beta}</span> the number to look at. With the linear schedule:</p>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Transition</th>
+<th><span class="math inline">c</span></th>
+<th>width <span class="math inline">\sqrt{\tilde\beta}</span></th>
+<th><span class="math inline">c/\sqrt{\tilde\beta}</span></th>
+<th>Shape of <span class="math inline">q(x_s \mid x_t = 0)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>one step, <span class="math inline">t = 500 \to 499</span></td>
+<td><span class="math inline">0.0031</span></td>
+<td><span class="math inline">0.100</span></td>
+<td><span class="math inline">0.03</span></td>
+<td>one bump; the variance is only 0.09% above <span class="math inline">\tilde\beta</span>, so it is Gaussian to the eye</td>
+</tr>
+<tr>
+<td>jump, <span class="math inline">1000 \to 500</span></td>
+<td><span class="math inline">0.28</span></td>
+<td><span class="math inline">0.96</span></td>
+<td><span class="math inline">0.29</span></td>
+<td>one bump, close to Gaussian</td>
+</tr>
+<tr>
+<td>jump, <span class="math inline">500 \to 250</span></td>
+<td><span class="math inline">0.67</span></td>
+<td><span class="math inline">0.66</span></td>
+<td><span class="math inline">1.01</span></td>
+<td>flat top, right at the point of splitting in two</td>
+</tr>
+<tr>
+<td>jump, <span class="math inline">250 \to 1</span></td>
+<td><span class="math inline">1.00</span></td>
+<td><span class="math inline">0.010</span></td>
+<td><span class="math inline">100</span></td>
+<td>two sharp spikes at <span class="math inline">\pm 1</span>, 200 widths apart</td>
+</tr>
+</tbody>
+</table>
+<p>The value <span class="math inline">x_t = 0</span> is a typical one at these levels, not a corner case. At <span class="math inline">t = 500</span> the two possible noise-free values of <span class="math inline">x_t</span> are <span class="math inline">\pm 0.28</span>, and the noise has standard deviation <span class="math inline">0.96</span>. At <span class="math inline">t = 250</span> they are <span class="math inline">\pm 0.72</span>, with noise standard deviation <span class="math inline">0.69</span>.</p>
+<p><strong>Step 5: what a Gaussian model does with two spikes.</strong> The model is <span class="math inline">p_\theta(x_s \mid x_t) = \mathcal{N}(\mu_\theta, \varsigma^2 I)</span> with a fixed variance. Step 5 of the ELBO derivation shows that training minimizes <span class="math inline">\mathbb{E}\lVert\tilde\mu - \mu_\theta\rVert^2/(2\varsigma^2)</span>. By Tool 4, the best mean is the conditional mean:</p>
+<p><span class="math display">
+\mu^* = \mathbb{E}[\tilde\mu \mid x_t] = c&#39;\,x_t + c\,\mathbb{E}[x_0 \mid x_t],
+</span></p>
+<p>which is the mean of the mixture. In the toy with the jump <span class="math inline">250 \to 1</span>, <span class="math inline">\mu^* = 0</span>: exactly between the two spikes, where the true step has essentially no mass.</p>
+<ul>
+<li><em>With the matched width</em> <span class="math inline">\varsigma = \sqrt{\tilde\beta} = 0.01</span>, every sample lands within about <span class="math inline">\pm 0.03</span> of <span class="math inline">0</span>. That is a gray value halfway between the two real pixel values, never <span class="math inline">-1</span> or <span class="math inline">+1</span>.</li>
+<li><em>With the moment-matched variance</em> <span class="math inline">\tilde\beta + c^2 \approx 1.0</span>, the samples spread out. But 38% of them land in <span class="math inline">|x| &lt; 0.5</span>, where the true step has none, and many land beyond <span class="math inline">\pm 1</span>.</li>
+</ul>
+<p>Either way the Gaussian step cannot pick a mode. For real images, <span class="math inline">\mathbb{E}[x_0 \mid x_t]</span> at high noise is the average of all clean images consistent with <span class="math inline">x_t</span>, and that average is blurry.</p>
+<p><strong>Conclusion.</strong> Small steps keep <span class="math inline">c_t \cdot \operatorname{std}(x_0 \mid x_t)</span> below <span class="math inline">\sqrt{\tilde\beta_t}</span>, so Gaussian steps are accurate. This is why ancestral DDPM sampling needs hundreds of steps. Few large jumps push <span class="math inline">c \to 1</span> and <span class="math inline">\sqrt{\tilde\beta} \to 0</span>, so the true step becomes “pick one clean image”. A Gaussian step can only return the blurry average. That is why naive few-step sampling degrades, and why few-step generators change the training instead, with distillation or adversarial losses (covered on the <a href="flow-matching.html">flow matching</a> page).</p>
 </div></details>
 <details class="qa qa-asked" id="q6"><summary>
 <span class="qa-n">Q6</span><span class="qa-q">Write the core of a DDPM training step.</span><span class="qa-badge" title="Reported in a real interview">Asked · Photoroom AS, diffusion coding task, Glassdoor 2025</span>

@@ -295,7 +295,7 @@ Why a Gaussian per step? The true reverse step is $q(x_{t-1} \mid x_t) = \int q(
 
 For one step of the linear schedule at $t = 500$, $c_{500} = 0.0031$ while $\sqrt{\tilde\beta_{500}} = 0.100$; even if the plausible clean pixels spanned the whole range $[-1, 1]$, the component means would differ by at most $0.006$, a small fraction of the component width. Large jumps are different. A jump from $t$ straight back to an earlier level $s < t$ has the same algebra as one step, with $\bar\alpha_s$ in place of $\bar\alpha_{t-1}$ and $1 - \bar\alpha_t/\bar\alpha_s$ in place of $\beta_t$ (because $x_t = \sqrt{\bar\alpha_t/\bar\alpha_s}\,x_s + \sqrt{1 - \bar\alpha_t/\bar\alpha_s}\,\epsilon$ by the closed form applied from $s$ to $t$). So its coefficient on $x_0$ is $\sqrt{\bar\alpha_s}\,(1 - \bar\alpha_t/\bar\alpha_s)/(1-\bar\alpha_t)$ and its variance is $(1-\bar\alpha_s)(1 - \bar\alpha_t/\bar\alpha_s)/(1-\bar\alpha_t)$. From $t = 500$ straight to $t = 250$ the coefficient on $x_0$ is $0.67$ and the width (square root of the variance) is $0.66$, and from $t = 250$ straight to $t = 1$ the coefficient is $1.00$ and the width is $0.010$: the step back is essentially "draw a clean image from $q(x_0 \mid x_t)$", which is as multimodal as the data.
 
-**What this says.** A Gaussian reverse step is an accurate model only for small steps. This is why ancestral DDPM sampling needs many steps, and why fast samplers either change the update (DDIM, ODE solvers) or change the training (distillation).
+**What this says.** A Gaussian reverse step is an accurate model only for small steps. This is why ancestral DDPM sampling needs many steps, and why fast samplers either change the update (DDIM, ODE solvers) or change the training (distillation). The practice question "Why is each reverse step modeled as a Gaussian, and when does that assumption fail?" at the end of this section works this out step by step, with a toy you can compute by hand.
 
 ### Step 1: the variational bound
 
@@ -598,7 +598,84 @@ Three structural facts do the work. The forward marginals $q(x_t \mid x_0)$ are 
 ::: qa
 **Why is each reverse step modeled as a Gaussian, and when does that assumption fail?**
 
-The true reverse step $q(x_{t-1} \mid x_t)$ is a mixture over all clean images consistent with $x_t$. When the forward step is small, $x_{t-1}$ is pinned close to $x_t$ and this mixture is close to a Gaussian, so a Gaussian model loses little. With large jumps (few sampling steps), the reverse conditional becomes multimodal, and a Gaussian centered on the conditional mean averages the modes, which produces blur. This is why naive few-step sampling degrades and why few-step generators use distillation or adversarial losses, covered on the [flow matching](flow-matching.html) page. Concretely, each mixture component has variance $\tilde\beta_t$ and a mean that moves with $x_0$ through the coefficient $\sqrt{\bar\alpha_{t-1}}\beta_t/(1-\bar\alpha_t)$; for one linear-schedule step at $t = 500$ that coefficient is $0.003$ against a width of $0.1$, but for a jump from $t = 250$ straight to $t = 1$ it is $1.0$ against a width of $0.01$.
+**Short answer.** One true reverse step is the sum of two independent pieces: a scaled copy of "which clean image was it?" plus Gaussian noise. For a small step the noise piece dominates, so the step is almost exactly Gaussian. For a large jump the clean-image piece dominates, so the step is as multimodal as the data. A Gaussian model then sits at the average of the modes, and the average of several sharp images is a blurry image. The steps below show this with formulas and then with numbers.
+
+**Step 1: the true reverse step is a mixture of Gaussians.** Bring $x_0$ in and integrate it back out. The second equality is the chain rule of probability:
+
+$$
+q(x_{t-1} \mid x_t) = \int q(x_{t-1}, x_0 \mid x_t)\,dx_0 = \int \underbrace{q(x_{t-1} \mid x_t, x_0)}_{\text{component}}\;\underbrace{q(x_0 \mid x_t)}_{\text{weight}}\,dx_0 .
+$$
+
+The weight $q(x_0 \mid x_t)$ says how plausible each clean image is, given the noisy $x_t$. Each component is the Gaussian posterior derived in "The posterior given $x_0$". Name its two mean coefficients $c_t$ (on $x_0$) and $c_t'$ (on $x_t$):
+
+$$
+q(x_{t-1} \mid x_t, x_0) = \mathcal{N}\big(c_t'\,x_t + c_t\,x_0,\ \tilde\beta_t I\big), \qquad c_t = \frac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1-\bar\alpha_t}, \quad c_t' = \frac{\sqrt{1-\beta_t}\,(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}, \quad \tilde\beta_t = \frac{(1-\bar\alpha_{t-1})\,\beta_t}{1-\bar\alpha_t} .
+$$
+
+So every component has the same width $\sqrt{\tilde\beta_t}$. The components differ only in their centers, and a center moves with $x_0$ at rate $c_t$.
+
+**Step 2: write the mixture as a sum of two independent pieces.** To sample from a mixture, first draw a component from the weights, then draw from that component. Here that means:
+
+$$
+x_{t-1} = c_t'\,x_t + \underbrace{c_t\,x_0}_{x_0 \,\sim\, q(x_0 \mid x_t)} + \underbrace{\sqrt{\tilde\beta_t}\,z}_{z \,\sim\, \mathcal{N}(0, I)}, \qquad z \text{ independent of } x_0 .
+$$
+
+For independent pieces, means add and covariances add, as in Tool 1. So
+
+$$
+\mathbb{E}[x_{t-1} \mid x_t] = c_t'\,x_t + c_t\,\mathbb{E}[x_0 \mid x_t], \qquad \mathrm{Cov}[x_{t-1} \mid x_t] = \tilde\beta_t I + c_t^2\,\mathrm{Cov}[x_0 \mid x_t] .
+$$
+
+The shape of the sum depends on which piece is larger. Compare the two spreads, per pixel:
+
+$$
+\underbrace{c_t \cdot \operatorname{std}(x_0 \mid x_t)}_{\text{spread from not knowing } x_0} \qquad\text{versus}\qquad \underbrace{\sqrt{\tilde\beta_t}}_{\text{spread of the Gaussian noise}} .
+$$
+
+- **Left side much smaller.** The Gaussian noise swamps the clean-image piece. The sum is almost exactly $\mathcal{N}\big(\mathbb{E}[x_{t-1} \mid x_t],\ \tilde\beta_t I\big)$, so a Gaussian model loses almost nothing.
+- **Left side much larger.** The noise is only a thin blur on a scaled copy of $q(x_0 \mid x_t)$. The step looks like the distribution over clean images, which has a separate mode for each plausible image.
+
+The criterion uses $\operatorname{std}(x_0 \mid x_t)$, not the range of the data. Late in sampling, at small $t$, $c_t$ is large: $c_{10} = 0.15$ against $\sqrt{\tilde\beta_{10}} = 0.015$. But there $x_t$ is only about $0.04$ of noise away from $x_0$. So $\operatorname{std}(x_0 \mid x_t)$ is about that small, $c_t \cdot \operatorname{std} \approx 0.15 \times 0.04 = 0.006$, and the step stays close to Gaussian.
+
+**Step 3: a large jump is the same formula with different coefficients.** A fast sampler jumps from level $t$ straight to an earlier level $s < t$. The closed form applied from $s$ to $t$ is $x_t = \sqrt{\bar\alpha_t/\bar\alpha_s}\,x_s + \sqrt{1-\bar\alpha_t/\bar\alpha_s}\,\epsilon$. So the jump is "one step" whose noise variance is $\beta' = 1 - \bar\alpha_t/\bar\alpha_s$, starting from level $s$. Redo the posterior with $\bar\alpha_s$ in place of $\bar\alpha_{t-1}$ and $\beta'$ in place of $\beta_t$:
+
+$$
+q(x_s \mid x_t, x_0) = \mathcal{N}\big(c_{t \to s}'\,x_t + c_{t \to s}\,x_0,\ \tilde\beta_{t \to s} I\big), \qquad c_{t \to s} = \frac{\sqrt{\bar\alpha_s}\,\beta'}{1-\bar\alpha_t}, \quad \tilde\beta_{t \to s} = \frac{(1-\bar\alpha_s)\,\beta'}{1-\bar\alpha_t} .
+$$
+
+Here $c_{t \to s}' = \sqrt{1-\beta'}\,(1-\bar\alpha_s)/(1-\bar\alpha_t)$. With $s = t - 1$, $\beta' = \beta_t$ and you get back Step 1. Now push $s$ toward the clean end. Then $\bar\alpha_s \to 1$, so $\beta' \to 1 - \bar\alpha_t$, which gives $c_{t \to s} \to 1$ and $\tilde\beta_{t \to s} \to 0$. The jump becomes $x_s \approx x_0$ with $x_0 \sim q(x_0 \mid x_t)$: "draw a clean image that fits $x_t$", which is exactly as multimodal as the data.
+
+**Step 4: a toy you can compute by hand.** Let each pixel of the clean data be $-1$ or $+1$ with probability $\tfrac{1}{2}$, so there are two "images". Look at the noisy value $x_t = 0$. It sits halfway between them, so by symmetry $q(x_0 = +1 \mid x_t = 0) = q(x_0 = -1 \mid x_t = 0) = \tfrac{1}{2}$. Because $x_t = 0$, the $c'$ term vanishes, and Step 1 gives
+
+$$
+q(x_s \mid x_t = 0) = \tfrac{1}{2}\,\mathcal{N}\big(+c,\ \tilde\beta\big) + \tfrac{1}{2}\,\mathcal{N}\big(-c,\ \tilde\beta\big),
+$$
+
+with $c$ and $\tilde\beta$ the coefficients of the step or jump in question. This is two bumps of width $\sqrt{\tilde\beta}$, centered $2c$ apart. When is it one bump or two? Each Gaussian $\mathcal{N}(\pm c, \tilde\beta)$ has second derivative $\mathcal{N}(0; \pm c, \tilde\beta)\,(c^2 - \tilde\beta)/\tilde\beta^2$ at $0$. So the middle of the mixture turns from a peak into a dip exactly when $c > \sqrt{\tilde\beta}$. That makes $c/\sqrt{\tilde\beta}$ the number to look at. With the linear schedule:
+
+| Transition | $c$ | width $\sqrt{\tilde\beta}$ | $c/\sqrt{\tilde\beta}$ | Shape of $q(x_s \mid x_t = 0)$ |
+|---|---|---|---|---|
+| one step, $t = 500 \to 499$ | $0.0031$ | $0.100$ | $0.03$ | one bump; the variance is only 0.09% above $\tilde\beta$, so it is Gaussian to the eye |
+| jump, $1000 \to 500$ | $0.28$ | $0.96$ | $0.29$ | one bump, close to Gaussian |
+| jump, $500 \to 250$ | $0.67$ | $0.66$ | $1.01$ | flat top, right at the point of splitting in two |
+| jump, $250 \to 1$ | $1.00$ | $0.010$ | $100$ | two sharp spikes at $\pm 1$, 200 widths apart |
+
+The value $x_t = 0$ is a typical one at these levels, not a corner case. At $t = 500$ the two possible noise-free values of $x_t$ are $\pm 0.28$, and the noise has standard deviation $0.96$. At $t = 250$ they are $\pm 0.72$, with noise standard deviation $0.69$.
+
+**Step 5: what a Gaussian model does with two spikes.** The model is $p_\theta(x_s \mid x_t) = \mathcal{N}(\mu_\theta, \varsigma^2 I)$ with a fixed variance. Step 5 of the ELBO derivation shows that training minimizes $\mathbb{E}\lVert\tilde\mu - \mu_\theta\rVert^2/(2\varsigma^2)$. By Tool 4, the best mean is the conditional mean:
+
+$$
+\mu^* = \mathbb{E}[\tilde\mu \mid x_t] = c'\,x_t + c\,\mathbb{E}[x_0 \mid x_t],
+$$
+
+which is the mean of the mixture. In the toy with the jump $250 \to 1$, $\mu^* = 0$: exactly between the two spikes, where the true step has essentially no mass.
+
+- *With the matched width* $\varsigma = \sqrt{\tilde\beta} = 0.01$, every sample lands within about $\pm 0.03$ of $0$. That is a gray value halfway between the two real pixel values, never $-1$ or $+1$.
+- *With the moment-matched variance* $\tilde\beta + c^2 \approx 1.0$, the samples spread out. But 38% of them land in $|x| < 0.5$, where the true step has none, and many land beyond $\pm 1$.
+
+Either way the Gaussian step cannot pick a mode. For real images, $\mathbb{E}[x_0 \mid x_t]$ at high noise is the average of all clean images consistent with $x_t$, and that average is blurry.
+
+**Conclusion.** Small steps keep $c_t \cdot \operatorname{std}(x_0 \mid x_t)$ below $\sqrt{\tilde\beta_t}$, so Gaussian steps are accurate. This is why ancestral DDPM sampling needs hundreds of steps. Few large jumps push $c \to 1$ and $\sqrt{\tilde\beta} \to 0$, so the true step becomes "pick one clean image". A Gaussian step can only return the blurry average. That is why naive few-step sampling degrades, and why few-step generators change the training instead, with distillation or adversarial losses (covered on the [flow matching](flow-matching.html) page).
 :::
 
 ::: {.qa asked="Photoroom AS, diffusion coding task, Glassdoor 2025"}
