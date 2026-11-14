@@ -624,25 +624,46 @@ q(x_0, x_t, x_{t-1}) = q(x_0)\;q(x_t \mid x_0)\;q(x_{t-1} \mid x_t, x_0) .
 <p><span class="math display">
 \mathbb{E}_q[f] = \int q(x_0)\int q(x_t \mid x_0)\,\underbrace{\Big[\int q(x_{t-1} \mid x_t, x_0)\,\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)}\,dx_{t-1}\Big]}_{\text{inner bracket}}\,dx_t\,dx_0 .
 </span></p>
-<p>Inside the bracket, <span class="math inline">x_0</span> and <span class="math inline">x_t</span> are held fixed, and only <span class="math inline">x_{t-1}</span> varies. Rename things to match the definition: - <span class="math inline">y = x_{t-1}</span>; - <span class="math inline">Q(y) = q(y \mid x_t, x_0)</span>, the posterior Gaussian; - <span class="math inline">P(y) = p_\theta(y \mid x_t)</span>, the model’s Gaussian step <span class="math inline">\mathcal{N}(\mu_\theta(x_t, t), \varsigma_t^2 I)</span>.</p>
+<p>Inside the bracket, <span class="math inline">x_0</span> and <span class="math inline">x_t</span> are held fixed, and only <span class="math inline">x_{t-1}</span> varies. Rename things to match the definition:</p>
+<ul>
+<li><span class="math inline">y = x_{t-1}</span>;</li>
+<li><span class="math inline">Q(y) = q(y \mid x_t, x_0)</span>, the posterior Gaussian;</li>
+<li><span class="math inline">P(y) = p_\theta(y \mid x_t)</span>, the model’s Gaussian step <span class="math inline">\mathcal{N}(\mu_\theta(x_t, t), \varsigma_t^2 I)</span>.</li>
+</ul>
 <p>Both are densities of the same variable <span class="math inline">y</span>. The bracket is <span class="math inline">\int Q(y)\log\frac{Q(y)}{P(y)}\,dy</span>, so it equals <span class="math inline">\mathrm{KL}(Q \,\Vert\, P)</span> by definition. This KL is a single number for each fixed pair <span class="math inline">(x_0, x_t)</span>. The two outer integrals then average that number over <span class="math inline">x_0 \sim q(x_0)</span> and <span class="math inline">x_t \sim q(x_t \mid x_0)</span>:</p>
 <p><span class="math display">
 \mathbb{E}_q\Big[\log\frac{q(x_{t-1} \mid x_t, x_0)}{p_\theta(x_{t-1} \mid x_t)}\Big] = \mathbb{E}_{q(x_0,\, x_t)}\Big[\mathrm{KL}\big(q(x_{t-1} \mid x_t, x_0)\,\Vert\,p_\theta(x_{t-1} \mid x_t)\big)\Big].
 </span></p>
 <p>In probability language, Moves 1 to 3 are the tower rule, <span class="math inline">\mathbb{E}[f] = \mathbb{E}\big[\,\mathbb{E}[f \mid x_0, x_t]\,\big]</span>, and the inner conditional expectation is the KL. This also explains the direction of the KL, with the forward posterior first. The variable <span class="math inline">x_{t-1}</span> is averaged under <span class="math inline">q(x_{t-1} \mid x_t, x_0)</span>, because that is the conditional law of <span class="math inline">x_{t-1}</span> in the forward process, and the averaging density is always the first argument of a KL.</p>
-<p><em>The first term, by the same three moves.</em> <span class="math inline">\log\frac{q(x_T \mid x_0)}{p(x_T)}</span> involves only <span class="math inline">x_0</span> and <span class="math inline">x_T</span>. - Move 1 reduces the expectation to the pair <span class="math inline">(x_0, x_T)</span>. - Move 2 factors their joint as <span class="math inline">q(x_0)\,q(x_T \mid x_0)</span>. - Move 3 fixes <span class="math inline">x_0</span> and integrates over <span class="math inline">x_T</span>:</p>
+<p><em>The first term, by the same three moves.</em> <span class="math inline">\log\frac{q(x_T \mid x_0)}{p(x_T)}</span> involves only <span class="math inline">x_0</span> and <span class="math inline">x_T</span>.</p>
+<ul>
+<li>Move 1 reduces the expectation to the pair <span class="math inline">(x_0, x_T)</span>.</li>
+<li>Move 2 factors their joint as <span class="math inline">q(x_0)\,q(x_T \mid x_0)</span>.</li>
+<li>Move 3 fixes <span class="math inline">x_0</span> and integrates over <span class="math inline">x_T</span>:</li>
+</ul>
 <p><span class="math display">
 \int q(x_T \mid x_0)\log\frac{q(x_T \mid x_0)}{p(x_T)}\,dx_T = \mathrm{KL}\big(q(x_T \mid x_0)\,\Vert\,p(x_T)\big),
 </span></p>
 <p>a KL between <span class="math inline">Q = \mathcal{N}(\sqrt{\bar\alpha_T}\,x_0, (1-\bar\alpha_T)I)</span> and <span class="math inline">P = \mathcal{N}(0, I)</span>. The outer integral averages it over <span class="math inline">x_0 \sim q(x_0)</span>.</p>
 <p><em>The last term stays as it is.</em> <span class="math inline">-\log p_\theta(x_0 \mid x_1)</span> contains no <span class="math inline">q</span> density, so there is no KL to form. Move 1 still applies: it is an expected log-likelihood over the pair <span class="math inline">x_0 \sim q(x_0)</span>, <span class="math inline">x_1 \sim q(x_1 \mid x_0)</span>. It measures how well the final model step reconstructs the clean image from the least noisy one.</p>
-<p><strong>A one-dimensional check that the average of a log-ratio is the KL.</strong> Take <span class="math inline">Q = \mathcal{N}(0, 1)</span> and <span class="math inline">P = \mathcal{N}(1, 1)</span>. - <em>The log-ratio.</em> Both densities have the same normalizing constant <span class="math inline">1/\sqrt{2\pi}</span>, which cancels in the ratio, so <span class="math inline">\log\frac{Q(y)}{P(y)} = -\frac{y^2}{2} + \frac{(y-1)^2}{2} = \frac{1}{2} - y</span>. - <em>Its average under <span class="math inline">Q</span>.</em> <span class="math inline">y</span> has mean <span class="math inline">0</span> under <span class="math inline">Q</span>, so the average is <span class="math inline">\frac{1}{2}</span>. - <em>Tool 3 agrees.</em> With <span class="math inline">d = 1</span>, <span class="math inline">a = b = 1</span> and <span class="math inline">\lVert\mu_1 - \mu_2\rVert^2 = 1</span>, it gives <span class="math inline">\frac{1}{2}[1 + 1 - 1 + \ln 1] = \frac{1}{2}</span>. - <em>Single samples.</em> <span class="math inline">y = 0.8</span> gives <span class="math inline">-0.3</span>, a negative value. <span class="math inline">y = -1.2</span> gives <span class="math inline">1.7</span>. In general the single-sample value <span class="math inline">\frac{1}{2} - y</span> has standard deviation <span class="math inline">1</span>, twice the KL itself.</p>
+<p><strong>A one-dimensional check that the average of a log-ratio is the KL.</strong> Take <span class="math inline">Q = \mathcal{N}(0, 1)</span> and <span class="math inline">P = \mathcal{N}(1, 1)</span>.</p>
+<ul>
+<li><em>The log-ratio.</em> Both densities have the same normalizing constant <span class="math inline">1/\sqrt{2\pi}</span>, which cancels in the ratio, so <span class="math inline">\log\frac{Q(y)}{P(y)} = -\frac{y^2}{2} + \frac{(y-1)^2}{2} = \frac{1}{2} - y</span>.</li>
+<li><em>Its average under <span class="math inline">Q</span>.</em> <span class="math inline">y</span> has mean <span class="math inline">0</span> under <span class="math inline">Q</span>, so the average is <span class="math inline">\frac{1}{2}</span>.</li>
+<li><em>Tool 3 agrees.</em> With <span class="math inline">d = 1</span>, <span class="math inline">a = b = 1</span> and <span class="math inline">\lVert\mu_1 - \mu_2\rVert^2 = 1</span>, it gives <span class="math inline">\frac{1}{2}[1 + 1 - 1 + \ln 1] = \frac{1}{2}</span>.</li>
+<li><em>Single samples.</em> <span class="math inline">y = 0.8</span> gives <span class="math inline">-0.3</span>, a negative value. <span class="math inline">y = -1.2</span> gives <span class="math inline">1.7</span>. In general the single-sample value <span class="math inline">\frac{1}{2} - y</span> has standard deviation <span class="math inline">1</span>, twice the KL itself.</li>
+</ul>
 <p>So one log-ratio is a noisy number that can even be negative. Only its average under the numerator density is the KL, which is never negative. That is what Part (b) buys. The trajectory form of Step 2, evaluated at one sampled <span class="math inline">x_{t-1}</span>, is like using a single <span class="math inline">y</span>. The KL form does the <span class="math inline">x_{t-1}</span> average exactly, in closed form.</p>
 <p>Putting the three pieces back into <span class="math inline">L</span> gives DDPM’s decomposition:</p>
 <p><span class="math display">
 L = \mathbb{E}_q\Big[\underbrace{\mathrm{KL}\big(q(x_T \mid x_0)\,\Vert\,p(x_T)\big)}_{L_T} + \sum_{t=2}^{T}\underbrace{\mathrm{KL}\big(q(x_{t-1} \mid x_t, x_0)\,\Vert\,p_\theta(x_{t-1} \mid x_t)\big)}_{L_{t-1}}\ \underbrace{-\ \log p_\theta(x_0 \mid x_1)}_{L_0}\Big].
 </span></p>
-<p>The single <span class="math inline">\mathbb{E}_q</span> in front is DDPM’s shorthand. By Move 1, each term needs only the variables it still contains: - <span class="math inline">L_T</span> averages over <span class="math inline">x_0</span>; - each <span class="math inline">L_{t-1}</span> averages over the pair <span class="math inline">(x_0, x_t)</span>, because <span class="math inline">x_{t-1}</span> has already been integrated out inside the KL; - <span class="math inline">L_0</span> averages over <span class="math inline">(x_0, x_1)</span>.</p>
+<p>The single <span class="math inline">\mathbb{E}_q</span> in front is DDPM’s shorthand. By Move 1, each term needs only the variables it still contains:</p>
+<ul>
+<li><span class="math inline">L_T</span> averages over <span class="math inline">x_0</span>;</li>
+<li>each <span class="math inline">L_{t-1}</span> averages over the pair <span class="math inline">(x_0, x_t)</span>, because <span class="math inline">x_{t-1}</span> has already been integrated out inside the KL;</li>
+<li><span class="math inline">L_0</span> averages over <span class="math inline">(x_0, x_1)</span>.</li>
+</ul>
 <p><strong>What this says.</strong> The bound is a sum of comparisons, one per step, between the learned reverse step and the Gaussian posterior derived in the forward process section. All three kinds of terms are cheap:</p>
 <ul>
 <li><span class="math inline">L_T</span> has no parameters. With the linear schedule it is about <span class="math inline">10^{-5}</span> bits per dimension, because <span class="math inline">q(x_T \mid x_0)</span> is already almost <span class="math inline">\mathcal{N}(0, I)</span>.</li>

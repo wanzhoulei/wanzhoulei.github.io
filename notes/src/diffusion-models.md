@@ -402,6 +402,7 @@ $$
 $$
 
 Inside the bracket, $x_0$ and $x_t$ are held fixed, and only $x_{t-1}$ varies. Rename things to match the definition:
+
 - $y = x_{t-1}$;
 - $Q(y) = q(y \mid x_t, x_0)$, the posterior Gaussian;
 - $P(y) = p_\theta(y \mid x_t)$, the model's Gaussian step $\mathcal{N}(\mu_\theta(x_t, t), \varsigma_t^2 I)$.
@@ -415,6 +416,7 @@ $$
 In probability language, Moves 1 to 3 are the tower rule, $\mathbb{E}[f] = \mathbb{E}\big[\,\mathbb{E}[f \mid x_0, x_t]\,\big]$, and the inner conditional expectation is the KL. This also explains the direction of the KL, with the forward posterior first. The variable $x_{t-1}$ is averaged under $q(x_{t-1} \mid x_t, x_0)$, because that is the conditional law of $x_{t-1}$ in the forward process, and the averaging density is always the first argument of a KL.
 
 *The first term, by the same three moves.* $\log\frac{q(x_T \mid x_0)}{p(x_T)}$ involves only $x_0$ and $x_T$.
+
 - Move 1 reduces the expectation to the pair $(x_0, x_T)$.
 - Move 2 factors their joint as $q(x_0)\,q(x_T \mid x_0)$.
 - Move 3 fixes $x_0$ and integrates over $x_T$:
@@ -428,6 +430,7 @@ a KL between $Q = \mathcal{N}(\sqrt{\bar\alpha_T}\,x_0, (1-\bar\alpha_T)I)$ and 
 *The last term stays as it is.* $-\log p_\theta(x_0 \mid x_1)$ contains no $q$ density, so there is no KL to form. Move 1 still applies: it is an expected log-likelihood over the pair $x_0 \sim q(x_0)$, $x_1 \sim q(x_1 \mid x_0)$. It measures how well the final model step reconstructs the clean image from the least noisy one.
 
 **A one-dimensional check that the average of a log-ratio is the KL.** Take $Q = \mathcal{N}(0, 1)$ and $P = \mathcal{N}(1, 1)$.
+
 - *The log-ratio.* Both densities have the same normalizing constant $1/\sqrt{2\pi}$, which cancels in the ratio, so $\log\frac{Q(y)}{P(y)} = -\frac{y^2}{2} + \frac{(y-1)^2}{2} = \frac{1}{2} - y$.
 - *Its average under $Q$.* $y$ has mean $0$ under $Q$, so the average is $\frac{1}{2}$.
 - *Tool 3 agrees.* With $d = 1$, $a = b = 1$ and $\lVert\mu_1 - \mu_2\rVert^2 = 1$, it gives $\frac{1}{2}[1 + 1 - 1 + \ln 1] = \frac{1}{2}$.
@@ -442,6 +445,7 @@ L = \mathbb{E}_q\Big[\underbrace{\mathrm{KL}\big(q(x_T \mid x_0)\,\Vert\,p(x_T)\
 $$
 
 The single $\mathbb{E}_q$ in front is DDPM's shorthand. By Move 1, each term needs only the variables it still contains:
+
 - $L_T$ averages over $x_0$;
 - each $L_{t-1}$ averages over the pair $(x_0, x_t)$, because $x_{t-1}$ has already been integrated out inside the KL;
 - $L_0$ averages over $(x_0, x_1)$.
