@@ -69,7 +69,7 @@
       <header class="note-head">
         <h1 class="page-title">Diffusion Models</h1>
         <p class="page-lede">A guided, fully derived reading of DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, in one notation, with worked numbers you can check by hand.</p>
-        <p class="note-meta"><span>Updated 2026-11-13</span><span>54 practice questions</span><span>97 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+        <p class="note-meta"><span>Updated 2026-11-15</span><span>55 practice questions</span><span>101 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
       </header>
       <details class="toc-mobile"><summary>On this page</summary><ul>
 <li><a href="#notation">Notation</a></li>
@@ -1035,19 +1035,72 @@ dx = \sqrt{\frac{d\,[\sigma^2(t)]}{dt}}\;dW_t \qquad \text{(variance exploding, 
 </span></p>
 <p>Here <span class="math inline">f = 0</span> and <span class="math inline">\alpha_t = 1</span>: the signal is never shrunk and the variance grows to <span class="math inline">\mathrm{Var}(x_0) + \sigma_{\max}^2</span>. NCSN’s geometric noise levels become <span class="math inline">\sigma(t) = \sigma_{\min}(\sigma_{\max}/\sigma_{\min})^t</span>, and since <span class="math inline">\frac{d\sigma^2}{dt} = 2\sigma^2\log(\sigma_{\max}/\sigma_{\min})</span>, the diffusion coefficient is <span class="math inline">g(t) = \sigma(t)\sqrt{2\log(\sigma_{\max}/\sigma_{\min})}</span>.</p>
 <h3 id="any-schedule-alpha_t-sigma_t-is-an-sde">Any schedule <span class="math inline">(\alpha_t, \sigma_t)</span> is an SDE</h3>
-<p>The fast samplers below need the reverse question: given a schedule <span class="math inline">x_t = \alpha_t x_0 + \sigma_t\epsilon</span>, which linear SDE <span class="math inline">dx = f(t)\,x\,dt + g(t)\,dW_t</span> produces it? Over one short step the mean is multiplied by <span class="math inline">1 + f\Delta t</span> and the noise variance becomes <span class="math inline">(1 + f\Delta t)^2\sigma_t^2 + g^2\Delta t</span>. Matching both with the schedule:</p>
+<p>So far the direction was: start from a step rule (DDPM’s, then NCSN’s), let the step size shrink, and read off an SDE. The fast samplers later on this page need the opposite direction. There the starting point is a <em>schedule</em>: a pair of functions <span class="math inline">(\alpha_t, \sigma_t)</span> with <span class="math inline">\alpha_0 = 1</span> and <span class="math inline">\sigma_0 = 0</span>, which only says what <span class="math inline">x_t</span> looks like given the clean image,</p>
+<p><span class="math display">
+x_t = \alpha_t x_0 + \sigma_t\epsilon, \qquad \text{so} \qquad \mathbb{E}[x_t \mid x_0] = \alpha_t x_0, \quad \mathrm{Var}[x_t \mid x_0] = \sigma_t^2 I .
+</span></p>
+<p>A schedule is a statement about snapshots: at each time, what the distribution of <span class="math inline">x_t</span> given <span class="math inline">x_0</span> is. It says nothing about how <span class="math inline">x_t</span> moves from one instant to the next. The reverse-time SDE and the probability-flow ODE below are written in terms of a drift <span class="math inline">f</span> and a diffusion coefficient <span class="math inline">g</span>, so to use them with a given schedule we first have to find the SDE whose snapshots match the schedule. The question of this section is therefore: given <span class="math inline">(\alpha_t, \sigma_t)</span>, which functions <span class="math inline">f(t)</span> and <span class="math inline">g(t)</span> in</p>
+<p><span class="math display">
+dx = f(t)\,x\,dt + g(t)\,dW_t
+</span></p>
+<p>reproduce the schedule? Two remarks on the form being assumed. The drift is <span class="math inline">f(t)\,x</span>, a scalar function of time multiplying <span class="math inline">x</span>, rather than a general <span class="math inline">f(x, t)</span>: a drift linear in <span class="math inline">x</span> is what keeps <span class="math inline">\mathbb{E}[x_t \mid x_0]</span> proportional to <span class="math inline">x_0</span>, as the schedule demands. (The VP SDE has this form with <span class="math inline">f(t) = -\tfrac12\beta(t)</span>; the VE SDE has <span class="math inline">f = 0</span>.) And the diffusion coefficient <span class="math inline">g(t)</span> does not depend on <span class="math inline">x</span>, so the same amount of noise is added everywhere, which is what keeps <span class="math inline">x_t \mid x_0</span> Gaussian with an isotropic covariance.</p>
+<p><strong>Step 1: write out one short step.</strong> “One short step” means the Euler-Maruyama step from “What an SDE means here”: advance by a small time <span class="math inline">\Delta t</span> using the drift, plus one draw of fresh noise. With the linear drift it reads</p>
+<p><span class="math display">
+x_{t+\Delta t} = x_t + f(t)\,x_t\,\Delta t + g(t)\sqrt{\Delta t}\,z
+= \big(1 + f(t)\Delta t\big)\,x_t + g(t)\sqrt{\Delta t}\,z, \qquad z \sim \mathcal{N}(0, I),
+</span></p>
+<p>where <span class="math inline">z</span> is drawn fresh at this step, so it is independent of <span class="math inline">x_t</span> and of <span class="math inline">x_0</span>. The step does two things to <span class="math inline">x_t</span>: it multiplies it by the factor <span class="math inline">1 + f(t)\Delta t</span> (that is the drift), and it adds Gaussian noise of variance <span class="math inline">g(t)^2\Delta t</span> in each coordinate (that is the diffusion). Everything acts coordinate by coordinate, so from here on treat <span class="math inline">x</span> as a scalar; the vector case is the same computation in every coordinate.</p>
+<p><strong>Step 2: follow the conditional mean, which pins down <span class="math inline">f</span>.</strong> Fix <span class="math inline">x_0</span> and write <span class="math inline">m_t = \mathbb{E}[x_t \mid x_0]</span>. Take the conditional expectation of both sides of the step:</p>
 <p><span class="math display">
 \begin{aligned}
-\frac{d\alpha_t}{dt} = f(t)\,\alpha_t \quad &amp;\Longrightarrow\quad f(t) = \frac{d\log\alpha_t}{dt},\\
-\frac{d\sigma_t^2}{dt} = 2f(t)\,\sigma_t^2 + g(t)^2 \quad &amp;\Longrightarrow\quad g(t)^2 = \frac{d\sigma_t^2}{dt} - 2\frac{d\log\alpha_t}{dt}\,\sigma_t^2 .
+m_{t+\Delta t} &amp;= \big(1 + f(t)\Delta t\big)\,\mathbb{E}[x_t \mid x_0] + g(t)\sqrt{\Delta t}\;\mathbb{E}[z] &amp;&amp; \text{expectation is linear; } f, g \text{ are constants}\\
+&amp;= \big(1 + f(t)\Delta t\big)\,m_t &amp;&amp; \mathbb{E}[z] = 0 .
 \end{aligned}
 </span></p>
-<p>One more rewrite is useful. Factor out <span class="math inline">2\sigma_t^2</span> and use <span class="math inline">\frac{d\sigma_t^2}{dt} = 2\sigma_t^2\frac{d\log\sigma_t}{dt}</span>:</p>
+<p>So each step multiplies the mean by <span class="math inline">1 + f(t)\Delta t</span>. Subtract <span class="math inline">m_t</span>, divide by <span class="math inline">\Delta t</span>, and let <span class="math inline">\Delta t \to 0</span>:</p>
 <p><span class="math display">
-g(t)^2 = 2\sigma_t^2\Big(\frac{d\log\sigma_t}{dt} - \frac{d\log\alpha_t}{dt}\Big) = -2\sigma_t^2\,\frac{d\ell_t}{dt}, \qquad \ell_t = \log\frac{\alpha_t}{\sigma_t} .
+\frac{m_{t+\Delta t} - m_t}{\Delta t} = f(t)\,m_t \qquad\longrightarrow\qquad \frac{dm_t}{dt} = f(t)\,m_t .
 </span></p>
-<p>Check with VP: <span class="math inline">\alpha^2 = e^{-\int\beta}</span> gives <span class="math inline">f = -\tfrac{1}{2}\beta</span>, and <span class="math inline">\sigma^2 = 1 - \alpha^2</span> gives <span class="math inline">\frac{d\sigma^2}{dt} = \beta\alpha^2</span>, so <span class="math inline">g^2 = \beta\alpha^2 + \beta\sigma^2 = \beta</span>.</p>
-<p><strong>What this says.</strong> The VP and VE SDEs are two members of one family. Any schedule <span class="math inline">(\alpha_t, \sigma_t)</span> fixes <span class="math inline">f</span> and <span class="math inline">g</span>, and <span class="math inline">g^2</span> is proportional to how fast the log-SNR falls. This is the form DPM-Solver uses.</p>
+<p>Now bring in the schedule, which says <span class="math inline">m_t = \alpha_t x_0</span>. Substitute it into this ODE:</p>
+<p><span class="math display">
+\frac{d\alpha_t}{dt}\,x_0 = f(t)\,\alpha_t\,x_0 \quad\text{for every } x_0, \qquad\text{so}\qquad f(t) = \frac{1}{\alpha_t}\frac{d\alpha_t}{dt} = \frac{d\log\alpha_t}{dt},
+</span></p>
+<p>the last equality being the chain rule, <span class="math inline">\frac{d}{dt}\log\alpha_t = \alpha_t&#39;/\alpha_t</span>. Read in the other direction, the ODE <span class="math inline">dm/dt = fm</span> with <span class="math inline">m_0 = x_0</span> has the solution <span class="math inline">m_t = x_0\exp\big(\int_0^t f(s)\,ds\big)</span>, so <span class="math inline">\alpha_t = \exp\big(\int_0^t f\big)</span>: the signal scale is the accumulated drift. Since <span class="math inline">\alpha_t</span> falls over time, <span class="math inline">f(t) &lt; 0</span>: the drift always shrinks.</p>
+<p><strong>Step 3: follow the conditional variance, which pins down <span class="math inline">g</span>.</strong> Write <span class="math inline">v_t = \mathrm{Var}[x_t \mid x_0]</span> for one coordinate. The step is a sum of two independent terms, <span class="math inline">(1 + f\Delta t)\,x_t</span> and <span class="math inline">g\sqrt{\Delta t}\,z</span>. Scaling a random variable by a constant <span class="math inline">c</span> multiplies its variance by <span class="math inline">c^2</span>, and the variances of independent terms add (Tool 1; or directly, the cross term is <span class="math inline">2\,\mathrm{Cov}(x_t, z) = 0</span>). So</p>
+<p><span class="math display">
+v_{t+\Delta t} = \big(1 + f(t)\Delta t\big)^2\,v_t + g(t)^2\,\Delta t .
+</span></p>
+<p>Expand the square, <span class="math inline">(1 + f\Delta t)^2 = 1 + 2f\Delta t + f^2\Delta t^2</span>, subtract <span class="math inline">v_t</span>, and divide by <span class="math inline">\Delta t</span>:</p>
+<p><span class="math display">
+\frac{v_{t+\Delta t} - v_t}{\Delta t} = 2f(t)\,v_t + g(t)^2 + f(t)^2 v_t\,\Delta t \qquad\longrightarrow\qquad \frac{dv_t}{dt} = 2f(t)\,v_t + g(t)^2 ,
+</span></p>
+<p>the last term vanishing as <span class="math inline">\Delta t \to 0</span>. Both terms on the right mean something. <span class="math inline">2fv</span> says that noise already present is scaled by the drift along with the signal (variance is quadratic in the scale, hence the factor 2), and <span class="math inline">g^2</span> is the rate at which fresh noise comes in. Substitute the schedule, <span class="math inline">v_t = \sigma_t^2</span>, and solve for <span class="math inline">g^2</span>:</p>
+<p><span class="math display">
+\frac{d\sigma_t^2}{dt} = 2f(t)\,\sigma_t^2 + g(t)^2 \qquad\Longrightarrow\qquad g(t)^2 = \frac{d\sigma_t^2}{dt} - 2\,\frac{d\log\alpha_t}{dt}\,\sigma_t^2 ,
+</span></p>
+<p>using the <span class="math inline">f</span> from Step 2. In words: the fresh-noise rate is the rate at which the schedule’s variance grows, corrected for the old noise being shrunk by the drift. Since <span class="math inline">f &lt; 0</span>, the correction is positive: the SDE has to inject more noise than the schedule’s variance growth shows, to make up for what the drift removes.</p>
+<p><strong>Step 4: the same <span class="math inline">g</span> in log-SNR form.</strong> Use <span class="math inline">\frac{d\sigma_t^2}{dt} = 2\sigma_t\frac{d\sigma_t}{dt} = 2\sigma_t^2\,\frac{d\log\sigma_t}{dt}</span> (the chain rule again) and factor out <span class="math inline">2\sigma_t^2</span>:</p>
+<p><span class="math display">
+g(t)^2 = 2\sigma_t^2\Big(\frac{d\log\sigma_t}{dt} - \frac{d\log\alpha_t}{dt}\Big) = -2\sigma_t^2\,\frac{d\ell_t}{dt}, \qquad \ell_t = \log\frac{\alpha_t}{\sigma_t} = \tfrac12\lambda_t ,
+</span></p>
+<p>because <span class="math inline">\log\sigma_t - \log\alpha_t = -\ell_t</span>. This form says the noise injection rate is <span class="math inline">2\sigma_t^2</span> times the rate at which the half log-SNR falls. It also carries a sanity check: <span class="math inline">g^2</span> must be nonnegative, so <span class="math inline">\ell_t</span> must be nonincreasing. A “schedule” whose signal-to-noise ratio ever went up could not come from any forward SDE of this form, which makes sense, since adding noise can only lower the SNR.</p>
+<p><strong>Check 1: VP.</strong> <span class="math inline">\alpha_t = \exp(-\tfrac12\int_0^t\beta)</span> gives <span class="math inline">\log\alpha_t = -\tfrac12\int_0^t\beta</span> and <span class="math inline">f = -\tfrac12\beta(t)</span>, the VP drift. <span class="math inline">\sigma_t^2 = 1 - \alpha_t^2</span> gives <span class="math inline">\frac{d\sigma_t^2}{dt} = -2\alpha_t\alpha_t&#39; = -2\alpha_t^2 f = \beta\alpha_t^2</span>, so <span class="math inline">g^2 = \beta\alpha_t^2 - 2(-\tfrac12\beta)\sigma_t^2 = \beta(\alpha_t^2 + \sigma_t^2) = \beta</span>, matching <span class="math inline">g = \sqrt{\beta}</span>. With DDPM’s linear schedule at <span class="math inline">t = 0.5</span>, <span class="math inline">\beta = 10.05</span>: the drift shrinks the signal at rate <span class="math inline">5.0</span> per unit time while noise enters at variance rate <span class="math inline">10.05</span>.</p>
+<p><strong>Check 2: VE.</strong> <span class="math inline">\alpha_t = 1</span> gives <span class="math inline">f = 0</span>, and <span class="math inline">\sigma_t^2 = \sigma^2(t)</span> gives <span class="math inline">g^2 = \frac{d\sigma^2}{dt}</span>, which is the VE SDE.</p>
+<p><strong>Worked example: the rectified-flow schedule.</strong> <a href="flow-matching.html">Flow matching</a> uses <span class="math inline">\alpha_t = 1 - t</span> and <span class="math inline">\sigma_t = t</span> on <span class="math inline">[0, 1]</span>. Then</p>
+<p><span class="math display">
+f(t) = \frac{d\log(1-t)}{dt} = -\frac{1}{1-t}, \qquad
+g(t)^2 = \frac{d(t^2)}{dt} - 2\Big(-\frac{1}{1-t}\Big)t^2 = 2t + \frac{2t^2}{1-t} = \frac{2t(1-t) + 2t^2}{1-t} = \frac{2t}{1-t} .
+</span></p>
+<p>The log-SNR form gives the same thing: <span class="math inline">\ell_t = \log\frac{1-t}{t}</span>, so <span class="math inline">\frac{d\ell_t}{dt} = -\frac{1}{1-t} - \frac1t = -\frac{1}{t(1-t)}</span>, and <span class="math inline">-2t^2\cdot\big(-\frac{1}{t(1-t)}\big) = \frac{2t}{1-t}</span>. At <span class="math inline">t = 0.5</span>: <span class="math inline">f = -2</span> and <span class="math inline">g^2 = 2</span>. At <span class="math inline">t = 0.9</span>: <span class="math inline">f = -10</span> and <span class="math inline">g^2 = 18</span>. Both blow up as <span class="math inline">t \to 1</span>, because this schedule drives the signal to exactly zero in finite time, which no finite shrink rate can do (DDPM’s linear schedule leaves <span class="math inline">\alpha_1 \approx 0.0066</span>, not zero, and keeps <span class="math inline">f</span> finite). As a check that this SDE really reproduces the schedule: simulating <span class="math inline">4 \times 10^5</span> paths of the Euler-Maruyama step with <span class="math inline">\Delta t = 10^{-4}</span> from <span class="math inline">x_0 = 1</span> gives mean <span class="math inline">0.501</span> and variance <span class="math inline">0.251</span> at <span class="math inline">t = 0.5</span> (schedule: <span class="math inline">0.5</span> and <span class="math inline">0.25</span>), and mean <span class="math inline">0.198</span> and variance <span class="math inline">0.639</span> at <span class="math inline">t = 0.8</span> (schedule: <span class="math inline">0.2</span> and <span class="math inline">0.64</span>).</p>
+<p><strong>What this says.</strong> A schedule describes snapshots and an SDE describes motion; the two conditional-moment ODEs, <span class="math inline">\dot m = fm</span> and <span class="math inline">\dot v = 2fv + g^2</span>, are the dictionary between them. Reading the dictionary backwards gives <span class="math inline">f = \frac{d\log\alpha_t}{dt}</span> and <span class="math inline">g^2 = -2\sigma_t^2\frac{d\ell_t}{dt}</span>, so the VP, VE, cosine and rectified-flow schedules are all members of one family of linear SDEs, told apart only by <span class="math inline">f</span> and <span class="math inline">g</span>. The reverse-time SDE and the probability-flow ODE below then apply to all of them at once, and DPM-Solver is built directly on the <span class="math inline">g^2 = -2\sigma_t^2\,\dot\ell_t</span> form.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p><strong>How to say it in an interview.</strong> “A noise schedule only fixes the marginals <span class="math inline">x_t \mid x_0 \sim \mathcal{N}(\alpha_t x_0, \sigma_t^2 I)</span>. To get an SDE, track the conditional mean and variance through one Euler-Maruyama step. The mean is multiplied by <span class="math inline">1 + f\Delta t</span>, so <span class="math inline">\dot\alpha = f\alpha</span> and <span class="math inline">f = \frac{d}{dt}\log\alpha_t</span>. The variance is multiplied by <span class="math inline">(1 + f\Delta t)^2</span> and gains <span class="math inline">g^2\Delta t</span>, so <span class="math inline">\dot\sigma^2 = 2f\sigma^2 + g^2</span> and <span class="math inline">g^2 = \dot\sigma^2 - 2f\sigma^2 = -2\sigma_t^2\frac{d}{dt}\log\frac{\alpha_t}{\sigma_t}</span>. VP and VE are the special cases <span class="math inline">\alpha^2 + \sigma^2 = 1</span> and <span class="math inline">\alpha = 1</span>.”</p>
+</aside>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">Given a noise schedule <span class="math inline">(\alpha_t, \sigma_t)</span>, how do you find the forward SDE that produces it, and can every schedule be written as one?</span>
+</summary><div class="qa-body">
+<p>Look for a linear SDE <span class="math inline">dx = f(t)\,x\,dt + g(t)\,dW_t</span>, since a drift linear in <span class="math inline">x</span> and an <span class="math inline">x</span>-independent <span class="math inline">g</span> are what keep <span class="math inline">x_t \mid x_0</span> Gaussian with mean proportional to <span class="math inline">x_0</span>. One Euler-Maruyama step multiplies <span class="math inline">x_t</span> by <span class="math inline">1 + f\Delta t</span> and adds noise of variance <span class="math inline">g^2\Delta t</span>. Taking the conditional mean gives <span class="math inline">\dot m = fm</span>; matching <span class="math inline">m_t = \alpha_t x_0</span> gives <span class="math inline">f = \frac{d}{dt}\log\alpha_t</span>. Taking the conditional variance (two independent terms, so variances add) gives <span class="math inline">\dot v = 2fv + g^2</span>; matching <span class="math inline">v_t = \sigma_t^2</span> gives <span class="math inline">g^2 = \dot\sigma_t^2 - 2f\sigma_t^2 = -2\sigma_t^2\frac{d}{dt}\log(\alpha_t/\sigma_t)</span>. For VP this returns <span class="math inline">f = -\tfrac12\beta</span> and <span class="math inline">g^2 = \beta</span>; for VE, <span class="math inline">f = 0</span> and <span class="math inline">g^2 = \dot\sigma^2</span>. Not every pair works: <span class="math inline">g^2 \ge 0</span> forces the log-SNR <span class="math inline">\log(\alpha_t/\sigma_t)</span> to be nonincreasing, which is just the statement that adding noise cannot raise the signal-to-noise ratio. Within this linear family the SDE is unique, but other processes share the same marginals, for example the probability-flow ODE.</p>
+</div></details>
 <h3 id="the-reverse-time-sde">The reverse-time SDE</h3>
 <p>Anderson (1982) showed that a diffusion run backwards in time is again a diffusion. For the forward SDE above, the process that starts at <span class="math inline">x_T \sim p_T</span> and runs from <span class="math inline">t = T</span> down to <span class="math inline">0</span>,</p>
 <p><span class="math display">
@@ -1135,23 +1188,23 @@ x(\sigma) - m = \big(x(\sigma_{\max}) - m\big)\sqrt{\frac{s^2 + \sigma^2}{s^2 + 
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “In the continuous limit, DDPM is the variance-preserving SDE <span class="math inline">dx = -\tfrac{1}{2}\beta x\,dt + \sqrt{\beta}\,dW</span> and NCSN is the variance-exploding SDE <span class="math inline">dx = \sqrt{d\sigma^2/dt}\,dW</span>. Anderson’s theorem says the time reversal is again an SDE whose drift is the forward drift minus <span class="math inline">g^2</span> times the score, so a learned score is all you need to sample. Rewriting the Fokker-Planck equation with <span class="math inline">\Delta p = \nabla\cdot(p\nabla\log p)</span> turns the diffusion term into a drift, which gives the probability-flow ODE <span class="math inline">dx/dt = f - \tfrac{1}{2}g^2\nabla\log p_t</span> with the same marginals. The ODE is deterministic and invertible, which is what fast solvers, inversion and exact likelihoods use.”</p>
 </aside>
-<details class="qa" id="q13"><summary>
-<span class="qa-n">Q13</span><span class="qa-q">How are DDPM and score-based generative models (NCSN) related?</span>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">How are DDPM and score-based generative models (NCSN) related?</span>
 </summary><div class="qa-body">
 <p>They are two discretizations of the same continuous framework: DDPM is a discretized VP SDE and NCSN (annealed Langevin over noise levels) is a discretized VE SDE. DDPM’s noise predictor is a scaled score, <span class="math inline">s_\theta = -\epsilon_\theta/\sigma_t</span>, and both are trained by denoising score matching with different per-level weights. Ancestral DDPM sampling is a discretization of the reverse SDE; NCSN’s Langevin steps act as a corrector. The SDE view adds the probability-flow ODE (deterministic sampling, likelihoods), predictor-corrector samplers, and a clean way to compare schedules.</p>
 </div></details>
-<details class="qa" id="q14"><summary>
-<span class="qa-n">Q14</span><span class="qa-q">The probability-flow ODE injects no noise. How can it produce the same distribution as the reverse SDE?</span>
+<details class="qa" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">The probability-flow ODE injects no noise. How can it produce the same distribution as the reverse SDE?</span>
 </summary><div class="qa-body">
 <p>The Fokker-Planck equation of the SDE can be rewritten as a pure transport equation by absorbing the diffusion term into the drift: <span class="math inline">\tfrac{1}{2}g^2\Delta p = \nabla\cdot(\tfrac{1}{2}g^2 p\, \nabla\log p)</span>. A deterministic flow with that modified drift moves probability mass exactly as the SDE does, so the marginals match at every <span class="math inline">t</span>, while individual trajectories differ. The equivalence assumes the exact score. With learned scores and discretization error, the two behave differently: the SDE’s fresh noise tends to contract accumulated errors, while the ODE carries them forward but converges faster with high-order solvers.</p>
 </div></details>
-<details class="qa" id="q15"><summary>
-<span class="qa-n">Q15</span><span class="qa-q">Derive the probability-flow ODE from the forward SDE.</span>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Derive the probability-flow ODE from the forward SDE.</span>
 </summary><div class="qa-body">
 <p>Start from the Fokker-Planck equation of <span class="math inline">dx = f\,dt + g\,dW</span>: <span class="math inline">\partial_t p_t = -\nabla\cdot(fp_t) + \tfrac{1}{2}g^2\Delta p_t</span>. Because <span class="math inline">\nabla p = p\nabla\log p</span>, the Laplacian is <span class="math inline">\Delta p = \nabla\cdot(p\nabla\log p)</span>, and since <span class="math inline">g</span> does not depend on <span class="math inline">x</span> the right side becomes <span class="math inline">-\nabla\cdot[(f - \tfrac{1}{2}g^2\nabla\log p_t)\,p_t]</span>. That is the continuity equation of the deterministic ODE <span class="math inline">dx/dt = f - \tfrac{1}{2}g^2\nabla\log p_t</span>, so the ODE started from <span class="math inline">p_0</span> has marginal <span class="math inline">p_t</span> at every time (given uniqueness of the PDE solution). In VP form it reads <span class="math inline">dx/dt = -\tfrac{1}{2}\beta(t)[x - \epsilon_\theta/\sigma_t]</span>; in EDM’s VE form, <span class="math inline">dx/d\sigma = (x - D(x;\sigma))/\sigma</span>. Splitting only part of the diffusion term gives a family of SDEs with noise <span class="math inline">\zeta g</span> and drift <span class="math inline">f - \tfrac{1+\zeta^2}{2}g^2\nabla\log p_t</span> that all share the marginals.</p>
 </div></details>
-<details class="qa" id="q16"><summary>
-<span class="qa-n">Q16</span><span class="qa-q">What is the reverse-time SDE, and why does the score appear in it?</span>
+<details class="qa" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">What is the reverse-time SDE, and why does the score appear in it?</span>
 </summary><div class="qa-body">
 <p>For <span class="math inline">dx = f\,dt + g\,dW</span>, Anderson’s result is that the time-reversed process satisfies <span class="math inline">dx = [f - g^2\nabla\log p_t]\,dt + g\,d\bar W</span>, integrated from <span class="math inline">T</span> down to <span class="math inline">0</span>, and has the same marginals. Heuristically: one backward step is proportional to the forward Gaussian kernel times the prior <span class="math inline">p_{t-\Delta t}(y)</span>. Expanding <span class="math inline">\log p</span> to first order around the current point and completing the square gives a Gaussian with variance <span class="math inline">g^2\Delta t</span> and mean shifted by <span class="math inline">g^2\Delta t\,\nabla\log p_t</span> against the forward drift. The score is the only unknown, so learning it is enough to sample. The forward noise spreads mass out, and the <span class="math inline">g^2\nabla\log p_t</span> drift pushes it back uphill at the matching rate.</p>
 </div></details>
@@ -1295,18 +1348,18 @@ x_0 - \frac{x_0 + \sigma\epsilon}{1 + \sigma^2} &amp;= \frac{\sigma^2 x_0 - \sig
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “Given <span class="math inline">x_t</span>, the noise, the clean image, <span class="math inline">v = \alpha\epsilon - \sigma x_0</span> and the score are affine functions of each other, so the targets differ only in weighting and conditioning. In clean-image units the <span class="math inline">\epsilon</span>-loss weights each level by the SNR and the <span class="math inline">v</span>-loss by <span class="math inline">1 + \mathrm{SNR}</span>. <span class="math inline">\epsilon</span>-prediction amplifies errors by <span class="math inline">\sigma/\alpha</span> when converting to an image, which blows up near zero SNR; <span class="math inline">x_0</span>-prediction has the mirror problem at low noise; <span class="math inline">v</span> keeps both amplification factors below one, which is why it is used for distillation, zero terminal SNR and many large models.”</p>
 </aside>
-<details class="qa" id="q17"><summary>
-<span class="qa-n">Q17</span><span class="qa-q">Compare <span class="math inline">\epsilon</span>-, <span class="math inline">x_0</span>- and <span class="math inline">v</span>-prediction. When would you pick each?</span>
+<details class="qa" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">Compare <span class="math inline">\epsilon</span>-, <span class="math inline">x_0</span>- and <span class="math inline">v</span>-prediction. When would you pick each?</span>
 </summary><div class="qa-body">
 <p>All three carry the same information given <span class="math inline">x_t</span>, so the differences are optimization and numerics. <span class="math inline">\epsilon</span>-prediction has a unit-variance target and is the classic choice for many-step samplers, but implied <span class="math inline">\hat{x}_0</span> errors are amplified by <span class="math inline">\sigma_t/\alpha_t</span> at low SNR. <span class="math inline">x_0</span>-prediction is stable at high noise but wasteful at low noise, where it must copy most of the input. <span class="math inline">v</span>-prediction interpolates: like <span class="math inline">\epsilon</span> when noise is small, like <span class="math inline">x_0</span> when noise is large, so its errors stay bounded across the range. I would use <span class="math inline">v</span> (or EDM preconditioning) for zero terminal SNR, few-step distillation or high resolution, and remember that switching targets also changes the implied loss weighting.</p>
 </div></details>
-<details class="qa" id="q18"><summary>
-<span class="qa-n">Q18</span><span class="qa-q">Why does <span class="math inline">\epsilon</span>-prediction break down at zero SNR and in one-step distillation?</span>
+<details class="qa" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Why does <span class="math inline">\epsilon</span>-prediction break down at zero SNR and in one-step distillation?</span>
 </summary><div class="qa-body">
 <p>At zero SNR, <span class="math inline">x_T = \epsilon</span>, so predicting the noise is the identity map and the loss gives no signal about the data. Converting to an image needs <span class="math inline">\hat{x}_0 = (x_t - \sigma_t\hat{\epsilon})/\alpha_t</span>, which divides by <span class="math inline">\alpha_t = 0</span>. Near zero SNR the division is finite but amplifies tiny output errors enormously. With many steps later updates correct this; with one or few steps the first prediction must already be a good image. Equivalently, the <span class="math inline">\epsilon</span>-loss gives weight <span class="math inline">\mathrm{SNR} \to 0</span> to <span class="math inline">x_0</span> reconstruction there. Salimans &amp; Ho switched to <span class="math inline">x_0</span>, mixed, or <span class="math inline">v</span> targets for this reason.</p>
 </div></details>
-<details class="qa" id="q19"><summary>
-<span class="qa-n">Q19</span><span class="qa-q">Derive the conversions between <span class="math inline">v</span>, <span class="math inline">x_0</span> and <span class="math inline">\epsilon</span>, and the loss weight that <span class="math inline">v</span>-prediction implies.</span>
+<details class="qa" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">Derive the conversions between <span class="math inline">v</span>, <span class="math inline">x_0</span> and <span class="math inline">\epsilon</span>, and the loss weight that <span class="math inline">v</span>-prediction implies.</span>
 </summary><div class="qa-body">
 <p>With <span class="math inline">v = \alpha_t\epsilon - \sigma_t x_0</span> and <span class="math inline">x_t = \alpha_t x_0 + \sigma_t\epsilon</span>, compute <span class="math inline">\alpha_t x_t - \sigma_t v = (\alpha_t^2 + \sigma_t^2)x_0</span> and <span class="math inline">\sigma_t x_t + \alpha_t v = (\alpha_t^2 + \sigma_t^2)\epsilon</span>; with variance preservation both factors are one, so <span class="math inline">x_0 = \alpha_t x_t - \sigma_t v</span> and <span class="math inline">\epsilon = \sigma_t x_t + \alpha_t v</span>. Writing <span class="math inline">\alpha_t = \cos\phi</span>, <span class="math inline">\sigma_t = \sin\phi</span> shows <span class="math inline">v = dx_t/d\phi</span>. For the loss, <span class="math inline">\epsilon - \hat\epsilon = -(\alpha_t/\sigma_t)(x_0 - \hat x_0)</span>, so <span class="math inline">v - \hat v = \alpha_t(\epsilon - \hat\epsilon) - \sigma_t(x_0 - \hat x_0) = -(x_0 - \hat x_0)/\sigma_t</span>, and <span class="math inline">\lVert v - \hat v\rVert^2 = (1 + \mathrm{SNR})\lVert x_0 - \hat x_0\rVert^2</span>. Compared with the <span class="math inline">\epsilon</span>-loss’s weight <span class="math inline">\mathrm{SNR}</span>, <span class="math inline">v</span> keeps a weight of at least one at high noise, which is why it does not ignore the zero-SNR end.</p>
 </div></details>
@@ -1521,18 +1574,18 @@ x_T = 0.068265\,x_0 + 0.997667\,\epsilon, \qquad \mathrm{SNR}(T) = 0.00468 .
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “A schedule is a curve in log-SNR. For training, it only sets the density of noise levels you sample, which is importance sampling for a fixed weighted objective, so its interaction with the loss weight is what matters. The cosine schedule fixed the linear schedule’s waste of steps at near-pure noise. At higher resolution, neighboring pixels average away noise, so the effective SNR is higher and the schedule should be shifted toward more noise, by <span class="math inline">2\log(64/d)</span> in simple diffusion or SD3’s timestep shift. And the last level must be pure noise, otherwise training and sampling see different inputs at <span class="math inline">t = T</span>; that fix needs <span class="math inline">v</span>- or <span class="math inline">x_0</span>-prediction and a sampler that starts at <span class="math inline">T</span>.”</p>
 </aside>
-<details class="qa" id="q20"><summary>
-<span class="qa-n">Q20</span><span class="qa-q">Why should the noise schedule change with resolution?</span>
+<details class="qa" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">Why should the noise schedule change with resolution?</span>
 </summary><div class="qa-body">
 <p>SNR is defined per pixel, but what matters for generation is how much of the image’s structure survives. Neighboring pixels share signal while noise is independent, so downsampling by <span class="math inline">s</span> raises the effective SNR by <span class="math inline">s^2</span>. A schedule tuned at 64 pixels therefore under-noises a 512-pixel image: global structure is still readable at what should be near-pure noise, and the model gets little training at the levels where layout is decided. Shifting log-SNR down by <span class="math inline">2\log(d/64)</span> (simple diffusion) or using SD3’s timestep shift restores the balance. Some papers interpolate between shifts so fine detail still gets enough steps.</p>
 </div></details>
-<details class="qa" id="q21"><summary>
-<span class="qa-n">Q21</span><span class="qa-q">What is zero terminal SNR, and which train/test mismatch does it fix?</span>
+<details class="qa" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">What is zero terminal SNR, and which train/test mismatch does it fix?</span>
 </summary><div class="qa-body">
 <p>Schedules like Stable Diffusion’s leave a little signal at <span class="math inline">t = T</span> (<span class="math inline">\sqrt{\bar{\alpha}_T} \approx 0.068</span>). In training the model learns to read low-frequency information such as the mean color from that leak; at sampling the input is pure zero-mean noise, so outputs stay near medium brightness. Rescaling so <span class="math inline">\bar{\alpha}_T = 0</span> makes the training input at <span class="math inline">t = T</span> match the sampling input. It requires <span class="math inline">v</span>- or <span class="math inline">x_0</span>-prediction (at zero SNR, <span class="math inline">\epsilon</span>-prediction is trivial and <span class="math inline">\hat{x}_0</span> undefined), a sampler that starts at <span class="math inline">t = T</span>, and, per Lin et al., CFG rescaling to prevent over-exposure.</p>
 </div></details>
-<details class="qa" id="q22"><summary>
-<span class="qa-n">Q22</span><span class="qa-q">What problem did the cosine schedule fix, and how?</span>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">What problem did the cosine schedule fix, and how?</span>
 </summary><div class="qa-body">
 <p>Under the linear schedule (<span class="math inline">\beta</span> from <span class="math inline">10^{-4}</span> to <span class="math inline">0.02</span> over 1000 steps), the SNR falls below one at step 260 and below <span class="math inline">0.004</span> for the last quarter of the steps, so a large share of training and sampling happens on almost pure noise. Nichol and Dhariwal showed that skipping up to the first 20% of the reverse process barely changed FID at low resolution. The cosine schedule sets <span class="math inline">\bar\alpha_t = f(t)/f(0)</span> with <span class="math inline">f(t) = \cos^2\big(\frac{t/T + 0.008}{1.008}\cdot\frac{\pi}{2}\big)</span>, which makes log-SNR fall roughly linearly through the middle and puts <span class="math inline">\mathrm{SNR} = 1</span> near <span class="math inline">t = T/2</span>. The offset keeps <span class="math inline">\sqrt{\beta_1}</span> just below one pixel bin, and <span class="math inline">\beta_t</span> is clipped at <span class="math inline">0.999</span>, so it does not reach zero SNR unless the clip is removed. With <span class="math inline">\epsilon</span>-prediction, its implied weight over log-SNR is <span class="math inline">\operatorname{sech}(\lambda/2)</span>, peaked at <span class="math inline">\mathrm{SNR} = 1</span>.</p>
 </div></details>
@@ -1701,18 +1754,18 @@ c_{\text{skip}} = \frac{\sigma_{\text{data}}^2}{\sigma^2 + \sigma_{\text{data}}^
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “Put every objective in clean-image units. The <span class="math inline">\epsilon</span>-loss weights a level by its SNR, the <span class="math inline">v</span>-loss by <span class="math inline">1 + \mathrm{SNR}</span>, the ELBO by half the SNR drop per step, and the <span class="math inline">x_0</span>-loss uniformly. The <span class="math inline">\epsilon</span>-loss therefore spends most of its weight on nearly clean inputs; Min-SNR caps the weight at <span class="math inline">\gamma = 5</span>, which for an <span class="math inline">\epsilon</span>-model means multiplying by <span class="math inline">\min(1, \gamma/\mathrm{SNR})</span>. EDM normalizes the network’s input and target to unit variance, picks the skip connection that minimizes error amplification, sets the per-level weight to make the effective weight one, and puts the emphasis in the log-normal sampling of noise levels.”</p>
 </aside>
-<details class="qa" id="q23"><summary>
-<span class="qa-n">Q23</span><span class="qa-q">Derive EDM’s <span class="math inline">c_{\text{skip}}</span>, <span class="math inline">c_{\text{out}}</span> and <span class="math inline">c_{\text{in}}</span>.</span>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">Derive EDM’s <span class="math inline">c_{\text{skip}}</span>, <span class="math inline">c_{\text{out}}</span> and <span class="math inline">c_{\text{in}}</span>.</span>
 </summary><div class="qa-body">
 <p>With <span class="math inline">x = x_0 + \sigma\epsilon</span> and independent <span class="math inline">x_0</span> of variance <span class="math inline">\sigma_{\text{data}}^2</span>, the input has variance <span class="math inline">\sigma^2 + \sigma_{\text{data}}^2</span>, so <span class="math inline">c_{\text{in}} = (\sigma^2 + \sigma_{\text{data}}^2)^{-1/2}</span>. The network’s effective target is <span class="math inline">(x_0 - c_{\text{skip}}x)/c_{\text{out}}</span>; requiring unit variance gives <span class="math inline">c_{\text{out}}^2 = (1 - c_{\text{skip}})^2\sigma_{\text{data}}^2 + c_{\text{skip}}^2\sigma^2</span>. Minimizing this over <span class="math inline">c_{\text{skip}}</span> (so network errors are scaled up as little as possible) gives <span class="math inline">c_{\text{skip}} = \sigma_{\text{data}}^2/(\sigma^2 + \sigma_{\text{data}}^2)</span>. Substituting back gives <span class="math inline">c_{\text{out}} = \sigma\sigma_{\text{data}}/\sqrt{\sigma^2 + \sigma_{\text{data}}^2}</span>. Finally <span class="math inline">\lambda = 1/c_{\text{out}}^2</span> makes the effective loss weight one at every <span class="math inline">\sigma</span>.</p>
 </div></details>
-<details class="qa" id="q24"><summary>
-<span class="qa-n">Q24</span><span class="qa-q">Why does Min-SNR weighting speed up training?</span>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">Why does Min-SNR weighting speed up training?</span>
 </summary><div class="qa-body">
 <p>Under the <span class="math inline">\epsilon</span>-loss, the implied <span class="math inline">x_0</span>-space weight is the SNR, so low-noise timesteps dominate the gradient even though those denoising tasks are easy and matter little for global structure. Hang et al. measure that gradients from different timesteps conflict, and they frame training as multi-task learning. Clamping the weight at <span class="math inline">\gamma</span> caps the influence of high-SNR steps and leaves noisier steps unchanged, which is close to the Pareto-optimal weighting they compute directly. For an <span class="math inline">\epsilon</span>-model the per-sample weight is <span class="math inline">\min(\gamma/\mathrm{SNR}, 1)</span>, which down-weights only the cleanest timesteps.</p>
 </div></details>
-<details class="qa" id="q25"><summary>
-<span class="qa-n">Q25</span><span class="qa-q">Write the <span class="math inline">\epsilon</span>-loss, the <span class="math inline">v</span>-loss and the ELBO as weighted clean-image losses.</span>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">Write the <span class="math inline">\epsilon</span>-loss, the <span class="math inline">v</span>-loss and the ELBO as weighted clean-image losses.</span>
 </summary><div class="qa-body">
 <p>From <span class="math inline">x_t = \alpha_t x_0 + \sigma_t\epsilon</span>, the noise error is <span class="math inline">\epsilon - \hat\epsilon = -(\alpha_t/\sigma_t)(x_0 - \hat x_0)</span>, so the <span class="math inline">\epsilon</span>-loss is the <span class="math inline">x_0</span>-loss weighted by <span class="math inline">\mathrm{SNR}</span>. With variance preservation, <span class="math inline">v - \hat v = -(x_0 - \hat x_0)/\sigma_t</span>, so the <span class="math inline">v</span>-loss carries weight <span class="math inline">1/\sigma_t^2 = 1 + \mathrm{SNR}</span>. The discrete ELBO with the posterior variance gives weight <span class="math inline">\tfrac{1}{2}(\mathrm{SNR}(t-1) - \mathrm{SNR}(t))</span> per step, and in continuous time <span class="math inline">\tfrac{1}{2}\mathrm{SNR}</span> per unit of log-SNR, which is a constant <span class="math inline">\tfrac{1}{2}</span> in noise units. The weight that matters in practice is this table weight times the density with which training samples each level, which is why the schedule and the weighting must be discussed together.</p>
 </div></details>
@@ -1913,28 +1966,28 @@ x_{i+1} &amp;= x_i + (\sigma_{i+1} - \sigma_i)\,\tfrac{1}{2}\Big(d_i + \frac{\ti
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “Ancestral DDPM samples the learned Gaussian reverse steps and needs about <span class="math inline">T</span> steps. DDIM keeps DDPM’s marginals but makes the reverse step deterministic, so the same network samples in tens of steps; it is the Euler method on the probability-flow ODE in rescaled coordinates. DPM-Solver writes that ODE as a linear part plus the network term, solves the linear part exactly with variation of constants, and expands only <span class="math inline">\hat\epsilon</span> in half-log-SNR; its first order is DDIM and its second order gives good samples in 10 to 20 calls, and DPM-Solver++ does the same with <span class="math inline">\hat x_0</span>, which behaves better under guidance. EDM uses Heun on a <span class="math inline">\rho = 7</span> grid. Stochastic samplers correct accumulated errors and win when steps are plentiful; deterministic high-order solvers win when steps are scarce or when you need inversion.”</p>
 </aside>
-<details class="qa" id="q26"><summary>
-<span class="qa-n">Q26</span><span class="qa-q">Derive DDIM. Why can it skip steps and reuse a DDPM-trained model?</span>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">Derive DDIM. Why can it skip steps and reuse a DDPM-trained model?</span>
 </summary><div class="qa-body">
 <p>Define a family of forward processes whose conditional <span class="math inline">q(x_{t-1} \mid x_t, x_0)</span> is Gaussian with mean <span class="math inline">\sqrt{\bar{\alpha}_{t-1}}x_0 + k_t(x_t - \sqrt{\bar{\alpha}_t}x_0)</span> and variance <span class="math inline">\varsigma_t^2</span>, and pick <span class="math inline">k_t = \sqrt{1-\bar{\alpha}_{t-1}-\varsigma_t^2}/\sqrt{1-\bar{\alpha}_t}</span> so that every marginal <span class="math inline">q(x_t \mid x_0)</span> matches DDPM’s. Replacing <span class="math inline">x_0</span> and <span class="math inline">\epsilon</span> with network predictions gives the DDIM update. Since <span class="math inline">L_{\text{simple}}</span> only involves the marginals, the trained network is valid for every member of the family. The construction only uses the marginals at the two endpoints of a step, so any decreasing subsequence of timesteps works. With <span class="math inline">\varsigma_t = 0</span> the map is deterministic, which also makes approximate inversion possible.</p>
 </div></details>
-<details class="qa" id="q27"><summary>
-<span class="qa-n">Q27</span><span class="qa-q">How do DDIM, the probability-flow ODE and DPM-Solver relate?</span>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">How do DDIM, the probability-flow ODE and DPM-Solver relate?</span>
 </summary><div class="qa-body">
 <p>Deterministic DDIM is a first-order solver of the probability-flow ODE: in coordinates <span class="math inline">\bar{x} = x/\alpha_t</span>, <span class="math inline">\bar{\sigma} = \sigma_t/\alpha_t</span> it is exactly an Euler step of <span class="math inline">d\bar{x}/d\bar{\sigma} = \hat{\epsilon}</span>. DPM-Solver writes the VP ODE as a linear term plus a nonlinear term, solves the linear term exactly, and expresses the rest as an exponentially weighted integral of <span class="math inline">\hat{\epsilon}</span> over half-log-SNR. Its first-order version coincides with DDIM; higher orders approximate <span class="math inline">\hat{\epsilon}</span> along the half-log-SNR <span class="math inline">\ell_t = \log(\alpha_t/\sigma_t)</span> with a Taylor expansion. That is why DDIM already beats naive Euler in <span class="math inline">t</span>, and why second and third order buy another large reduction in steps.</p>
 </div></details>
-<details class="qa" id="q28"><summary>
-<span class="qa-n">Q28</span><span class="qa-q">When would you use a stochastic sampler instead of a deterministic one?</span>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">When would you use a stochastic sampler instead of a deterministic one?</span>
 </summary><div class="qa-body">
 <p>Use stochastic sampling when the model is imperfect and you can afford more steps: the injected noise lets the sampler correct earlier errors, which often gives the best FID at large step counts. Use deterministic ODE solvers when steps are scarce, when you need a reproducible noise-to-image map (inversion, interpolation, editing, consistent seeds), or when you want likelihoods. Too much stochasticity has costs: EDM saw loss of detail and color drift, and the best settings had to be tuned per model. In practice, high-order deterministic solvers dominate the low-step regime and mildly stochastic samplers the high-step regime.</p>
 </div></details>
-<details class="qa" id="q29"><summary>
-<span class="qa-n">Q29</span><span class="qa-q">Derive DPM-Solver-1 and show that it is DDIM.</span>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">Derive DPM-Solver-1 and show that it is DDIM.</span>
 </summary><div class="qa-body">
 <p>Write the probability-flow ODE in noise form, <span class="math inline">dx/dt = f(t)x + \frac{g(t)^2}{2\sigma_t}\hat\epsilon_\theta</span>, with <span class="math inline">f = d\log\alpha_t/dt</span> and <span class="math inline">g^2 = -2\sigma_t^2\,d\ell_t/dt</span>, where <span class="math inline">\ell_t = \log(\alpha_t/\sigma_t)</span>. Variation of constants solves the linear part exactly: <span class="math inline">x_t = \frac{\alpha_t}{\alpha_s}x_s - \alpha_t\int_{\ell_s}^{\ell_t}e^{-\ell}\hat\epsilon_\theta\,d\ell</span>. Freezing <span class="math inline">\hat\epsilon_\theta</span> at its value at <span class="math inline">s</span> and integrating gives <span class="math inline">x_t = \frac{\alpha_t}{\alpha_s}x_s - \sigma_t(e^h - 1)\hat\epsilon_s</span> with <span class="math inline">h = \ell_t - \ell_s</span>. DDIM’s <span class="math inline">x_t = \alpha_t\hat x_0 + \sigma_t\hat\epsilon_s</span> with <span class="math inline">\hat x_0 = (x_s - \sigma_s\hat\epsilon_s)/\alpha_s</span> expands to the same thing because <span class="math inline">\alpha_t\sigma_s/(\alpha_s\sigma_t) = e^h</span>. Higher orders Taylor-expand <span class="math inline">\hat\epsilon_\theta</span> in <span class="math inline">\ell</span> and estimate the derivatives with extra evaluations.</p>
 </div></details>
-<details class="qa" id="q30"><summary>
-<span class="qa-n">Q30</span><span class="qa-q">Why does ancestral DDPM sampling need so many steps, and what does a single deterministic step from pure noise produce?</span>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">Why does ancestral DDPM sampling need so many steps, and what does a single deterministic step from pure noise produce?</span>
 </summary><div class="qa-body">
 <p>Each ancestral step samples a Gaussian, and the true reverse step is close to Gaussian only when the step is small; with large jumps it is a mixture over all plausible clean images, and a Gaussian at its mean blurs the modes. A deterministic step aims at the posterior mean: a DDIM step from <span class="math inline">\sigma_{\max}</span> straight to zero returns exactly <span class="math inline">D(x; \sigma_{\max})</span>, the average of everything consistent with nearly pure noise, which is close to the dataset mean. For Gaussian data with standard deviation 0.5, that single step gives samples with standard deviation 0.003; 10 Euler steps give 0.37 and 50 give 0.47. More steps, a higher-order solver or distillation are the remedies.</p>
 </div></details>
@@ -2053,33 +2106,33 @@ x_{i+1} &amp;= x_i + (\sigma_{i+1} - \sigma_i)\,\tfrac{1}{2}\Big(d_i + \frac{\ti
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “Bayes’ rule splits the conditional score into an unconditional score plus a classifier gradient; classifier guidance scales that gradient, which targets <span class="math inline">p(x \mid c)p(c \mid x)^w</span>. Classifier-free guidance replaces the classifier by the implicit one, <span class="math inline">p(x \mid c)/p(x)</span>, whose gradient is the difference of conditional and unconditional scores; substituting gives <span class="math inline">\tilde\epsilon = (1+w)\epsilon_c - w\epsilon_u</span>, with both terms from one network trained with label dropout. The tilted target is sharper and more prototypical, so fidelity goes up and diversity down, but the sampler does not exactly sample it: the guided scores are not scores of a noised tilted density, and DDPM and DDIM give different results. At high scales the extrapolation oversaturates, which is what thresholding, CFG rescale, APG and guidance intervals address.”</p>
 </aside>
-<details class="qa" id="q31"><summary>
-<span class="qa-n">Q31</span><span class="qa-q">Derive classifier-free guidance from classifier guidance.</span>
+<details class="qa" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">Derive classifier-free guidance from classifier guidance.</span>
 </summary><div class="qa-body">
 <p>Classifier guidance adds <span class="math inline">w\nabla\log p(c \mid x_t)</span> to the conditional score. Replace the external classifier with the implicit one given by Bayes’ rule, <span class="math inline">p(c \mid x_t) \propto p(x_t \mid c)/p(x_t)</span>, whose gradient is the difference of conditional and unconditional scores. In noise units the score is <span class="math inline">-\epsilon/\sigma_t</span>, so the gradient is <span class="math inline">-(\epsilon(x_t,c) - \epsilon(x_t))/\sigma_t</span>. Substituting gives <span class="math inline">\tilde{\epsilon} = (1+w)\epsilon(x_t, c) - w\epsilon(x_t)</span>. One network provides both terms because the condition is dropped at random during training. Ho &amp; Salimans note that with learned networks this difference is generally not the gradient of any classifier.</p>
 </div></details>
-<details class="qa" id="q32"><summary>
-<span class="qa-n">Q32</span><span class="qa-q">Why does classifier-free guidance increase fidelity and reduce diversity? What happens if the scale is too high?</span>
+<details class="qa" id="q33"><summary>
+<span class="qa-n">Q33</span><span class="qa-q">Why does classifier-free guidance increase fidelity and reduce diversity? What happens if the scale is too high?</span>
 </summary><div class="qa-body">
 <p>Guidance tilts the target toward <span class="math inline">p(x \mid c)^{1+w}/p(x)^w</span>, which concentrates mass where the condition is most distinguishable from the unconditional distribution, so samples are more typical of the prompt. Raising a density to a power above one also lowers its entropy, so variety falls, and at high noise levels guidance steers many seeds toward the same few layouts. At very high scales the extrapolated prediction overshoots the data range: oversaturated colors, over-exposure and artifacts. Fixes: a lower scale, dynamic thresholding, CFG rescale or APG, or a guidance interval.</p>
 </div></details>
-<details class="qa" id="q33"><summary>
-<span class="qa-n">Q33</span><span class="qa-q">What is autoguidance and how does it differ from CFG?</span>
+<details class="qa" id="q34"><summary>
+<span class="qa-n">Q34</span><span class="qa-q">What is autoguidance and how does it differ from CFG?</span>
 </summary><div class="qa-body">
 <p>CFG extrapolates away from an unconditional model, which entangles two effects: better prompt alignment with lower variation, and an image-quality gain. Karras et al. argue the quality gain comes from the two models fitting the data with different errors, while the task mismatch (conditional vs unconditional) is what also pulls samples toward prototypes. Autoguidance keeps only the quality effect by guiding a model with a smaller or less-trained version of itself on the same conditioning: <span class="math inline">D_w = wD_1 + (1-w)D_0</span>. Since both models solve the same task, the difference mainly flags regions the weaker model fits poorly and pushes samples toward the data manifold without collapsing them to prototypes. It needs an extra model and does not by itself improve prompt adherence.</p>
 </div></details>
-<details class="qa" id="q34"><summary>
-<span class="qa-n">Q34</span><span class="qa-q">Why apply guidance only in a limited interval of noise levels?</span>
+<details class="qa" id="q35"><summary>
+<span class="qa-n">Q35</span><span class="qa-q">Why apply guidance only in a limited interval of noise levels?</span>
 </summary><div class="qa-body">
 <p>At high noise, the guided update changes the global layout, and with strong guidance many seeds drift toward a few template images, so variation collapses and FID worsens. At low noise, the conditional and unconditional predictions nearly agree, so guidance changes little. Between these, guidance improves detail and alignment. Kynkäänniemi et al. disable it outside a tuned middle interval and keep the same weight inside; on ImageNet-512 FID improved from 1.81 to 1.40, and steps outside the interval need only one network pass.</p>
 </div></details>
-<details class="qa" id="q35"><summary>
-<span class="qa-n">Q35</span><span class="qa-q">Derive classifier guidance from Bayes’ rule, as Dhariwal and Nichol do for the ancestral sampler.</span>
+<details class="qa" id="q36"><summary>
+<span class="qa-n">Q36</span><span class="qa-q">Derive classifier guidance from Bayes’ rule, as Dhariwal and Nichol do for the ancestral sampler.</span>
 </summary><div class="qa-body">
 <p>A conditional reverse step is proportional to the unconditional step times the classifier, <span class="math inline">p_\theta(x_{t-1} \mid x_t)\,p_\phi(c \mid x_{t-1})</span>. The model step is <span class="math inline">\mathcal{N}(\mu, \Sigma)</span>. When <span class="math inline">\Sigma</span> is small, expand <span class="math inline">\log p_\phi(c \mid x_{t-1})</span> to first order around <span class="math inline">\mu</span>: <span class="math inline">(x_{t-1} - \mu)^\top g_\phi</span> plus a constant, with <span class="math inline">g_\phi</span> the classifier gradient at <span class="math inline">\mu</span>. Adding this linear term to the Gaussian’s quadratic and completing the square gives <span class="math inline">\mathcal{N}(\mu + \Sigma g_\phi, \Sigma)</span>. ADM scales the gradient by <span class="math inline">s</span>, which corresponds to the sharpened classifier <span class="math inline">p_\phi^s</span>. For deterministic samplers the score form is used instead: <span class="math inline">\tilde\epsilon = \hat\epsilon - \sigma_t\,s\,\nabla\log p_\phi(c \mid x_t)</span>, from <span class="math inline">\nabla\log[p(x_t)p(c \mid x_t)^s] = -\hat\epsilon/\sigma_t + s\nabla\log p_\phi</span>.</p>
 </div></details>
-<details class="qa" id="q36"><summary>
-<span class="qa-n">Q36</span><span class="qa-q">Does a CFG sampler actually draw from <span class="math inline">p(x \mid c)^{1+w}/p(x)^w</span>?</span>
+<details class="qa" id="q37"><summary>
+<span class="qa-n">Q37</span><span class="qa-q">Does a CFG sampler actually draw from <span class="math inline">p(x \mid c)^{1+w}/p(x)^w</span>?</span>
 </summary><div class="qa-body">
 <p>No. The guided score at each noise level is <span class="math inline">(1+w)\nabla\log p_\sigma(x \mid c) - w\nabla\log p_\sigma(x)</span>, and noising does not commute with taking powers and ratios of densities, so this is not the score of any noised version of the tilted target. Different samplers then land on different distributions. In a solvable toy with conditional <span class="math inline">\mathcal{N}(1, 1)</span>, unconditional <span class="math inline">\mathcal{N}(0, 4)</span> and <span class="math inline">w = 3</span>, the tilted target is <span class="math inline">\mathcal{N}(1.23, 0.55^2)</span>, the guided reverse SDE gives <span class="math inline">\mathcal{N}(1.33, 0.44^2)</span> and the guided ODE gives <span class="math inline">\mathcal{N}(1.51, 0.13^2)</span>. Bradley and Nakkiran show in general that CFG with DDPM and with DDIM differ and that neither samples the powered distribution. The practical lesson is that the guidance scale’s effect depends on the sampler and step count, so it has to be re-tuned when either changes.</p>
 </div></details>
@@ -2102,94 +2155,94 @@ x_{i+1} &amp;= x_i + (\sigma_{i+1} - \sigma_i)\,\tfrac{1}{2}\Big(d_i + \frac{\ti
 <aside class="callout callout-key"><p class="callout-label">Key idea</p>
 <p><strong>How to say it in an interview.</strong> “Latent diffusion trains an autoencoder for perceptual compression and runs diffusion in its latent, typically 8 times smaller per side, so a <span class="math inline">256^2</span> image becomes a <span class="math inline">32 \times 32 \times 4</span> latent with 64 times fewer positions. The latent must be rescaled to unit variance, or the schedule’s SNR is wrong. Text enters through cross-attention. DiT replaces the U-Net with a transformer on latent patches, conditions on timestep and class through adaLN-Zero, which starts every block as the identity, and its FID improves predictably with Gflops.”</p>
 </aside>
-<details class="qa qa-asked" id="q37"><summary>
-<span class="qa-n">Q37</span><span class="qa-q">Walk through the architecture of a diffusion model: how data are corrupted, what the network predicts, how it is built and conditioned, and how samples are generated.</span><span class="qa-badge" title="Reported in a real interview">Asked · Wells Fargo applied AI research intern, PracHub 2026</span>
+<details class="qa qa-asked" id="q38"><summary>
+<span class="qa-n">Q38</span><span class="qa-q">Walk through the architecture of a diffusion model: how data are corrupted, what the network predicts, how it is built and conditioned, and how samples are generated.</span><span class="qa-badge" title="Reported in a real interview">Asked · Wells Fargo applied AI research intern, PracHub 2026</span>
 </summary><div class="qa-body">
 <p>An image is encoded to a latent by a pretrained autoencoder, then corrupted as <span class="math inline">z_t = \alpha_t z_0 + \sigma_t\epsilon</span> at a random noise level. A U-Net or DiT takes <span class="math inline">z_t</span>, an embedding of the noise level and the condition, and predicts <span class="math inline">\epsilon</span>, <span class="math inline">v</span> or <span class="math inline">z_0</span>; text enters through cross-attention or joint attention, timestep and class through adaptive normalization. Training is a weighted MSE with the condition dropped about 10% of the time. To sample, start from Gaussian noise, run 20 to 50 steps of a DDIM, DPM-Solver or Heun-type solver with classifier-free guidance, then decode the latent. I would also state the schedule (e.g. zero terminal SNR, resolution shift) and how much each choice costs at inference.</p>
 </div></details>
-<details class="qa" id="q38"><summary>
-<span class="qa-n">Q38</span><span class="qa-q">Why train diffusion in a latent space, and what can go wrong?</span>
+<details class="qa" id="q39"><summary>
+<span class="qa-n">Q39</span><span class="qa-q">Why train diffusion in a latent space, and what can go wrong?</span>
 </summary><div class="qa-body">
 <p>Pixel-space diffusion spends compute and capacity on high-frequency detail that a good autoencoder reproduces cheaply, so a latent 8 times smaller per side cuts cost roughly by the reduction in positions while keeping perceptual quality. The risks: reconstruction error is a hard ceiling on detail; too much compression loses information; the latent’s scale changes the effective SNR, so latents must be normalized or the schedule retuned; and decoder artifacts can look like generator failures. Pixel-space models avoid the autoencoder at higher compute cost.</p>
 </div></details>
-<details class="qa" id="q39"><summary>
-<span class="qa-n">Q39</span><span class="qa-q">Why does DiT use adaLN-Zero, and what does the “Zero” do?</span>
+<details class="qa" id="q40"><summary>
+<span class="qa-n">Q40</span><span class="qa-q">Why does DiT use adaLN-Zero, and what does the “Zero” do?</span>
 </summary><div class="qa-body">
 <p>The timestep and class must modulate every block. adaLN does this cheaply: an MLP on the sum of the two embeddings outputs a scale and shift for each layer norm, the same for all tokens, which costs almost no compute compared with extra tokens or cross-attention. adaLN-Zero also outputs a per-channel gate on each residual branch and initializes the MLP so all gates are zero, so at initialization every block is the identity and the network starts as a well-conditioned shallow map, as with zero-initialized residual branches in ResNets and diffusion U-Nets. In DiT’s comparison it gave the lowest FID of the four conditioning designs, beat plain adaLN at identical cost, and added almost no Gflops.</p>
 </div></details>
 <h2 id="rapid-fire-review">Rapid-fire review</h2>
-<details class="qa qa-asked" id="q40"><summary>
-<span class="qa-n">Q40</span><span class="qa-q">Name two activation functions used in diffusion networks and how they differ.</span><span class="qa-badge" title="Reported in a real interview">Asked · TikTok AI research scientist, Interview Query</span>
+<details class="qa qa-asked" id="q41"><summary>
+<span class="qa-n">Q41</span><span class="qa-q">Name two activation functions used in diffusion networks and how they differ.</span><span class="qa-badge" title="Reported in a real interview">Asked · TikTok AI research scientist, Interview Query</span>
 </summary><div class="qa-body">
 <p>DDPM and ADM U-Nets use SiLU (Swish), <span class="math inline">x \cdot \mathrm{sigmoid}(x) = x/(1 + e^{-x})</span>; DiT uses tanh-approximated GELU, <span class="math inline">x\,\Phi(x)</span> with <span class="math inline">\Phi</span> the standard normal CDF, in its MLPs and SiLU before the adaLN projection. Both are smooth, non-monotone near zero (each dips slightly below zero for negative inputs), and close in shape; GELU weights <span class="math inline">x</span> by the Gaussian CDF, SiLU by the logistic sigmoid.</p>
 </div></details>
-<details class="qa" id="q41"><summary>
-<span class="qa-n">Q41</span><span class="qa-q">Why does the network need the timestep or noise level as input?</span>
+<details class="qa" id="q42"><summary>
+<span class="qa-n">Q42</span><span class="qa-q">Why does the network need the timestep or noise level as input?</span>
 </summary><div class="qa-body">
 <p>The same <span class="math inline">x_t</span> can arise from different noise levels, and the optimal denoiser depends on <span class="math inline">\sigma</span>. DDPM uses sinusoidal timestep embeddings followed by an MLP; EDM feeds <span class="math inline">c_{\text{noise}} = \tfrac{1}{4}\ln\sigma</span>.</p>
 </div></details>
-<details class="qa" id="q42"><summary>
-<span class="qa-n">Q42</span><span class="qa-q">What is the difference between the noise schedule and the loss weighting?</span>
+<details class="qa" id="q43"><summary>
+<span class="qa-n">Q43</span><span class="qa-q">What is the difference between the noise schedule and the loss weighting?</span>
 </summary><div class="qa-body">
 <p>In continuous time, the loss is an integral over log-SNR with weight <span class="math inline">w(\lambda)</span>, independent of the schedule except its endpoints. The training schedule acts as an importance-sampling density that affects gradient variance; the sampling schedule controls discretization error.</p>
 </div></details>
-<details class="qa" id="q43"><summary>
-<span class="qa-n">Q43</span><span class="qa-q">VP vs VE: what is the practical difference?</span>
+<details class="qa" id="q44"><summary>
+<span class="qa-n">Q44</span><span class="qa-q">VP vs VE: what is the practical difference?</span>
 </summary><div class="qa-body">
 <p>VP keeps <span class="math inline">\alpha_t^2 + \sigma_t^2 = 1</span> and bounded variance; VE keeps <span class="math inline">\alpha_t = 1</span> and grows noise up to <span class="math inline">\sigma_{\max}</span>. They are rescalings of each other (<span class="math inline">x_{\text{VE}} = x_{\text{VP}}/\alpha_t</span>), but VE cannot reach zero SNR and its inputs need normalization (<span class="math inline">c_{\text{in}}</span>).</p>
 </div></details>
-<details class="qa" id="q44"><summary>
-<span class="qa-n">Q44</span><span class="qa-q">What does learning the reverse variance buy?</span>
+<details class="qa" id="q45"><summary>
+<span class="qa-n">Q45</span><span class="qa-q">What does learning the reverse variance buy?</span>
 </summary><div class="qa-body">
 <p>Better likelihoods and robustness to fewer sampling steps. Improved DDPM interpolates between <span class="math inline">\beta_t</span> and <span class="math inline">\tilde{\beta}_t</span> in log space and trains it with a small <span class="math inline">L_{\text{vlb}}</span> term; about 100 steps sufficed.</p>
 </div></details>
-<details class="qa" id="q45"><summary>
-<span class="qa-n">Q45</span><span class="qa-q">Can diffusion models give likelihoods?</span>
+<details class="qa" id="q46"><summary>
+<span class="qa-n">Q46</span><span class="qa-q">Can diffusion models give likelihoods?</span>
 </summary><div class="qa-body">
 <p>Yes: a bound via the ELBO in discrete time, or an exact value via the probability-flow ODE using the change-of-variables formula and a Hutchinson trace estimate. Models tuned for sample quality usually have worse likelihoods.</p>
 </div></details>
-<details class="qa" id="q46"><summary>
-<span class="qa-n">Q46</span><span class="qa-q">Why is DDIM inversion only approximate?</span>
+<details class="qa" id="q47"><summary>
+<span class="qa-n">Q47</span><span class="qa-q">Why is DDIM inversion only approximate?</span>
 </summary><div class="qa-body">
 <p>Running the deterministic update forward uses <span class="math inline">\hat{\epsilon}(x_t)</span> where the exact inverse would need <span class="math inline">\hat{\epsilon}(x_{t+1})</span>. The error grows with large steps and with CFG, which is why editing methods add corrections.</p>
 </div></details>
-<details class="qa" id="q47"><summary>
-<span class="qa-n">Q47</span><span class="qa-q">Why does <span class="math inline">p_{\text{uncond}}</span> matter in CFG training?</span>
+<details class="qa" id="q48"><summary>
+<span class="qa-n">Q48</span><span class="qa-q">Why does <span class="math inline">p_{\text{uncond}}</span> matter in CFG training?</span>
 </summary><div class="qa-body">
 <p>It sets how much capacity goes to the unconditional model. Ho &amp; Salimans found 0.1 and 0.2 about equally good and 0.5 consistently worse across the whole quality-diversity frontier.</p>
 </div></details>
-<details class="qa" id="q48"><summary>
-<span class="qa-n">Q48</span><span class="qa-q">What is “trailing” timestep spacing?</span>
+<details class="qa" id="q49"><summary>
+<span class="qa-n">Q49</span><span class="qa-q">What is “trailing” timestep spacing?</span>
 </summary><div class="qa-body">
 <p>Choosing sampler steps counted back from <span class="math inline">t = T</span> so the first step uses the pure-noise level the model was trained on. “Leading” spacing never visits <span class="math inline">T</span>, so sampling feeds pure noise at a timestep whose training inputs still contained signal, reintroducing the mismatch that zero terminal SNR removes.</p>
 </div></details>
-<details class="qa" id="q49"><summary>
-<span class="qa-n">Q49</span><span class="qa-q">How would you reduce sampling steps without retraining?</span>
+<details class="qa" id="q50"><summary>
+<span class="qa-n">Q50</span><span class="qa-q">How would you reduce sampling steps without retraining?</span>
 </summary><div class="qa-body">
 <p>Switch from ancestral sampling to a deterministic high-order solver (DPM-Solver++, Heun), use a good time grid (EDM’s <span class="math inline">\rho = 7</span> or trailing spacing), and limit guidance to a middle interval. Below about 10 steps you usually need distillation, which requires training.</p>
 </div></details>
-<details class="qa" id="q50"><summary>
-<span class="qa-n">Q50</span><span class="qa-q">Why use an EMA of the weights?</span>
+<details class="qa" id="q51"><summary>
+<span class="qa-n">Q51</span><span class="qa-q">Why use an EMA of the weights?</span>
 </summary><div class="qa-body">
 <p>Sample quality fluctuates noticeably between nearby checkpoints (for example color shifts), and averaging the weights smooths this out. Song &amp; Ermon (2020) recommended EMA for score models for this reason, DDPM also used it, and it is now standard.</p>
 </div></details>
-<details class="qa" id="q51"><summary>
-<span class="qa-n">Q51</span><span class="qa-q">What does <span class="math inline">\sigma_{\min}</span> control?</span>
+<details class="qa" id="q52"><summary>
+<span class="qa-n">Q52</span><span class="qa-q">What does <span class="math inline">\sigma_{\min}</span> control?</span>
 </summary><div class="qa-body">
 <p>The smallest noise level the sampler steps down to before the final jump to <span class="math inline">\sigma = 0</span> (and, for some schedules, the lowest level used in training). Too large leaves visible noise; too small spends steps on imperceptible noise. EDM samples down to <span class="math inline">\sigma_{\min} = 0.002</span> for data in <span class="math inline">[-1, 1]</span>, but its training draws <span class="math inline">\ln\sigma \sim \mathcal{N}(-1.2, 1.2^2)</span> with no lower cutoff; the VE baseline trained down to 0.02.</p>
 </div></details>
-<details class="qa" id="q52"><summary>
-<span class="qa-n">Q52</span><span class="qa-q">Why does CFG roughly double inference cost, and how is it reduced?</span>
+<details class="qa" id="q53"><summary>
+<span class="qa-n">Q53</span><span class="qa-q">Why does CFG roughly double inference cost, and how is it reduced?</span>
 </summary><div class="qa-body">
 <p>Each step evaluates conditional and unconditional branches. Options: batch both, apply guidance only in an interval, or distill a guided teacher into a student that takes the scale as input (<a href="flow-matching.html">flow matching</a>).</p>
 </div></details>
-<details class="qa" id="q53"><summary>
-<span class="qa-n">Q53</span><span class="qa-q">Why does a well-trained diffusion model’s training loss stay well above zero?</span>
+<details class="qa" id="q54"><summary>
+<span class="qa-n">Q54</span><span class="qa-q">Why does a well-trained diffusion model’s training loss stay well above zero?</span>
 </summary><div class="qa-body">
 <p>The target noise is not determined by <span class="math inline">x_t</span>: many pairs <span class="math inline">(x_0, \epsilon)</span> give the same noisy input. By the conditional-mean argument, the best possible <span class="math inline">\epsilon</span>-loss at a level is the average posterior variance <span class="math inline">\mathbb{E}\,\mathrm{Var}(\epsilon \mid x_t)</span>, which is large at intermediate SNR. In the 1-D Gaussian example with <span class="math inline">\mathrm{SNR} = 0.5625</span> it is <span class="math inline">0.36</span> per dimension. So the loss value says little about sample quality; compare models by FID or by loss at matched noise levels.</p>
 </div></details>
-<details class="qa" id="q54"><summary>
-<span class="qa-n">Q54</span><span class="qa-q">What does Stable Diffusion’s latent scale factor 0.18215 do?</span>
+<details class="qa" id="q55"><summary>
+<span class="qa-n">Q55</span><span class="qa-q">What does Stable Diffusion’s latent scale factor 0.18215 do?</span>
 </summary><div class="qa-body">
 <p>It multiplies the VAE latent so that its overall standard deviation is about one, which is what the noise schedule’s SNR assumes. LDM’s recipe estimates <span class="math inline">1/\hat\sigma</span> from the first training batch; 0.18215 is that constant in the Stable Diffusion v1 config. Leaving it out would make the latent variance about 30, a log-SNR shift of about <span class="math inline">+3.4</span>, so every timestep would be far less noisy than intended and training and sampling would be mismatched.</p>
 </div></details>

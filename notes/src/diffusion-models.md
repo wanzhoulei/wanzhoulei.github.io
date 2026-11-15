@@ -2,7 +2,7 @@
 title: "Diffusion Models"
 subtitle: "A guided, fully derived reading of DDPM, score matching, the SDE view, parameterizations, noise schedules, loss weighting, samplers, guidance and latent diffusion, in one notation, with worked numbers you can check by hand."
 order: 1
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 A diffusion model learns to reverse a fixed process that slowly corrupts data with Gaussian noise. Training is a plain regression problem at random noise levels, and sampling calls the same network many times, removing a little noise each time. Most current image and video generators are diffusion models or close relatives, and flow matching reuses most of the same ideas. Interviewers like the topic because short derivations separate memorized slogans ("predict the noise") from real understanding: why the loss is a mean-squared error, what the network actually estimates, why samplers can skip steps, and why guidance trades diversity for fidelity.
@@ -926,24 +926,104 @@ Here $f = 0$ and $\alpha_t = 1$: the signal is never shrunk and the variance gro
 
 ### Any schedule $(\alpha_t, \sigma_t)$ is an SDE
 
-The fast samplers below need the reverse question: given a schedule $x_t = \alpha_t x_0 + \sigma_t\epsilon$, which linear SDE $dx = f(t)\,x\,dt + g(t)\,dW_t$ produces it? Over one short step the mean is multiplied by $1 + f\Delta t$ and the noise variance becomes $(1 + f\Delta t)^2\sigma_t^2 + g^2\Delta t$. Matching both with the schedule:
+So far the direction was: start from a step rule (DDPM's, then NCSN's), let the step size shrink, and read off an SDE. The fast samplers later on this page need the opposite direction. There the starting point is a *schedule*: a pair of functions $(\alpha_t, \sigma_t)$ with $\alpha_0 = 1$ and $\sigma_0 = 0$, which only says what $x_t$ looks like given the clean image,
+
+$$
+x_t = \alpha_t x_0 + \sigma_t\epsilon, \qquad \text{so} \qquad \mathbb{E}[x_t \mid x_0] = \alpha_t x_0, \quad \mathrm{Var}[x_t \mid x_0] = \sigma_t^2 I .
+$$
+
+A schedule is a statement about snapshots: at each time, what the distribution of $x_t$ given $x_0$ is. It says nothing about how $x_t$ moves from one instant to the next. The reverse-time SDE and the probability-flow ODE below are written in terms of a drift $f$ and a diffusion coefficient $g$, so to use them with a given schedule we first have to find the SDE whose snapshots match the schedule. The question of this section is therefore: given $(\alpha_t, \sigma_t)$, which functions $f(t)$ and $g(t)$ in
+
+$$
+dx = f(t)\,x\,dt + g(t)\,dW_t
+$$
+
+reproduce the schedule? Two remarks on the form being assumed. The drift is $f(t)\,x$, a scalar function of time multiplying $x$, rather than a general $f(x, t)$: a drift linear in $x$ is what keeps $\mathbb{E}[x_t \mid x_0]$ proportional to $x_0$, as the schedule demands. (The VP SDE has this form with $f(t) = -\tfrac12\beta(t)$; the VE SDE has $f = 0$.) And the diffusion coefficient $g(t)$ does not depend on $x$, so the same amount of noise is added everywhere, which is what keeps $x_t \mid x_0$ Gaussian with an isotropic covariance.
+
+**Step 1: write out one short step.** "One short step" means the Euler-Maruyama step from "What an SDE means here": advance by a small time $\Delta t$ using the drift, plus one draw of fresh noise. With the linear drift it reads
+
+$$
+x_{t+\Delta t} = x_t + f(t)\,x_t\,\Delta t + g(t)\sqrt{\Delta t}\,z
+= \big(1 + f(t)\Delta t\big)\,x_t + g(t)\sqrt{\Delta t}\,z, \qquad z \sim \mathcal{N}(0, I),
+$$
+
+where $z$ is drawn fresh at this step, so it is independent of $x_t$ and of $x_0$. The step does two things to $x_t$: it multiplies it by the factor $1 + f(t)\Delta t$ (that is the drift), and it adds Gaussian noise of variance $g(t)^2\Delta t$ in each coordinate (that is the diffusion). Everything acts coordinate by coordinate, so from here on treat $x$ as a scalar; the vector case is the same computation in every coordinate.
+
+**Step 2: follow the conditional mean, which pins down $f$.** Fix $x_0$ and write $m_t = \mathbb{E}[x_t \mid x_0]$. Take the conditional expectation of both sides of the step:
 
 $$
 \begin{aligned}
-\frac{d\alpha_t}{dt} = f(t)\,\alpha_t \quad &\Longrightarrow\quad f(t) = \frac{d\log\alpha_t}{dt},\\
-\frac{d\sigma_t^2}{dt} = 2f(t)\,\sigma_t^2 + g(t)^2 \quad &\Longrightarrow\quad g(t)^2 = \frac{d\sigma_t^2}{dt} - 2\frac{d\log\alpha_t}{dt}\,\sigma_t^2 .
+m_{t+\Delta t} &= \big(1 + f(t)\Delta t\big)\,\mathbb{E}[x_t \mid x_0] + g(t)\sqrt{\Delta t}\;\mathbb{E}[z] && \text{expectation is linear; } f, g \text{ are constants}\\
+&= \big(1 + f(t)\Delta t\big)\,m_t && \mathbb{E}[z] = 0 .
 \end{aligned}
 $$
 
-One more rewrite is useful. Factor out $2\sigma_t^2$ and use $\frac{d\sigma_t^2}{dt} = 2\sigma_t^2\frac{d\log\sigma_t}{dt}$:
+So each step multiplies the mean by $1 + f(t)\Delta t$. Subtract $m_t$, divide by $\Delta t$, and let $\Delta t \to 0$:
 
 $$
-g(t)^2 = 2\sigma_t^2\Big(\frac{d\log\sigma_t}{dt} - \frac{d\log\alpha_t}{dt}\Big) = -2\sigma_t^2\,\frac{d\ell_t}{dt}, \qquad \ell_t = \log\frac{\alpha_t}{\sigma_t} .
+\frac{m_{t+\Delta t} - m_t}{\Delta t} = f(t)\,m_t \qquad\longrightarrow\qquad \frac{dm_t}{dt} = f(t)\,m_t .
 $$
 
-Check with VP: $\alpha^2 = e^{-\int\beta}$ gives $f = -\tfrac{1}{2}\beta$, and $\sigma^2 = 1 - \alpha^2$ gives $\frac{d\sigma^2}{dt} = \beta\alpha^2$, so $g^2 = \beta\alpha^2 + \beta\sigma^2 = \beta$.
+Now bring in the schedule, which says $m_t = \alpha_t x_0$. Substitute it into this ODE:
 
-**What this says.** The VP and VE SDEs are two members of one family. Any schedule $(\alpha_t, \sigma_t)$ fixes $f$ and $g$, and $g^2$ is proportional to how fast the log-SNR falls. This is the form DPM-Solver uses.
+$$
+\frac{d\alpha_t}{dt}\,x_0 = f(t)\,\alpha_t\,x_0 \quad\text{for every } x_0, \qquad\text{so}\qquad f(t) = \frac{1}{\alpha_t}\frac{d\alpha_t}{dt} = \frac{d\log\alpha_t}{dt},
+$$
+
+the last equality being the chain rule, $\frac{d}{dt}\log\alpha_t = \alpha_t'/\alpha_t$. Read in the other direction, the ODE $dm/dt = fm$ with $m_0 = x_0$ has the solution $m_t = x_0\exp\big(\int_0^t f(s)\,ds\big)$, so $\alpha_t = \exp\big(\int_0^t f\big)$: the signal scale is the accumulated drift. Since $\alpha_t$ falls over time, $f(t) < 0$: the drift always shrinks.
+
+**Step 3: follow the conditional variance, which pins down $g$.** Write $v_t = \mathrm{Var}[x_t \mid x_0]$ for one coordinate. The step is a sum of two independent terms, $(1 + f\Delta t)\,x_t$ and $g\sqrt{\Delta t}\,z$. Scaling a random variable by a constant $c$ multiplies its variance by $c^2$, and the variances of independent terms add (Tool 1; or directly, the cross term is $2\,\mathrm{Cov}(x_t, z) = 0$). So
+
+$$
+v_{t+\Delta t} = \big(1 + f(t)\Delta t\big)^2\,v_t + g(t)^2\,\Delta t .
+$$
+
+Expand the square, $(1 + f\Delta t)^2 = 1 + 2f\Delta t + f^2\Delta t^2$, subtract $v_t$, and divide by $\Delta t$:
+
+$$
+\frac{v_{t+\Delta t} - v_t}{\Delta t} = 2f(t)\,v_t + g(t)^2 + f(t)^2 v_t\,\Delta t \qquad\longrightarrow\qquad \frac{dv_t}{dt} = 2f(t)\,v_t + g(t)^2 ,
+$$
+
+the last term vanishing as $\Delta t \to 0$. Both terms on the right mean something. $2fv$ says that noise already present is scaled by the drift along with the signal (variance is quadratic in the scale, hence the factor 2), and $g^2$ is the rate at which fresh noise comes in. Substitute the schedule, $v_t = \sigma_t^2$, and solve for $g^2$:
+
+$$
+\frac{d\sigma_t^2}{dt} = 2f(t)\,\sigma_t^2 + g(t)^2 \qquad\Longrightarrow\qquad g(t)^2 = \frac{d\sigma_t^2}{dt} - 2\,\frac{d\log\alpha_t}{dt}\,\sigma_t^2 ,
+$$
+
+using the $f$ from Step 2. In words: the fresh-noise rate is the rate at which the schedule's variance grows, corrected for the old noise being shrunk by the drift. Since $f < 0$, the correction is positive: the SDE has to inject more noise than the schedule's variance growth shows, to make up for what the drift removes.
+
+**Step 4: the same $g$ in log-SNR form.** Use $\frac{d\sigma_t^2}{dt} = 2\sigma_t\frac{d\sigma_t}{dt} = 2\sigma_t^2\,\frac{d\log\sigma_t}{dt}$ (the chain rule again) and factor out $2\sigma_t^2$:
+
+$$
+g(t)^2 = 2\sigma_t^2\Big(\frac{d\log\sigma_t}{dt} - \frac{d\log\alpha_t}{dt}\Big) = -2\sigma_t^2\,\frac{d\ell_t}{dt}, \qquad \ell_t = \log\frac{\alpha_t}{\sigma_t} = \tfrac12\lambda_t ,
+$$
+
+because $\log\sigma_t - \log\alpha_t = -\ell_t$. This form says the noise injection rate is $2\sigma_t^2$ times the rate at which the half log-SNR falls. It also carries a sanity check: $g^2$ must be nonnegative, so $\ell_t$ must be nonincreasing. A "schedule" whose signal-to-noise ratio ever went up could not come from any forward SDE of this form, which makes sense, since adding noise can only lower the SNR.
+
+**Check 1: VP.** $\alpha_t = \exp(-\tfrac12\int_0^t\beta)$ gives $\log\alpha_t = -\tfrac12\int_0^t\beta$ and $f = -\tfrac12\beta(t)$, the VP drift. $\sigma_t^2 = 1 - \alpha_t^2$ gives $\frac{d\sigma_t^2}{dt} = -2\alpha_t\alpha_t' = -2\alpha_t^2 f = \beta\alpha_t^2$, so $g^2 = \beta\alpha_t^2 - 2(-\tfrac12\beta)\sigma_t^2 = \beta(\alpha_t^2 + \sigma_t^2) = \beta$, matching $g = \sqrt{\beta}$. With DDPM's linear schedule at $t = 0.5$, $\beta = 10.05$: the drift shrinks the signal at rate $5.0$ per unit time while noise enters at variance rate $10.05$.
+
+**Check 2: VE.** $\alpha_t = 1$ gives $f = 0$, and $\sigma_t^2 = \sigma^2(t)$ gives $g^2 = \frac{d\sigma^2}{dt}$, which is the VE SDE.
+
+**Worked example: the rectified-flow schedule.** [Flow matching](flow-matching.html) uses $\alpha_t = 1 - t$ and $\sigma_t = t$ on $[0, 1]$. Then
+
+$$
+f(t) = \frac{d\log(1-t)}{dt} = -\frac{1}{1-t}, \qquad
+g(t)^2 = \frac{d(t^2)}{dt} - 2\Big(-\frac{1}{1-t}\Big)t^2 = 2t + \frac{2t^2}{1-t} = \frac{2t(1-t) + 2t^2}{1-t} = \frac{2t}{1-t} .
+$$
+
+The log-SNR form gives the same thing: $\ell_t = \log\frac{1-t}{t}$, so $\frac{d\ell_t}{dt} = -\frac{1}{1-t} - \frac1t = -\frac{1}{t(1-t)}$, and $-2t^2\cdot\big(-\frac{1}{t(1-t)}\big) = \frac{2t}{1-t}$. At $t = 0.5$: $f = -2$ and $g^2 = 2$. At $t = 0.9$: $f = -10$ and $g^2 = 18$. Both blow up as $t \to 1$, because this schedule drives the signal to exactly zero in finite time, which no finite shrink rate can do (DDPM's linear schedule leaves $\alpha_1 \approx 0.0066$, not zero, and keeps $f$ finite). As a check that this SDE really reproduces the schedule: simulating $4 \times 10^5$ paths of the Euler-Maruyama step with $\Delta t = 10^{-4}$ from $x_0 = 1$ gives mean $0.501$ and variance $0.251$ at $t = 0.5$ (schedule: $0.5$ and $0.25$), and mean $0.198$ and variance $0.639$ at $t = 0.8$ (schedule: $0.2$ and $0.64$).
+
+**What this says.** A schedule describes snapshots and an SDE describes motion; the two conditional-moment ODEs, $\dot m = fm$ and $\dot v = 2fv + g^2$, are the dictionary between them. Reading the dictionary backwards gives $f = \frac{d\log\alpha_t}{dt}$ and $g^2 = -2\sigma_t^2\frac{d\ell_t}{dt}$, so the VP, VE, cosine and rectified-flow schedules are all members of one family of linear SDEs, told apart only by $f$ and $g$. The reverse-time SDE and the probability-flow ODE below then apply to all of them at once, and DPM-Solver is built directly on the $g^2 = -2\sigma_t^2\,\dot\ell_t$ form.
+
+::: key
+**How to say it in an interview.** "A noise schedule only fixes the marginals $x_t \mid x_0 \sim \mathcal{N}(\alpha_t x_0, \sigma_t^2 I)$. To get an SDE, track the conditional mean and variance through one Euler-Maruyama step. The mean is multiplied by $1 + f\Delta t$, so $\dot\alpha = f\alpha$ and $f = \frac{d}{dt}\log\alpha_t$. The variance is multiplied by $(1 + f\Delta t)^2$ and gains $g^2\Delta t$, so $\dot\sigma^2 = 2f\sigma^2 + g^2$ and $g^2 = \dot\sigma^2 - 2f\sigma^2 = -2\sigma_t^2\frac{d}{dt}\log\frac{\alpha_t}{\sigma_t}$. VP and VE are the special cases $\alpha^2 + \sigma^2 = 1$ and $\alpha = 1$."
+:::
+
+::: qa
+**Given a noise schedule $(\alpha_t, \sigma_t)$, how do you find the forward SDE that produces it, and can every schedule be written as one?**
+
+Look for a linear SDE $dx = f(t)\,x\,dt + g(t)\,dW_t$, since a drift linear in $x$ and an $x$-independent $g$ are what keep $x_t \mid x_0$ Gaussian with mean proportional to $x_0$. One Euler-Maruyama step multiplies $x_t$ by $1 + f\Delta t$ and adds noise of variance $g^2\Delta t$. Taking the conditional mean gives $\dot m = fm$; matching $m_t = \alpha_t x_0$ gives $f = \frac{d}{dt}\log\alpha_t$. Taking the conditional variance (two independent terms, so variances add) gives $\dot v = 2fv + g^2$; matching $v_t = \sigma_t^2$ gives $g^2 = \dot\sigma_t^2 - 2f\sigma_t^2 = -2\sigma_t^2\frac{d}{dt}\log(\alpha_t/\sigma_t)$. For VP this returns $f = -\tfrac12\beta$ and $g^2 = \beta$; for VE, $f = 0$ and $g^2 = \dot\sigma^2$. Not every pair works: $g^2 \ge 0$ forces the log-SNR $\log(\alpha_t/\sigma_t)$ to be nonincreasing, which is just the statement that adding noise cannot raise the signal-to-noise ratio. Within this linear family the SDE is unique, but other processes share the same marginals, for example the probability-flow ODE.
+:::
 
 ### The reverse-time SDE
 
