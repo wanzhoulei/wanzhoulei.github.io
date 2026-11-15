@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Core Computer Vision Tasks · Notes · Wanzhou Lei</title>
+  <meta name="description" content="Classification, detection, segmentation and other dense tasks, plus the sampling, interpolation and color conventions that image restoration depends on and a short camera model leading to NeRF, each derived step by step with numbers you can check by hand.">
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/favicon.png">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="notes.css">
+  <script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+</head>
+<body class="note-page">
+
+<header class="site-header">
+  <div class="container bar">
+    <a class="brand" href="../index.html">Wanzhou Lei</a>
+    <nav class="site-nav" aria-label="Sections">
+      <a class="navlink" href="../index.html#about">About</a>
+      <a class="navlink" href="../index.html#research">Research</a>
+      <a class="navlink" href="../index.html#experience">Experience</a>
+      <a class="navlink" href="../index.html#news">News</a>
+      <a class="navlink" href="../index.html#publications">Publications</a>
+      <a class="notes-btn is-current" href="./">Notes</a>
+      <a class="cv-btn" href="../assets/Wanzhou_Lei_CV.pdf" target="_blank" rel="noopener">CV</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  <nav class="crumbs" aria-label="Breadcrumb"><a href="./">Notes</a><span aria-hidden="true">/</span><span>Core Computer Vision Tasks</span></nav>
+  <div class="note-layout">
+    <aside class="note-toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul>
+      <li><a href="#notation" id="toc-notation">Notation</a></li>
+      <li><a href="#image-classification" id="toc-image-classification">Image classification</a></li>
+      <li><a href="#object-detection" id="toc-object-detection">Object detection</a></li>
+      <li><a href="#segmentation" id="toc-segmentation">Segmentation</a></li>
+      <li><a href="#other-dense-prediction-tasks" id="toc-other-dense-prediction-tasks">Other dense prediction tasks</a></li>
+      <li><a href="#image-processing-for-restoration-and-generation" id="toc-image-processing-for-restoration-and-generation">Image processing for restoration and generation</a></li>
+      <li><a href="#camera-model-nerf-and-gaussian-splatting" id="toc-camera-model-nerf-and-gaussian-splatting">Camera model, NeRF and Gaussian splatting</a></li>
+      <li><a href="#from-scratch-code" id="toc-from-scratch-code">From-scratch code</a></li>
+      <li><a href="#rapid-fire-review" id="toc-rapid-fire-review">Rapid-fire review</a></li>
+      <li><a href="#references" id="toc-references">References</a></li>
+      </ul>
+    </aside>
+    <article class="note">
+      <header class="note-head">
+        <h1 class="page-title">Core Computer Vision Tasks</h1>
+        <p class="page-lede">Classification, detection, segmentation and other dense tasks, plus the sampling, interpolation and color conventions that image restoration depends on and a short camera model leading to NeRF, each derived step by step with numbers you can check by hand.</p>
+        <p class="note-meta"><span>Updated 2026-11-15</span><span>41 practice questions</span><span>74 min read</span><button type="button" class="qa-toggle" id="qa-toggle">Expand all answers</button></p>
+      </header>
+      <details class="toc-mobile"><summary>On this page</summary><ul>
+<li><a href="#notation">Notation</a></li>
+<li><a href="#image-classification">Image classification</a></li>
+<li><a href="#object-detection">Object detection</a></li>
+<li><a href="#segmentation">Segmentation</a></li>
+<li><a href="#other-dense-prediction-tasks">Other dense prediction tasks</a></li>
+<li><a href="#image-processing-for-restoration-and-generation">Image processing for restoration and generation</a></li>
+<li><a href="#camera-model-nerf-and-gaussian-splatting">Camera model, NeRF and Gaussian splatting</a></li>
+<li><a href="#from-scratch-code">From-scratch code</a></li>
+<li><a href="#rapid-fire-review">Rapid-fire review</a></li>
+<li><a href="#references">References</a></li>
+</ul></details>
+<p>Generative-vision interviews still include questions from core computer vision: how a detector turns a feature map into boxes, how mAP is computed, why RoIAlign replaced RoI pooling, how to write bilinear interpolation, why you blur before downsampling. These questions have exact answers that can be checked on a whiteboard, and the same ideas sit inside generative models. Diffusion U-Nets come from segmentation networks. Resizing and color conventions decide how super-resolution training pairs are made and how they are scored. Hungarian matching and set losses from DETR reappear in many query-based models. The pinhole camera is the starting point of NeRF and 3D Gaussian splatting. This page rebuilds each topic from its definitions. Every number in a worked example was checked in Python, and the from-scratch code near the end was run against <code>torchvision</code> and PyTorch.</p>
+<p><strong>What is elsewhere.</strong> Convolution layers, receptive fields and classic CNN architectures (VGG, ResNet, MobileNet) are on <a href="cnns-rnns.html">CNNs and RNNs</a>. ViTs and self-supervised features (DINO, CLIP, MAE) are on <a href="vision-backbones.html">vision backbones</a>. Sampling theory and degradation models for super-resolution are treated at greater depth on <a href="restoration-super-resolution.html">restoration and super-resolution</a>. Losses, optimizers and regularization in general are on <a href="deep-learning-training.html">deep learning training</a>, and PSNR, SSIM and FID on <a href="evaluation-metrics.html">evaluation metrics</a>.</p>
+<p><strong>Roadmap.</strong> “Image classification” covers the pipeline, augmentation (with the mixup and CutMix formulas), transfer learning, label noise and top-<span class="math inline">k</span> accuracy. “Object detection” is the longest section: box targets, IoU, NMS, anchors, the R-CNN family and RoIAlign, YOLO and SSD, focal loss, feature pyramids, anchor-free detectors, DETR, and mAP computed by hand. “Segmentation” covers the three task variants, FCN, U-Net, DeepLab, Mask R-CNN, the Dice and IoU losses with their gradients, mIoU, panoptic quality and SAM. “Other dense prediction tasks” briefly treats pose, monocular depth and optical flow. “Image processing for restoration and generation” keeps only what deep restoration and generation rely on: color spaces, Gaussian blur as a degradation kernel, the Fourier transform and aliasing, and interpolation. A short camera model then leads into NeRF and Gaussian splatting. Then come the from-scratch code, a rapid-fire review and references. Practice questions follow each section; the ones marked with a badge were reported in real interviews.</p>
+<h2 id="notation">Notation</h2>
+<p>A few letters are used in two places; the table says where.</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="math inline">H, W</span></td>
+<td>image or feature-map height and width, in pixels or cells</td>
+</tr>
+<tr>
+<td><span class="math inline">n_{\text{cls}}</span></td>
+<td>number of classes</td>
+</tr>
+<tr>
+<td><span class="math inline">z</span>, <span class="math inline">\hat p = \mathrm{softmax}(z)</span></td>
+<td>logits and predicted class probabilities</td>
+</tr>
+<tr>
+<td><span class="math inline">y</span>, <span class="math inline">\mathbf{y}</span></td>
+<td>a class label, and its one-hot (or soft) target vector</td>
+</tr>
+<tr>
+<td><span class="math inline">(x_1, y_1, x_2, y_2)</span></td>
+<td>a box in corner format: top-left and bottom-right corners</td>
+</tr>
+<tr>
+<td><span class="math inline">(x, y, w, h)</span></td>
+<td>a box in center format: center, width, height</td>
+</tr>
+<tr>
+<td><span class="math inline">(x_a, y_a, w_a, h_a)</span></td>
+<td>the reference box (anchor or proposal) a prediction is made relative to</td>
+</tr>
+<tr>
+<td><span class="math inline">t = (t_x, t_y, t_w, t_h)</span></td>
+<td>box-regression targets relative to the reference box</td>
+</tr>
+<tr>
+<td><span class="math inline">\mathrm{IoU}(A, B)</span></td>
+<td>intersection over union of two boxes or masks</td>
+</tr>
+<tr>
+<td><span class="math inline">s</span></td>
+<td>stride of a feature map, or a downsampling factor</td>
+</tr>
+<tr>
+<td><span class="math inline">p_t</span>, <span class="math inline">\gamma</span>, <span class="math inline">\alpha</span></td>
+<td>focal loss: probability given to the true class, focusing exponent, class weight</td>
+</tr>
+<tr>
+<td><span class="math inline">\lambda</span></td>
+<td>mixing weight in mixup and CutMix</td>
+</tr>
+<tr>
+<td><span class="math inline">p_i</span>, <span class="math inline">g_i</span></td>
+<td>segmentation: predicted foreground probability and 0/1 label of pixel <span class="math inline">i</span></td>
+</tr>
+<tr>
+<td><span class="math inline">I(x, y)</span>; <span class="math inline">I_x, I_y, I_t</span></td>
+<td>image intensity; its partial derivatives in <span class="math inline">x</span>, <span class="math inline">y</span> and time</td>
+</tr>
+<tr>
+<td><span class="math inline">(u, v)</span></td>
+<td>optical-flow section: the flow vector. Camera section: pixel coordinates</td>
+</tr>
+<tr>
+<td><span class="math inline">\mathbf{X} = (X, Y, Z)</span></td>
+<td>a 3D point; <span class="math inline">Z</span> is depth along the optical axis</td>
+</tr>
+<tr>
+<td><span class="math inline">K</span>; <span class="math inline">f_x, f_y, c_x, c_y</span></td>
+<td>camera intrinsic matrix; focal lengths and principal point, in pixels</td>
+</tr>
+<tr>
+<td><span class="math inline">R</span>, <span class="math inline">\mathbf{t}</span></td>
+<td>rotation and translation from world to camera coordinates</td>
+</tr>
+<tr>
+<td><span class="math inline">k</span></td>
+<td>a blur kernel (in detection, also the number of anchors per location)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="image-classification">Image classification</h2>
+<h3 id="the-pipeline">The pipeline</h3>
+<p>Classification maps an image to one of <span class="math inline">n_{\text{cls}}</span> labels. A modern pipeline has six parts.</p>
+<ol type="1">
+<li><strong>Input.</strong> Decode the image, apply random augmentation during training, resize and crop to a fixed size such as <span class="math inline">224 \times 224</span>, convert to float, and normalize each channel by the dataset mean and standard deviation (for ImageNet, means <span class="math inline">(0.485, 0.456, 0.406)</span> and standard deviations <span class="math inline">(0.229, 0.224, 0.225)</span> on a <span class="math inline">[0, 1]</span> scale). The usual ImageNet evaluation transform resizes the shorter side to 256 and takes the central <span class="math inline">224 \times 224</span> crop.</li>
+<li><strong>Backbone.</strong> A CNN or ViT turns the image into a feature map or a set of tokens (see <a href="cnns-rnns.html">CNNs and RNNs</a> and <a href="vision-backbones.html">vision backbones</a>).</li>
+<li><strong>Pooling.</strong> Global average pooling turns the final feature map into one vector <span class="math inline">h \in \mathbb{R}^D</span> (<span class="math inline">D = 2048</span> for ResNet-50); a ViT uses its class token or the mean of its tokens.</li>
+<li><strong>Head.</strong> A linear layer gives logits <span class="math inline">z = Wh + b</span> and a softmax gives <span class="math inline">\hat p</span>.</li>
+<li><strong>Loss.</strong> Cross-entropy <span class="math inline">L = -\sum_k \mathbf{y}_k \log \hat p_k</span>, whose gradient with respect to the logits is <span class="math inline">\hat p - \mathbf{y}</span>. Label smoothing replaces the one-hot target by <span class="math inline">(1 - \epsilon)\mathbf{y} + \epsilon/n_{\text{cls}}</span> (Inception-v3 used <span class="math inline">\epsilon = 0.1</span>), so the network is never pushed toward infinite logits.</li>
+<li><strong>Evaluation.</strong> Top-1 and top-5 accuracy on a held-out set, sometimes averaged over flipped or multiple crops (test-time augmentation).</li>
+</ol>
+<h3 id="data-augmentation">Data augmentation</h3>
+<p>Augmentation applies random transformations that should not change the label. Each one states an invariance you want the network to have, and it multiplies the number of distinct training inputs, which reduces overfitting.</p>
+<p><strong>Random resized crops.</strong> Torchvision’s <code>RandomResizedCrop</code>, the standard ImageNet recipe, crops a region whose area is a uniform fraction in <span class="math inline">[0.08, 1]</span> of the image, with aspect ratio log-uniform in <span class="math inline">[3/4, 4/3]</span>, and resizes it to <span class="math inline">224 \times 224</span>. It teaches invariance to position and scale. An 8% crop can miss the object and make that sample’s label wrong, so small or object-centric datasets often use a larger minimum area.</p>
+<p><strong>Flips.</strong> A horizontal flip with probability 0.5 is almost always safe for natural images. Vertical flips are not, because gravity gives scenes an orientation. Flips are wrong when left and right carry meaning: text, some digits, and medical images where laterality matters. In detection and pose estimation the labels must be flipped too: box <span class="math inline">x</span>-coordinates become <span class="math inline">W - x</span>, and keypoint names swap (left eye becomes right eye).</p>
+<p><strong>Color jitter.</strong> Random changes to brightness, contrast, saturation and hue, and random grayscale conversion, teach invariance to lighting and camera color response; AlexNet’s “PCA lighting” added random multiples of the principal components of the RGB values. Avoid it when color defines the class (ripe versus unripe fruit, some medical stains).</p>
+<p><strong>Mixup</strong> (Zhang et al., 2018) trains on convex combinations of pairs of examples and of their one-hot labels:</p>
+<p><span class="math display">
+\tilde x = \lambda x_i + (1 - \lambda) x_j, \qquad \tilde{\mathbf{y}} = \lambda \mathbf{y}_i + (1 - \lambda) \mathbf{y}_j, \qquad \lambda \sim \mathrm{Beta}(\alpha, \alpha).
+</span></p>
+<p>Because cross-entropy is linear in the target, the loss on the mixed target splits into two ordinary losses:</p>
+<p><span class="math display">
+\begin{aligned}
+L(\tilde{\mathbf{y}}, \hat p) &amp;= -\sum_k \big(\lambda \mathbf{y}_{i,k} + (1 - \lambda)\mathbf{y}_{j,k}\big)\log \hat p_k &amp;&amp; \text{definition of cross-entropy} \\
+&amp;= \lambda\Big(-\sum_k \mathbf{y}_{i,k} \log \hat p_k\Big) + (1 - \lambda)\Big(-\sum_k \mathbf{y}_{j,k} \log \hat p_k\Big) &amp;&amp; \text{the sum is linear in the target} \\
+&amp;= \lambda\, L(\mathbf{y}_i, \hat p) + (1 - \lambda)\, L(\mathbf{y}_j, \hat p).
+\end{aligned}
+</span></p>
+<p>This is how mixup is implemented: shuffle the batch to get partners <span class="math inline">j</span>, mix the inputs, and mix two cross-entropies with the same <span class="math inline">\lambda</span>. Example: with <span class="math inline">\lambda = 0.7</span>, a cat image mixed with a dog image has target <span class="math inline">(0.7, 0.3)</span> on (cat, dog). If the network predicts <span class="math inline">(0.6, 0.4)</span>, the loss is <span class="math inline">-(0.7 \log 0.6 + 0.3 \log 0.4) = 0.632</span>. With small <span class="math inline">\alpha</span> the Beta distribution puts most mass near 0 and 1, so most mixed images are close to one of the two originals; the paper found <span class="math inline">\alpha \in [0.1, 0.4]</span> helped on ImageNet and that large <span class="math inline">\alpha</span> caused underfitting. Mixup asks the network to behave linearly between training examples, which smooths the decision boundary, makes it harder to memorize individual labels, and tends to give less overconfident, better calibrated probabilities (Thulasidasan et al., 2019).</p>
+<p><strong>CutMix</strong> (Yun et al., 2019) pastes a rectangle from image <span class="math inline">B</span> into image <span class="math inline">A</span> instead of blending whole images. With a binary mask <span class="math inline">M</span> that is 0 inside the rectangle and 1 elsewhere,</p>
+<p><span class="math display">
+\tilde x = M \odot x_A + (\mathbf{1} - M) \odot x_B, \qquad \tilde{\mathbf{y}} = \lambda\, \mathbf{y}_A + (1 - \lambda)\, \mathbf{y}_B .
+</span></p>
+<p>The paper draws <span class="math inline">\lambda \sim \mathrm{Beta}(1, 1)</span>, which is uniform on <span class="math inline">[0, 1]</span>. It picks the rectangle center <span class="math inline">(r_x, r_y)</span> uniformly in the image and sets its size to <span class="math inline">r_w = W\sqrt{1 - \lambda}</span>, <span class="math inline">r_h = H\sqrt{1 - \lambda}</span>, so the pasted area is <span class="math inline">r_w r_h = (1 - \lambda)WH</span>: a fraction <span class="math inline">1 - \lambda</span> of the image comes from <span class="math inline">B</span>, matching the label weight. When the rectangle is clipped at the image border, <span class="math inline">\lambda</span> is recomputed from the actual pasted area. Example on a <span class="math inline">224 \times 224</span> image with <span class="math inline">\lambda = 0.75</span>: the patch is <span class="math inline">112 \times 112</span>. Centered at <span class="math inline">(200, 100)</span> it would span <span class="math inline">x \in [144, 256]</span>, which clips to <span class="math inline">[144, 224]</span>, so the pasted area is <span class="math inline">80 \times 112 = 8960</span> pixels, a fraction <span class="math inline">0.179</span> of the image, and the label weight becomes <span class="math inline">\lambda = 0.821</span>. Compared with mixup, every pixel stays a real pixel, so local statistics look natural; compared with Cutout (DeVries and Taylor, 2017), which fills the rectangle with zeros, no pixels are wasted. Both force the network to use more of the object than its single most discriminative part.</p>
+<p><strong>Policies.</strong> RandAugment (Cubuk et al., 2020) applies a chosen number of random operations at a chosen strength, replacing AutoAugment’s expensive search. ViTs trained on ImageNet-1k need strong augmentation because their built-in priors are weaker than a CNN’s (<a href="vision-backbones.html">vision backbones</a>).</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>Geometric augmentations must be applied identically to the labels: boxes, keypoints and masks move with the image. Masks and other label maps must be resized with nearest-neighbor interpolation, because bilinear interpolation invents in-between label values that do not exist. And validation data get only the deterministic resize and crop, never random augmentation.</p>
+</aside>
+<h3 id="transfer-learning-and-fine-tuning">Transfer learning and fine-tuning</h3>
+<p>Transfer learning starts from a backbone pretrained on a large dataset (ImageNet, or web-scale image–text pairs) and adapts it to a new task with fewer labels. Early layers learn generic features such as edges, colors and textures, and later layers become more specific to the pretraining task (Yosinski et al., 2014), so how much of the network to retrain depends on how much data you have and how different your domain is.</p>
+<p><strong>Linear probe.</strong> Freeze the backbone, compute features <span class="math inline">h</span> once, and train only a linear classifier on them. For ResNet-50 and 10 classes that is <span class="math inline">2048 \times 10 + 10 = 20{,}490</span> parameters, against about 25.6 million in the backbone. The problem is convex (multinomial logistic regression), features can be cached so each epoch is cheap, and there is little to overfit. A linear probe is also the standard way to measure how good a representation is, which is why self-supervised papers report it.</p>
+<p><strong>Full fine-tuning.</strong> Initialize from the pretrained weights and update everything, typically with a learning rate several times smaller than for training from scratch, a short warmup, and fewer epochs. It usually gives the best in-distribution accuracy when you have enough labels or the domain differs from pretraining (medical scans, satellite images).</p>
+<p><strong>In between.</strong> Freeze the early stages and fine-tune the later ones, use layer-wise learning rates that grow toward the head, or train a few added parameters (adapters, LoRA; see <a href="llms.html">LLMs</a>).</p>
+<p><strong>LP-FT.</strong> Fine-tuning with a randomly initialized head sends large, essentially random gradients into the pretrained features during the first steps, which can damage them. Kumar et al. (2022) found that, on their benchmarks, full fine-tuning gave on average 2% higher accuracy in distribution but 7% lower accuracy out of distribution than linear probing, and that training a linear probe first and then fine-tuning everything (LP-FT) was 1% better in distribution and 10% better out of distribution than full fine-tuning.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th></th>
+<th>Small target dataset</th>
+<th>Large target dataset</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Similar to pretraining data</td>
+<td>linear probe, or fine-tune only the top</td>
+<td>full fine-tuning</td>
+</tr>
+<tr>
+<td>Different from pretraining data</td>
+<td>fine-tune upper layers with strong regularization; LP-FT</td>
+<td>full fine-tuning (pretrained start still usually helps)</td>
+</tr>
+</tbody>
+</table>
+<p>Practical details: match the pretraining preprocessing (normalization constants, resolution); with small batches keep BatchNorm statistics frozen; interpolate a ViT’s position embeddings when changing resolution. Kornblith et al. (2019) found that ImageNet accuracy predicts transfer accuracy well under fine-tuning, but that regularizers such as label smoothing and dropout, which raise ImageNet accuracy, make the frozen features transfer worse.</p>
+<h3 id="label-noise">Label noise</h3>
+<p>Real labels are wrong more often than people assume. Northcutt et al. (2021) estimated that at least 6% of the ImageNet validation labels are wrong, and an average of at least 3.3% across ten common test sets. Sources include annotator mistakes, genuinely ambiguous images, images with several objects but one label, and labels scraped from web text.</p>
+<p><strong>Noise models.</strong> <em>Symmetric</em> noise replaces the true label, with probability <span class="math inline">\eta</span>, by one of the other <span class="math inline">n_{\text{cls}} - 1</span> classes chosen uniformly. <em>Class-conditional</em> noise has a transition matrix <span class="math inline">T_{ij} = P(\tilde y = j \mid y = i)</span>, which captures systematic confusions such as husky versus wolf. <em>Instance-dependent</em> noise depends on the image itself, for example blurry images are mislabeled more often; it is the most realistic and the hardest.</p>
+<p><strong>Why mild symmetric noise does not change the best classifier.</strong> The noisy label distribution at an input <span class="math inline">x</span> is <span class="math inline">\tilde p(j \mid x) = \sum_i p(i \mid x)\, T_{ij}</span>. With symmetric noise, <span class="math inline">T_{jj} = 1 - \eta</span> and <span class="math inline">T_{ij} = \eta/(n_{\text{cls}} - 1)</span> for <span class="math inline">i \ne j</span>, so</p>
+<p><span class="math display">
+\begin{aligned}
+\tilde p(j \mid x) &amp;= (1 - \eta)\, p(j \mid x) + \frac{\eta}{n_{\text{cls}} - 1}\big(1 - p(j \mid x)\big) &amp;&amp; \text{the other classes have total probability } 1 - p(j \mid x) \\
+&amp;= \frac{\eta}{n_{\text{cls}} - 1} + \Big(1 - \frac{\eta\, n_{\text{cls}}}{n_{\text{cls}} - 1}\Big)\, p(j \mid x) &amp;&amp; \text{collect the terms in } p(j \mid x).
+\end{aligned}
+</span></p>
+<p>This is an increasing function of <span class="math inline">p(j \mid x)</span> whenever <span class="math inline">\eta &lt; (n_{\text{cls}} - 1)/n_{\text{cls}}</span>, so the class with the highest clean probability still has the highest noisy probability. With infinite data, minimizing cross-entropy on noisy labels therefore still gives the clean Bayes classifier. Example: with 10 classes and <span class="math inline">\eta = 0.4</span>, a clean label of class 3 becomes “class 3 with probability 0.6, each other class with probability 0.044”. Systematic noise is different: if cats are labeled “dog” with probability above 0.5, the noisy argmax flips.</p>
+<p><strong>Why it hurts anyway.</strong> Training data are finite and networks are large enough to memorize them: Zhang et al. (2017) showed that standard networks fit ImageNet-sized datasets with completely random labels. Networks tend to fit the clean, consistent patterns first and memorize the wrong labels later, so with noisy labels validation accuracy often rises, peaks and then falls.</p>
+<p><strong>What to do.</strong></p>
+<ol type="1">
+<li><em>Measure.</em> Relabel a random sample to estimate the noise rate and the common confusions.</li>
+<li><em>Clean.</em> Flag examples whose out-of-sample (cross-validated) probability for their given label is low, the idea behind confident learning (Northcutt et al., 2021), and relabel or drop them.</li>
+<li><em>Robust losses.</em> The gradient of cross-entropy is <span class="math inline">\nabla_\theta(-\log p_y) = -\frac{1}{p_y}\nabla_\theta p_y</span>, so an implausible example (small <span class="math inline">p_y</span>, as a mislabeled one often is) gets a large weight <span class="math inline">1/p_y</span>. The mean absolute error <span class="math inline">1 - p_y</span> has gradient <span class="math inline">-\nabla_\theta p_y</span> and weights all examples equally: more robust, but slow to train. Generalized cross-entropy <span class="math inline">L_q = (1 - p_y^q)/q</span> (Zhang and Sabuncu, 2018) moves between the two: cross-entropy as <span class="math inline">q \to 0</span>, MAE at <span class="math inline">q = 1</span>.</li>
+<li><em>Sample selection.</em> Co-teaching (Han et al., 2018) trains two networks, each updating on the small-loss examples picked by the other, since small-loss examples are more likely clean.</li>
+<li><em>Regularize, stop early, correct.</em> Label smoothing, mixup and early stopping on a clean validation set reduce memorization. With an estimated transition matrix <span class="math inline">T</span>, train so that <span class="math inline">T^\top \hat p</span> fits the noisy labels (forward correction, Patrini et al., 2017).</li>
+</ol>
+<h3 id="top-1-and-top-5-accuracy">Top-1 and top-5 accuracy</h3>
+<p>Top-<span class="math inline">k</span> accuracy counts a prediction as correct if the true label is among the <span class="math inline">k</span> classes with the highest scores:</p>
+<p><span class="math display">
+\mathrm{acc}@k = \frac{1}{N}\sum_{n=1}^{N} \mathbf{1}\big[\mathrm{rank}_n(y_n) \le k\big],
+</span></p>
+<p>where <span class="math inline">\mathrm{rank}_n(y_n)</span> is the position of the true class when image <span class="math inline">n</span>’s scores are sorted in decreasing order. Example: four images whose true class is ranked 1st, 3rd, 1st and 7th give top-1 accuracy <span class="math inline">2/4 = 50\%</span> and top-5 accuracy <span class="math inline">3/4 = 75\%</span>. Top-5 was the official ImageNet challenge (ILSVRC) metric because many of its 1000 classes are fine-grained (over a hundred dog breeds) and many images contain several objects but carry one label. AlexNet won ILSVRC-2012 with a top-5 test error of 15.3%, against 26.2% for the second entry. Top-1 is the usual headline today; on imbalanced data also report per-class (balanced) accuracy, since overall accuracy can hide failing rare classes.</p>
+<details class="qa" id="q1"><summary>
+<span class="qa-n">Q1</span><span class="qa-q">Why does mixup help, and how do you implement its loss?</span>
+</summary><div class="qa-body">
+<p>Mixup trains on <span class="math inline">\tilde x = \lambda x_i + (1-\lambda)x_j</span> with the labels mixed the same way, <span class="math inline">\lambda \sim \mathrm{Beta}(\alpha,\alpha)</span>. Cross-entropy is linear in the target, so the loss equals <span class="math inline">\lambda L(\mathbf{y}_i, \hat p) + (1-\lambda)L(\mathbf{y}_j, \hat p)</span>: shuffle the batch to get partners, mix the inputs, and mix two cross-entropies. It asks the network to behave linearly between examples, which smooths decision boundaries, makes memorizing individual labels harder and tends to improve calibration. Small <span class="math inline">\alpha</span> keeps samples near real images; large <span class="math inline">\alpha</span> underfits.</p>
+</div></details>
+<details class="qa" id="q2"><summary>
+<span class="qa-n">Q2</span><span class="qa-q">You have a pretrained backbone and 2,000 labeled images from a new domain. Linear probe or full fine-tuning?</span>
+</summary><div class="qa-body">
+<p>Start with a linear probe: cheap, convex, hard to overfit, and a baseline in minutes; if the domain is close to pretraining it may be near the best you can do. If the domain is far (medical, satellite) or the probe plateaus, fine-tune with a small learning rate, preferably LP-FT (probe first, then unfreeze everything), so a random head does not distort the features early on. Use strong augmentation, frozen BatchNorm statistics with small batches, and early stopping, and keep the probe as the baseline: Kumar et al. (2022) found full fine-tuning can lose out-of-distribution accuracy relative to probing.</p>
+</div></details>
+<details class="qa" id="q3"><summary>
+<span class="qa-n">Q3</span><span class="qa-q">You suspect 20% of your training labels are wrong. What do you do?</span>
+</summary><div class="qa-body">
+<p>Measure first: relabel a random sample to get the noise rate and the common confusions. Clean: flag examples whose cross-validated probability for their own label is low, and relabel or drop them. Train robustly: a loss that does not weight implausible examples by <span class="math inline">1/p_y</span> (generalized cross-entropy), small-loss selection such as co-teaching, label smoothing or mixup, and early stopping on a clean validation set, because networks fit clean patterns before memorizing wrong labels. Keep the test set clean or you cannot tell whether anything worked. Uniform noise this mild leaves the best classifier unchanged in the infinite-data limit, so the damage comes from memorization; systematic confusions can change the decision itself.</p>
+</div></details>
+<h2 id="object-detection">Object detection</h2>
+<p>A detector outputs a variable-size set of (box, class, score) triples: the number of objects is unknown, and each one must be both recognized and localized. The designs below differ in where candidate boxes come from and how duplicates are avoided. Two-stage detectors propose regions and then classify them; one-stage detectors predict densely at every feature-map location and remove duplicates with NMS; DETR predicts a fixed-size set trained to contain no duplicates.</p>
+<h3 id="boxes-and-the-regression-targets">Boxes and the regression targets</h3>
+<p>A box is stored either by its corners <span class="math inline">(x_1, y_1, x_2, y_2)</span> or by its center and size <span class="math inline">(x, y, w, h)</span>, with <span class="math inline">x = (x_1 + x_2)/2</span> and <span class="math inline">w = x_2 - x_1</span>. Detectors rarely regress the raw coordinates. Each output is attached to a reference box <span class="math inline">(x_a, y_a, w_a, h_a)</span>, an anchor or a proposal, and the network predicts a correction to it.</p>
+<p>We want targets that (1) do not change if the image and both boxes are translated, (2) do not change if the image is rescaled, and (3) are unconstrained real numbers of order one, so a linear output layer can produce them. Derive them one coordinate at a time.</p>
+<ul>
+<li><em>Center.</em> The offset <span class="math inline">x - x_a</span> is unchanged by translation. Rescaling the image by <span class="math inline">c</span> multiplies it by <span class="math inline">c</span>, and also multiplies <span class="math inline">w_a</span> by <span class="math inline">c</span>, so dividing by the anchor width removes the scale: <span class="math inline">t_x = (x - x_a)/w_a</span>, and likewise <span class="math inline">t_y = (y - y_a)/h_a</span>.</li>
+<li><em>Size.</em> The ratio <span class="math inline">w/w_a</span> is unchanged by both translation and rescaling, but it is positive and asymmetric: doubling gives 2 and halving gives 0.5. Its logarithm is unconstrained and symmetric (<span class="math inline">\log 2 = -\log 0.5</span>), and an error in log space is a relative error, so a 10% mistake costs the same for small and large objects: <span class="math inline">t_w = \log(w/w_a)</span>, <span class="math inline">t_h = \log(h/h_a)</span>.</li>
+</ul>
+<p><span class="math display">
+t_x = \frac{x - x_a}{w_a}, \quad t_y = \frac{y - y_a}{h_a}, \quad t_w = \log\frac{w}{w_a}, \quad t_h = \log\frac{h}{h_a};
+\qquad
+x = x_a + t_x w_a, \quad w = w_a\, e^{t_w}.
+</span></p>
+<p>The right-hand pair decodes a prediction back into a box. Example: anchor <span class="math inline">(100, 100, 64, 64)</span> and ground truth <span class="math inline">(110, 96, 96, 48)</span> give <span class="math inline">t = (10/64, -4/64, \log 1.5, \log 0.75) = (0.156, -0.0625, 0.405, -0.288)</span>, and decoding returns exactly <span class="math inline">(110, 96, 96, 48)</span>. Implementations rescale the targets to a spread near one (Detectron’s second stage multiplies them by <span class="math inline">(10, 10, 5, 5)</span>) and clip <span class="math inline">t_w, t_h</span> before exponentiating (torchvision at <span class="math inline">\log(1000/16) \approx 4.14</span>) so early predictions cannot overflow.</p>
+<p>The loss on <span class="math inline">t</span> in Fast and Faster R-CNN is the smooth L1 (Huber-like) loss, applied to each coordinate:</p>
+<p><span class="math display">
+\mathrm{smooth}_{L_1}(r) = \begin{cases} 0.5\, r^2 &amp; \text{if } |r| &lt; 1, \\ |r| - 0.5 &amp; \text{otherwise.} \end{cases}
+</span></p>
+<p>Near zero it is quadratic, so the gradient shrinks smoothly to zero; far away it is linear, so a badly wrong box (often a mislabeled or ambiguous one) cannot produce a huge gradient, unlike L2. Later detectors often add or substitute losses based on IoU itself (GIoU, DIoU, CIoU), which measure overlap directly and are scale-invariant.</p>
+<h3 id="intersection-over-union">Intersection over union</h3>
+<p>For two boxes <span class="math inline">A</span> and <span class="math inline">B</span>,</p>
+<p><span class="math display">
+\mathrm{IoU}(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}.
+</span></p>
+<p>The intersection of two axis-aligned boxes is itself a box: its top-left corner is the elementwise maximum of the two top-left corners, and its bottom-right corner the elementwise minimum of the two bottom-right corners. If the boxes do not overlap, that “box” has negative width or height, so clip each side length at zero.</p>
+<p><strong>Worked example.</strong> <span class="math inline">A = (1, 1, 5, 5)</span> and <span class="math inline">B = (3, 2, 7, 6)</span> both have area 16. The intersection runs from <span class="math inline">(\max(1,3), \max(1,2)) = (3, 2)</span> to <span class="math inline">(\min(5,7), \min(5,6)) = (5, 5)</span>, so it is <span class="math inline">2 \times 3 = 6</span>. The union is <span class="math inline">16 + 16 - 6 = 26</span> and <span class="math inline">\mathrm{IoU} = 6/26 = 0.231</span>.</p>
+<p><strong>Properties.</strong> IoU lies in <span class="math inline">[0, 1]</span>, is symmetric, and does not change if both boxes are rescaled together; <span class="math inline">1 - \mathrm{IoU}</span> (the Jaccard distance) is a metric. Scale invariance hides one fact: a fixed pixel error hurts small boxes much more. Shifting a <span class="math inline">4 \times 4</span> box by one pixel gives IoU <span class="math inline">12/20 = 0.6</span>, while shifting a <span class="math inline">100 \times 100</span> box by one pixel gives <span class="math inline">9900/10100 = 0.98</span>. That is why small objects score poorly under strict IoU thresholds. And IoU is exactly zero for every pair of disjoint boxes, however far apart, so as a loss it gives no gradient until the boxes overlap. <strong>Generalized IoU</strong> (Rezatofighi et al., 2019) fixes this by subtracting the fraction of the smallest enclosing box <span class="math inline">C</span> not covered by the union: <span class="math inline">\mathrm{GIoU} = \mathrm{IoU} - |C \setminus (A \cup B)|/|C|</span>. In the example, <span class="math inline">C = (1, 1, 7, 6)</span> has area 30, so <span class="math inline">\mathrm{GIoU} = 0.231 - 4/30 = 0.097</span>.</p>
+<h3 id="non-maximum-suppression">Non-maximum suppression</h3>
+<p>A dense detector fires at many neighboring anchors or locations for the same object, all with high scores and heavily overlapping boxes. Non-maximum suppression (NMS) keeps the best of each cluster.</p>
+<ol type="1">
+<li>Sort the boxes of one class by score.</li>
+<li>Take the highest-scoring remaining box and keep it.</li>
+<li>Remove every remaining box whose IoU with it is above a threshold (often 0.5 for final detections; Faster R-CNN uses 0.7 on its proposals).</li>
+<li>Repeat from step 2 until no boxes remain.</li>
+</ol>
+<p>It runs per class, or across all classes at once after offsetting each box by a large constant times its class index, so boxes of different classes never overlap. A score threshold and a top-<span class="math inline">k</span> cut before NMS bound the cost.</p>
+<p><strong>Worked example.</strong> Boxes <span class="math inline">b_1 = (10, 10, 50, 50)</span>, <span class="math inline">b_2 = (12, 12, 52, 52)</span>, <span class="math inline">b_3 = (60, 60, 100, 100)</span>, <span class="math inline">b_4 = (30, 30, 70, 70)</span> with scores 0.9, 0.8, 0.7, 0.6 and threshold 0.5. Keep <span class="math inline">b_1</span>. Its IoU with <span class="math inline">b_2</span> is <span class="math inline">38^2/(3200 - 38^2) = 1444/1756 = 0.82</span>, so <span class="math inline">b_2</span> is removed; with <span class="math inline">b_3</span> it is 0; with <span class="math inline">b_4</span> it is <span class="math inline">400/2800 = 0.14</span>, so both stay. Keep <span class="math inline">b_3</span>; its IoU with <span class="math inline">b_4</span> is <span class="math inline">100/3100 = 0.03</span>. Keep <span class="math inline">b_4</span>. Result: <span class="math inline">b_1, b_3, b_4</span>.</p>
+<p><strong>Complexity.</strong> Sorting costs <span class="math inline">O(N \log N)</span>. Keeping <span class="math inline">K</span> boxes costs <span class="math inline">O(NK)</span> IoU computations, <span class="math inline">O(N^2)</span> in the worst case, when little overlaps and almost every box is kept. GPU versions compute the full <span class="math inline">N \times N</span> IoU matrix in parallel and then do a cheap sequential pass.</p>
+<p><strong>Failure modes.</strong> In crowds, two real objects can overlap above the threshold and one is deleted, losing recall; a higher threshold keeps them but also keeps more duplicates, which become false positives. NMS also keeps the box with the highest classification score, not necessarily the best-localized one.</p>
+<p><strong>Soft-NMS</strong> (Bodla et al., 2017) lowers scores instead of deleting boxes. When box <span class="math inline">M</span> is kept, every remaining box <span class="math inline">b_i</span> gets</p>
+<p><span class="math display">
+s_i \leftarrow s_i\,\big(1 - \mathrm{IoU}(M, b_i)\big) \ \ \text{if } \mathrm{IoU}(M, b_i) \ge N_t \quad \text{(linear)}, \qquad s_i \leftarrow s_i\, e^{-\mathrm{IoU}(M, b_i)^2/\sigma} \quad \text{(Gaussian)},
+</span></p>
+<p>and the loop continues on the rescored set. In the example, <span class="math inline">b_2</span>’s score drops from 0.8 to <span class="math inline">0.8 \times 0.18 = 0.14</span> (linear) or <span class="math inline">0.8\, e^{-0.82^2/0.5} = 0.21</span> (Gaussian, <span class="math inline">\sigma = 0.5</span>) instead of to zero. If <span class="math inline">b_2</span> was really a second, overlapping object, it can still be counted at a lower rank, which raises recall and AP; if it was a duplicate, its low score puts it at the end of the ranking, where it costs little (see the mAP section). Soft-NMS needs no retraining and has the same complexity.</p>
+<h3 id="anchors">Anchors</h3>
+<p>Anchors are fixed reference boxes placed at every location of a feature map, several per location with different sizes and aspect ratios. Each output is a classification (“is there an object matching this anchor?”) and a small regression <span class="math inline">t</span> relative to that anchor. This turns detection into many independent, local, well-conditioned problems, and lets one location predict several objects of different shapes.</p>
+<p>Faster R-CNN uses <span class="math inline">k = 9</span> anchors per location: areas <span class="math inline">128^2, 256^2, 512^2</span> pixels times aspect ratios 1:2, 1:1, 2:1. For area <span class="math inline">A</span> and aspect ratio <span class="math inline">r = h/w</span>, the anchor has <span class="math inline">w = \sqrt{A/r}</span> and <span class="math inline">h = \sqrt{A r}</span>, so the <span class="math inline">128^2</span> anchors are <span class="math inline">181 \times 91</span>, <span class="math inline">128 \times 128</span> and <span class="math inline">91 \times 181</span>. On a stride-16 feature map of an <span class="math inline">800 \times 800</span> image there are <span class="math inline">50 \times 50 \times 9 = 22{,}500</span> anchors; the paper counts about 20,000 for a typical <span class="math inline">1000 \times 600</span> image.</p>
+<p><strong>Assigning labels to anchors.</strong> Training needs a target for every anchor. Faster R-CNN’s region proposal network calls an anchor positive if its IoU with some ground-truth box exceeds 0.7, or if it is the anchor with the highest IoU for some ground-truth box (so every object gets at least one); negative if its IoU is below 0.3 with every ground-truth box; and ignores the rest. Each image contributes a random sample of 256 anchors with up to half positives. RetinaNet uses 0.5 and 0.4 as its two thresholds.</p>
+<p><strong>Costs.</strong> Scales, ratios and IoU thresholds are dataset-dependent hyperparameters (YOLOv2 instead chose its anchor shapes by <span class="math inline">k</span>-means on the training boxes with distance <span class="math inline">1 - \mathrm{IoU}</span>), and almost all anchors are negatives, the imbalance focal loss addresses. Both costs motivated anchor-free detectors.</p>
+<h3 id="two-stage-detectors-the-r-cnn-family">Two-stage detectors: the R-CNN family</h3>
+<p><strong>R-CNN</strong> (Girshick et al., 2014) warped each of about 2,000 selective-search proposals per image to <span class="math inline">227 \times 227</span>, ran a CNN on each, classified the features with one linear SVM per class and refined the boxes with linear regression. It raised PASCAL VOC 2012 mAP to 53.3%, more than 30% relative to the previous best, but ran the CNN 2,000 times per image and trained its stages separately.</p>
+<p><strong>Fast R-CNN</strong> (Girshick, 2015) runs the CNN once on the whole image and crops each proposal from the shared feature map with <strong>RoI pooling</strong>: the proposal is projected onto the feature map by dividing its coordinates by the stride, its window is divided into a fixed <span class="math inline">H \times W</span> grid of bins (<span class="math inline">7 \times 7</span> for VGG16), and each bin is max-pooled. The resulting fixed-size feature goes through fully connected layers into two sibling outputs: a softmax over <span class="math inline">n_{\text{cls}} + 1</span> classes (including background) and one box regression per class. The multi-task loss is</p>
+<p><span class="math display">
+L = L_{\text{cls}}(\hat p, u) + \lambda\, [u \ge 1]\, \sum_{i \in \{x, y, w, h\}} \mathrm{smooth}_{L_1}\big(t^u_i - t^*_i\big),
+</span></p>
+<p>where <span class="math inline">u</span> is the true class, <span class="math inline">u = 0</span> is background (which has no box, hence the indicator), and <span class="math inline">t^u</span> is the regression output for class <span class="math inline">u</span>. Everything except the proposals is trained end to end. With VGG16 it trained 9 times and tested 213 times faster than R-CNN, but selective search still took about 2 seconds per image on a CPU.</p>
+<p><strong>Faster R-CNN</strong> (Ren et al., 2015) replaced selective search with a <strong>region proposal network</strong> (RPN) on the shared features: a <span class="math inline">3 \times 3</span> convolution (512 channels for VGG16) followed by two sibling <span class="math inline">1 \times 1</span> convolutions outputs, for each of <span class="math inline">k</span> anchors per location, an objectness score and four box deltas. The decoded proposals are clipped to the image, reduced by NMS at IoU 0.7, and the top 300 or so go to a Fast R-CNN head. The system ran at about 5 frames per second with VGG16, and proposals became nearly free.</p>
+<p><strong>The quantization problem.</strong> RoI pooling rounds twice. At stride 16, a proposal edge at <span class="math inline">x_1 = 37</span> pixels is at <span class="math inline">37/16 = 2.31</span> cells, rounded to 2, so the crop starts 5 image pixels too far left; then the <span class="math inline">7 \times 7</span> bin edges are rounded again, giving bins of unequal size. Each rounding moves a boundary by up to half a cell, 8 pixels at stride 16. Classification hardly cares, because the class does not change when the crop moves a few pixels; pixel-accurate masks and tight boxes at high IoU thresholds do.</p>
+<p><strong>RoIAlign</strong> (He et al., 2017, in Mask R-CNN) removes every rounding. It keeps the proposal’s coordinates as real numbers, divides the window into exactly equal bins, computes the feature value at four regularly spaced points in each bin by bilinear interpolation from the four surrounding cells, and takes their max or average. Moving the box by a fraction of a cell now changes the pooled features smoothly instead of not at all or by a jump. The paper reports that RoIAlign improves mask accuracy by 10% to 50% relative, with larger gains under stricter localization metrics.</p>
+<aside class="callout callout-key"><p class="callout-label">Key idea</p>
+<p><strong>How to say it in an interview.</strong> “R-CNN ran a CNN on each of about 2,000 warped proposals. Fast R-CNN ran the CNN once and pooled each proposal from the shared feature map with RoI pooling, training classification and box regression jointly. Faster R-CNN generated the proposals with a small network on the same features, using anchors. RoI pooling rounds the proposal and its bins to the feature grid, which misaligns features by up to half a cell; RoIAlign samples with bilinear interpolation at exact positions, which matters most for masks.”</p>
+</aside>
+<h3 id="one-stage-detectors-yolo-and-ssd">One-stage detectors: YOLO and SSD</h3>
+<p>One-stage detectors skip proposals: one network pass predicts classes and boxes densely, and NMS cleans up. They were historically faster and less accurate than two-stage detectors; focal loss and feature pyramids closed most of the accuracy gap.</p>
+<p><strong>YOLO</strong> (Redmon et al., 2016) resizes the image to <span class="math inline">448 \times 448</span> and divides it into an <span class="math inline">S \times S</span> grid with <span class="math inline">S = 7</span>. Each cell predicts <span class="math inline">B = 2</span> boxes, each as <span class="math inline">(x, y, w, h, \text{confidence})</span>, plus one set of <span class="math inline">C = 20</span> class probabilities shared by the cell, so the output is a <span class="math inline">7 \times 7 \times 30</span> tensor, 1,470 numbers. The box center <span class="math inline">(x, y)</span> is relative to the cell, and <span class="math inline">w, h</span> are relative to the image. The confidence target is <span class="math inline">\Pr(\text{object}) \times \mathrm{IoU}(\text{pred}, \text{truth})</span>. The cell containing an object’s center is responsible for it, and of that cell’s two boxes, the one with higher IoU with the truth is trained on it. The loss is a sum of squared errors over coordinates, confidences and class probabilities, with <span class="math inline">\lambda_{\text{coord}} = 5</span> to up-weight localization and <span class="math inline">\lambda_{\text{noobj}} = 0.5</span> to down-weight the many cells without objects. It regresses <span class="math inline">\sqrt w</span> and <span class="math inline">\sqrt h</span> instead of <span class="math inline">w</span> and <span class="math inline">h</span> so that a fixed pixel error counts more for small boxes: a 5-pixel error changes <span class="math inline">\sqrt w</span> by <span class="math inline">\sqrt{15} - \sqrt{10} = 0.71</span> for a 10-pixel box but only by <span class="math inline">\sqrt{105} - \sqrt{100} = 0.25</span> for a 100-pixel box. At test time the class-specific score is <span class="math inline">\Pr(\text{class} \mid \text{object}) \times \text{confidence}</span>, followed by NMS. YOLO ran at 45 frames per second (a smaller “Fast YOLO” at 155) with 63.4% mAP on VOC 2007. Its limits come from the coarse grid: at most 49 objects, one class per cell, and trouble with small objects in groups.</p>
+<p>Later versions changed most of this. YOLOv2 added batch normalization, anchors chosen by <span class="math inline">k</span>-means, and a center kept inside its cell, <span class="math inline">b_x = \sigma(t_x) + c_x</span> and <span class="math inline">b_w = p_w e^{t_w}</span>, with <span class="math inline">(c_x, c_y)</span> the cell’s corner and <span class="math inline">p_w</span> the anchor width. YOLOv3 predicted at three scales. YOLOX and YOLOv8 are anchor-free with separate classification and regression branches and IoU-based box losses, and YOLOv10 is trained with one-to-one assignment so it can drop NMS.</p>
+<p><strong>SSD</strong> (Liu et al., 2016) predicts from six feature maps of decreasing resolution, <span class="math inline">38^2, 19^2, 10^2, 5^2, 3^2</span> and <span class="math inline">1^2</span> cells for a <span class="math inline">300 \times 300</span> input. Each cell has 4 or 6 default boxes (SSD’s name for anchors) with aspect ratios from <span class="math inline">\{1, 2, 3, 1/2, 1/3\}</span> and scales growing linearly from 0.2 to 0.9 of the image side across the maps, <span class="math inline">38^2 \cdot 4 + 19^2 \cdot 6 + 10^2 \cdot 6 + 5^2 \cdot 6 + 3^2 \cdot 4 + 1 \cdot 4 = 8{,}732</span> boxes in all, and a <span class="math inline">3 \times 3</span> convolution predicts class scores and four offsets for each. Each ground-truth box is matched to its best default box and to every default box with IoU above 0.5, and only the hardest negatives are kept, at most three per positive (hard negative mining). SSD300 reached 74.3% mAP on VOC 2007 at 59 frames per second. It was weak on small objects because its high-resolution map comes from an early layer with little semantic information, which is what feature pyramids fix.</p>
+<h3 id="focal-loss-and-retinanet">Focal loss and RetinaNet</h3>
+<p>A one-stage detector scores about 100,000 anchors per image, of which perhaps a hundred are positive. Most negatives are easy (sky, road) and the network quickly gives them probability near 1 of being background. Each then has a tiny loss, but there are so many that they dominate the total. Two-stage detectors avoid the problem: the RPN discards most easy background, and the second stage samples a fixed ratio of foreground to background.</p>
+<p><strong>Numeric example.</strong> Take 100,000 negatives each classified with <span class="math inline">p_t = 0.99</span> and 100 positives each with <span class="math inline">p_t = 0.5</span>. Under cross-entropy <span class="math inline">-\log p_t</span>, the negatives contribute <span class="math inline">100{,}000 \times 0.01005 = 1005</span> and the positives <span class="math inline">100 \times 0.693 = 69.3</span>. Easy negatives make up 94% of the loss and of the gradient, even though the network already handles them.</p>
+<p><strong>Focal loss</strong> (Lin et al., 2017) multiplies cross-entropy by a factor that vanishes for well-classified examples. With <span class="math inline">p</span> the predicted probability of the foreground class, define <span class="math inline">p_t = p</span> if the anchor is a positive and <span class="math inline">p_t = 1 - p</span> otherwise. Then</p>
+<p><span class="math display">
+\mathrm{FL}(p_t) = -\alpha_t\, (1 - p_t)^\gamma \log p_t ,
+</span></p>
+<p>where <span class="math inline">\alpha_t = \alpha</span> for positives and <span class="math inline">1 - \alpha</span> for negatives. With <span class="math inline">\gamma = 0</span> it is weighted cross-entropy. With <span class="math inline">\gamma = 2</span>, the reduction factor <span class="math inline">(1 - p_t)^{-2}</span> is:</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th><span class="math inline">p_t</span></th>
+<th>cross-entropy</th>
+<th>focal loss (<span class="math inline">\gamma = 2</span>, no <span class="math inline">\alpha</span>)</th>
+<th>reduction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.99</td>
+<td>0.01005</td>
+<td>0.000001</td>
+<td><span class="math inline">10^4 \times</span></td>
+</tr>
+<tr>
+<td>0.9</td>
+<td>0.105</td>
+<td>0.00105</td>
+<td><span class="math inline">100 \times</span></td>
+</tr>
+<tr>
+<td>0.5</td>
+<td>0.693</td>
+<td>0.173</td>
+<td><span class="math inline">4 \times</span></td>
+</tr>
+<tr>
+<td>0.1</td>
+<td>2.303</td>
+<td>1.865</td>
+<td><span class="math inline">1.2 \times</span></td>
+</tr>
+</tbody>
+</table>
+<p>In the example, the negatives now contribute <span class="math inline">100{,}000 \times 10^{-6} = 0.10</span> and the positives <span class="math inline">100 \times 0.173 = 17.3</span>: easy negatives fall from 94% of the loss to under 1%, and training focuses on hard examples, which are mostly the positives and the confusing negatives. The best setting in the paper was <span class="math inline">\gamma = 2</span> with <span class="math inline">\alpha = 0.25</span>. That <span class="math inline">\alpha</span> gives positives the <em>smaller</em> weight, which surprises people; the explanation is that <span class="math inline">\gamma</span> has already removed most of the negatives’ loss, so the remaining balance tips the other way. The loss is summed over all anchors and divided by the number of positive anchors.</p>
+<p><strong>Initialization.</strong> The bias of the final classification layer is set to <span class="math inline">b = -\log\big((1 - \pi)/\pi\big) = -4.60</span> with <span class="math inline">\pi = 0.01</span>, so every anchor starts with foreground probability 0.01. With a zero bias every anchor would start at <span class="math inline">p = 0.5</span>, and the 100,000 background anchors would each contribute <span class="math inline">\log 2</span>, a huge and unstable initial loss.</p>
+<p><strong>RetinaNet</strong> is a ResNet with a feature pyramid (levels P3 to P7), 9 anchors per location, and two small convolutional heads shared across levels, one for classification (a sigmoid per class and anchor) and one for box regression. With ResNet-101 it reached 39.1 AP on COCO test-dev, ahead of the two-stage detectors it was compared with, while staying one-stage.</p>
+<details class="qa" id="q4"><summary>
+<span class="qa-n">Q4</span><span class="qa-q">Why does focal loss use <span class="math inline">(1 - p_t)^\gamma</span>, and why is the best <span class="math inline">\alpha</span> for positives below 0.5?</span>
+</summary><div class="qa-body">
+<p>The factor vanishes as an example becomes well classified, so the huge number of easy background anchors, each with a tiny but non-zero cross-entropy, stops dominating the sum: with <span class="math inline">\gamma = 2</span> an anchor at <span class="math inline">p_t = 0.9</span> loses 100 times less than under cross-entropy and one at <span class="math inline">p_t = 0.99</span> 10,000 times less, while hard examples barely change. Once the easy negatives are suppressed, the positives carry most of the remaining loss, so the class weight that works best gives them less: <span class="math inline">\alpha = 0.25</span> in the paper. It also needs a prior bias of about <span class="math inline">-4.6</span> so initial predictions are 0.01 foreground, not 0.5.</p>
+</div></details>
+<h3 id="feature-pyramid-networks">Feature pyramid networks</h3>
+<p>Objects in one image can differ in size by a factor of 50 or more. Image pyramids multiply the cost, the last feature map (stride 32) loses small objects, and the early high-resolution maps SSD used have weak features.</p>
+<p>A <strong>feature pyramid network</strong> (FPN, Lin et al., 2017) adds a top-down path with lateral connections. Let <span class="math inline">C_2, \dots, C_5</span> be the backbone’s last feature maps at strides 4, 8, 16 and 32. Then</p>
+<p><span class="math display">
+P_5 = \mathrm{conv}_{1\times1}(C_5), \qquad P_\ell = \mathrm{conv}_{1\times1}(C_\ell) + \mathrm{Upsample}_{2\times}(P_{\ell+1}) \quad (\ell = 4, 3, 2),
+</span></p>
+<p>with nearest-neighbor upsampling, followed by a <span class="math inline">3 \times 3</span> convolution on each merged map to reduce the aliasing of the upsampling, all with 256 channels. The <span class="math inline">1 \times 1</span> lateral convolution brings each backbone map to 256 channels so the addition is defined. The top-down path carries semantic information from the deep layers down to the high-resolution ones, and the lateral path carries precise locations up. Every level ends up with strong features at its own resolution, and one shared detection head can run on all levels.</p>
+<p>In an FPN version of Faster R-CNN, the RPN uses one anchor size per level (<span class="math inline">32^2</span> on <span class="math inline">P_2</span> up to <span class="math inline">512^2</span> on an extra level <span class="math inline">P_6</span>), each with three aspect ratios. Each proposal of width <span class="math inline">w</span> and height <span class="math inline">h</span> is pooled from level</p>
+<p><span class="math display">
+k = \Big\lfloor k_0 + \log_2\big(\sqrt{wh}/224\big) \Big\rfloor, \qquad k_0 = 4,
+</span></p>
+<p>clamped to the available levels. The idea: a <span class="math inline">224 \times 224</span> proposal (ImageNet’s training size) goes to <span class="math inline">P_4</span>, the level a single-scale detector would use, and each halving of the size moves one level finer. Examples: a <span class="math inline">112 \times 112</span> proposal goes to <span class="math inline">P_3</span>, a <span class="math inline">448 \times 448</span> one to <span class="math inline">P_5</span>, and a <span class="math inline">50 \times 50</span> one gives <span class="math inline">\lfloor 1.84 \rfloor = 1</span>, clamped to <span class="math inline">P_2</span>.</p>
+<h3 id="anchor-free-detectors">Anchor-free detectors</h3>
+<p>Anchor-free detectors drop the reference boxes. Each feature-map location predicts a box directly, either by regressing distances to the box sides or by detecting the object’s center as a keypoint.</p>
+<p><strong>FCOS</strong> (Tian et al., 2019) treats every feature-map location <span class="math inline">(x, y)</span> (mapped back to image coordinates) that falls inside a ground-truth box <span class="math inline">(x_1, y_1, x_2, y_2)</span> as a positive for that box, and regresses the four distances from the location to the box’s sides:</p>
+<p><span class="math display">
+l^* = x - x_1, \quad t^* = y - y_1, \quad r^* = x_2 - x, \quad b^* = y_2 - y.
+</span></p>
+<p>The network predicts them through an exponential so they stay positive. Each pyramid level handles one range of sizes: on <span class="math inline">P_3</span> through <span class="math inline">P_7</span>, a location is a positive only if <span class="math inline">\max(l^*, t^*, r^*, b^*)</span> falls in <span class="math inline">[0, 64]</span>, <span class="math inline">[64, 128]</span>, <span class="math inline">[128, 256]</span>, <span class="math inline">[256, 512]</span> or <span class="math inline">[512, \infty)</span> respectively. If a location is still inside two boxes, it takes the one with the smaller area. Locations far from an object’s center produce poor boxes, so FCOS adds a <strong>center-ness</strong> branch trained to predict</p>
+<p><span class="math display">
+\text{centerness} = \sqrt{\frac{\min(l^*, r^*)}{\max(l^*, r^*)} \cdot \frac{\min(t^*, b^*)}{\max(t^*, b^*)}},
+</span></p>
+<p>which is 1 at the box center and falls toward 0 at the edges. Example: <span class="math inline">(l^*, r^*, t^*, b^*) = (10, 30, 20, 20)</span> gives <span class="math inline">\sqrt{(10/30)(20/20)} = 0.58</span>. At test time the class score is multiplied by the predicted center-ness, so off-center boxes rank lower and are removed by NMS. FCOS still uses NMS.</p>
+<p><strong>CenterNet</strong> (“Objects as Points”, Zhou et al., 2019) predicts one heatmap per class at stride 4 whose peaks are object centers, trained against Gaussian bumps at the true centers with a focal-loss variant, and regresses box size and a sub-pixel offset at each center. Detections are locations at least as large as their 8 neighbors, found with one <span class="math inline">3 \times 3</span> max-pooling, and the top 100 are kept, with no IoU-based NMS. CornerNet (Law and Deng, 2018) earlier detected boxes as pairs of corner keypoints. The heatmap machinery is the same as for human pose (below).</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>“Anchor-free” does not mean “NMS-free”. FCOS and most YOLO versions without anchors still produce several boxes per object and need NMS. Dropping NMS requires one-to-one assignment during training: each object is matched to exactly one prediction, as in DETR, CenterNet’s peak extraction, or YOLOv10’s one-to-one head.</p>
+</aside>
+<h3 id="detr-detection-as-set-prediction">DETR: detection as set prediction</h3>
+<p>DETR (Carion et al., 2020) removes anchors, proposals and NMS. A CNN backbone produces a feature map, which is flattened into tokens with positional encodings and processed by a transformer encoder. A transformer decoder takes <span class="math inline">N = 100</span> learned <strong>object queries</strong>, which attend to the image tokens and to each other, and a shared feed-forward network turns each query into a class distribution, including a “no object” class <span class="math inline">\varnothing</span>, and a normalized box (center, width, height). The output is always a set of 100 predictions, most of them <span class="math inline">\varnothing</span>.</p>
+<p><strong>Hungarian matching.</strong> To compute a loss, the ground-truth objects are padded with <span class="math inline">\varnothing</span> to <span class="math inline">N</span> entries, and the predictions are matched one-to-one to the ground truth by the permutation <span class="math inline">\hat\sigma</span> with the lowest total cost:</p>
+<p><span class="math display">
+\hat\sigma = \arg\min_{\sigma} \sum_{i=1}^{N} \mathcal{C}\big(y_i, \hat y_{\sigma(i)}\big), \qquad \mathcal{C} = -\hat p_{\sigma(i)}(c_i) + \lambda_{L_1}\lVert b_i - \hat b_{\sigma(i)}\rVert_1 + \lambda_{\text{iou}}\,\mathcal{L}_{\text{GIoU}}(b_i, \hat b_{\sigma(i)})
+</span></p>
+<p>for real objects (weights <span class="math inline">\lambda_{L_1} = 5</span>, <span class="math inline">\lambda_{\text{iou}} = 2</span>), and zero cost for matching a prediction to <span class="math inline">\varnothing</span>. The Hungarian algorithm solves this assignment problem exactly in <span class="math inline">O(N^3)</span> time. The loss is then cross-entropy on every prediction against its matched class (with the <span class="math inline">\varnothing</span> term down-weighted by a factor of 10) plus the box losses on the matched real objects, applied after every decoder layer.</p>
+<p><strong>Why matching rather than greedy assignment.</strong> Take two ground-truth objects and three queries with costs <span class="math inline">(-0.8, -0.7)</span> for query 1, <span class="math inline">(-0.75, 0.2)</span> for query 2 and <span class="math inline">(0.5, 0.6)</span> for query 3. Greedy matching takes the cheapest pair first, query 1 with object 1 (<span class="math inline">-0.8</span>), and then must give object 2 to query 2 (<span class="math inline">0.2</span>): total <span class="math inline">-0.6</span>. The optimal matching gives object 2 to query 1 and object 1 to query 2: total <span class="math inline">-0.7 - 0.75 = -1.45</span>. Query 3 is matched to <span class="math inline">\varnothing</span>.</p>
+<p><strong>Why no NMS.</strong> Each object is matched to exactly one query, so if a second query also predicts that object, the loss trains it toward <span class="math inline">\varnothing</span>. Duplicates are penalized during training instead of removed afterwards, and decoder self-attention lets queries see each other and coordinate which one claims each object. The paper tried adding NMS: it helped after the first decoder layer and slightly lowered AP after the last.</p>
+<p><strong>Slow convergence.</strong> DETR needed 500 training epochs on COCO to reach 42.0 AP, roughly matching a Faster R-CNN baseline of similar size that trains far shorter, and it was weaker on small objects. The usual explanations: attention over all image positions starts almost uniform and takes long to focus; early matching is unstable, so a query’s target changes between epochs; and attention cost grows with the square of the number of tokens, which forces a single low-resolution feature map. Deformable DETR (Zhu et al., 2021) attends only to a few learned sampling points around a reference point on multi-scale features and reports better accuracy, especially on small objects, with 10 times fewer epochs. DN-DETR and DINO add noised ground-truth boxes as extra queries to reconstruct, which gives stable targets and speeds training further.</p>
+<details class="qa qa-asked" id="q5"><summary>
+<span class="qa-n">Q5</span><span class="qa-q">How does DETR detect objects without anchors or non-maximum suppression?</span><span class="qa-badge" title="Reported in a real interview">Asked · CV interview advice thread (Reddit 2025), not a report</span>
+</summary><div class="qa-body">
+<p>It treats detection as set prediction. A CNN backbone and a transformer encoder produce image tokens, and a decoder turns <span class="math inline">N = 100</span> learned object queries into <span class="math inline">N</span> predictions of a class (possibly “no object”) and a box. Training finds the minimum-cost one-to-one matching between predictions and the ground truth padded with “no object”, using the Hungarian algorithm with a cost combining class probability, L1 box distance and GIoU, then applies cross-entropy to all predictions and box losses to the matched ones, after every decoder layer. A second query predicting an already matched object is trained toward “no object”, and self-attention among queries lets them coordinate, so training removes duplicates and NMS is unnecessary; learned queries replace anchors. Weaknesses: slow convergence (500 epochs for 42.0 AP on COCO) and weak small objects, from near-uniform initial attention, unstable early matching and one low-resolution feature map; Deformable DETR and query denoising (DN-DETR, DINO) fix most of this.</p>
+</div></details>
+<details class="qa qa-asked" id="q6"><summary>
+<span class="qa-n">Q6</span><span class="qa-q">How would you combine diffusion with DETR-style detection?</span><span class="qa-badge" title="Reported in a real interview">Asked · Kuaishou multimodal round 2 (Zhihu snippet)</span>
+</summary><div class="qa-body">
+<p>Make the box coordinates the variable that is diffused. In training, add Gaussian noise to the ground-truth boxes (padded with random boxes to a fixed count) and train a DETR-like decoder, conditioned on image features, to recover the clean boxes and their classes; at inference, start from random boxes and refine them over a few steps. This is DiffusionDet (Chen et al., 2023); the number of boxes and of refinement steps can change at test time without retraining. The related non-generative idea is DN-DETR’s query denoising, which adds noised ground-truth boxes as extra queries only to stabilize training. Compare at equal inference compute, since each step is another decoder pass.</p>
+</div></details>
+<h3 id="mean-average-precision-step-by-step">Mean average precision, step by step</h3>
+<p>Mean average precision (mAP) is the standard detection metric. It rewards finding every object (recall), not producing false alarms (precision), and ranking confident correct detections above wrong ones. It is computed per class and then averaged.</p>
+<ol type="1">
+<li><strong>Collect and sort.</strong> For one class, gather every detection from every image in the test set and sort them by score, highest first.</li>
+<li><strong>Match.</strong> Go down the list. A detection is a true positive (TP) if its IoU with a ground-truth box of that class in the same image is at least the threshold and that ground-truth box has not already been matched; it takes the unmatched ground-truth box with the highest IoU. Otherwise it is a false positive (FP). A second detection of an already matched object is an FP. Ground truth marked “difficult” (VOC) or “crowd” (COCO) is ignored: matching it is neither rewarded nor penalized.</li>
+<li><strong>Precision and recall at each rank.</strong> After the top <span class="math inline">k</span> detections, <span class="math inline">\text{precision}_k = \mathrm{TP}_k / k</span> and <span class="math inline">\text{recall}_k = \mathrm{TP}_k / N_{\text{gt}}</span>, where <span class="math inline">N_{\text{gt}}</span> counts all ground-truth boxes of the class.</li>
+<li><strong>Interpolate.</strong> Replace precision at recall <span class="math inline">r</span> by the best precision at any recall at least <span class="math inline">r</span>: <span class="math inline">p_{\text{interp}}(r) = \max_{r&#39; \ge r} p(r&#39;)</span>. This makes the curve non-increasing and reflects a sensible user, who would never pick a threshold that gives lower recall and lower precision than another.</li>
+<li><strong>Integrate.</strong> PASCAL VOC 2007 averaged <span class="math inline">p_{\text{interp}}</span> at the 11 recalls <span class="math inline">0, 0.1, \dots, 1</span>. VOC from 2010 on uses the exact area under the interpolated curve. COCO averages it at the 101 recalls <span class="math inline">0, 0.01, \dots, 1</span>. Recall levels the detector never reaches count as precision 0.</li>
+<li><strong>Average.</strong> The mean over classes is mAP. COCO additionally averages over the ten IoU thresholds <span class="math inline">0.50, 0.55, \dots, 0.95</span> and calls the result AP (often written AP@[.5:.95]); AP<span class="math inline">_{50}</span> and AP<span class="math inline">_{75}</span> use a single threshold. COCO also reports AP<span class="math inline">_S</span>, AP<span class="math inline">_M</span> and AP<span class="math inline">_L</span> for objects with area below <span class="math inline">32^2</span>, between <span class="math inline">32^2</span> and <span class="math inline">96^2</span>, and above <span class="math inline">96^2</span> pixels, and keeps at most 100 detections per image.</li>
+</ol>
+<p><strong>Worked example.</strong> One class, two images, four ground-truth objects: <span class="math inline">g_1, g_2</span> in image 1 and <span class="math inline">g_3, g_4</span> in image 2. Six detections, sorted by score, with their IoU to the best-overlapping ground truth:</p>
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+</colgroup>
+<thead>
+<tr>
+<th>rank</th>
+<th>score</th>
+<th>image</th>
+<th>best overlap</th>
+<th>match at IoU 0.5</th>
+<th>TP so far</th>
+<th>precision</th>
+<th>recall</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>0.95</td>
+<td>1</td>
+<td><span class="math inline">g_1</span>, 0.82</td>
+<td>TP</td>
+<td>1</td>
+<td>1.00</td>
+<td>0.25</td>
+</tr>
+<tr>
+<td>2</td>
+<td>0.90</td>
+<td>1</td>
+<td><span class="math inline">g_1</span>, 0.71</td>
+<td>FP (<span class="math inline">g_1</span> taken)</td>
+<td>1</td>
+<td>0.50</td>
+<td>0.25</td>
+</tr>
+<tr>
+<td>3</td>
+<td>0.80</td>
+<td>2</td>
+<td><span class="math inline">g_3</span>, 0.66</td>
+<td>TP</td>
+<td>2</td>
+<td>0.67</td>
+<td>0.50</td>
+</tr>
+<tr>
+<td>4</td>
+<td>0.70</td>
+<td>1</td>
+<td><span class="math inline">g_2</span>, 0.58</td>
+<td>TP</td>
+<td>3</td>
+<td>0.75</td>
+<td>0.75</td>
+</tr>
+<tr>
+<td>5</td>
+<td>0.60</td>
+<td>2</td>
+<td><span class="math inline">g_4</span>, 0.30</td>
+<td>FP (IoU too low)</td>
+<td>3</td>
+<td>0.60</td>
+<td>0.75</td>
+</tr>
+<tr>
+<td>6</td>
+<td>0.50</td>
+<td>2</td>
+<td>none</td>
+<td>FP</td>
+<td>3</td>
+<td>0.50</td>
+<td>0.75</td>
+</tr>
+</tbody>
+</table>
+<p>The interpolated precision is <span class="math inline">\max(1, 0.5, 0.67, 0.75, 0.6, 0.5) = 1</span> for recall up to 0.25, and 0.75 for recall in <span class="math inline">(0.25, 0.75]</span> (the best precision at recall 0.5 or more is the 0.75 at rank 4). Recall above 0.75 is never reached.</p>
+<ul>
+<li><em>Area under the curve (VOC 2010+):</em> <span class="math inline">0.25 \times 1 + 0.5 \times 0.75 = 0.625</span>.</li>
+<li><em>11-point (VOC 2007):</em> recalls 0, 0.1, 0.2 give 1; recalls 0.3 to 0.7 (five points) give 0.75; recalls 0.8 to 1.0 give 0. AP <span class="math inline">= (3 + 3.75)/11 = 0.614</span>.</li>
+<li><em>101-point (COCO):</em> 26 recall levels (0 to 0.25) give 1, 50 levels (0.26 to 0.75) give 0.75, 25 give 0. AP<span class="math inline">_{50} = (26 + 37.5)/101 = 0.629</span>.</li>
+</ul>
+<p>Raising the IoU threshold turns poorly localized detections into false positives. At 0.6 and 0.65, rank 4 (IoU 0.58) fails and AP drops to 0.422 (101-point). From 0.7 to 0.8 only rank 1 remains a TP, so AP is 0.257. From 0.85 up nothing matches and AP is 0. The COCO average over the ten thresholds is <span class="math inline">0.287</span>, less than half of AP<span class="math inline">_{50}</span>: COCO AP rewards tight localization, not just finding the object.</p>
+<p>Two consequences. Appending detections with scores below all existing ones never lowers AP: the interpolated precision at earlier recalls can only rise (it is a maximum over a larger set), and new true positives add recall. That is why detectors output many low-confidence boxes and why COCO caps them at 100 per image. And AP depends only on the ranking within each class, so scores need not be calibrated, but they must be comparable across images.</p>
+<details class="qa qa-asked" id="q7"><summary>
+<span class="qa-n">Q7</span><span class="qa-q">Define IoU and mAP for object detection.</span><span class="qa-badge" title="Reported in a real interview">Asked · Amazon AS intern, Glassdoor 2023</span>
+</summary><div class="qa-body">
+<p>IoU is the area of the intersection of two boxes divided by the area of their union. For AP, take one class, sort all its detections over the dataset by score, and mark each a true positive if its IoU with a not-yet-matched ground-truth box in the same image reaches the threshold (0.5 for PASCAL VOC), otherwise a false positive, so duplicates are false positives. This gives precision and recall at every rank. Make precision non-increasing by taking, at each recall, the best precision at that recall or higher, and average it over recall (11 points in VOC 2007, the exact area from VOC 2010, 101 points in COCO). mAP averages AP over classes; COCO’s AP also averages over IoU thresholds from 0.50 to 0.95 in steps of 0.05, which rewards tight boxes, and reports AP for small, medium and large objects. Instance segmentation uses mask IoU for mask AP, and semantic segmentation uses mIoU.</p>
+</div></details>
+<details class="qa qa-asked" id="q8"><summary>
+<span class="qa-n">Q8</span><span class="qa-q">How does YOLO work?</span><span class="qa-badge" title="Reported in a real interview">Asked · Qualcomm 2026, Glassdoor</span>
+</summary><div class="qa-body">
+<p>YOLO is a one-stage detector: one forward pass predicts, at each cell of one or more feature grids, box parameters, an objectness or confidence score and class probabilities, and NMS removes duplicates. In the original, a <span class="math inline">448 \times 448</span> image maps to a <span class="math inline">7 \times 7</span> grid; each cell predicts two boxes (center relative to the cell, <span class="math inline">\sqrt w</span> and <span class="math inline">\sqrt h</span> relative to the image, and a confidence trained toward <span class="math inline">\Pr(\text{object}) \times \mathrm{IoU}</span>) and 20 class probabilities. The cell containing an object’s center is responsible for it, and the loss is weighted sum-squared error. It ran at 45 frames per second with 63.4% mAP on VOC 2007 but struggled with small, crowded objects. YOLOv2 added <span class="math inline">k</span>-means anchors and batch normalization, YOLOv3 multi-scale heads; later versions such as YOLOX and YOLOv8 are anchor-free with FPN- or PAN-style necks, decoupled heads and IoU-based box losses, and YOLOv10 trains one-to-one assignments to drop NMS. It is faster than two-stage detectors such as Faster R-CNN and was historically weaker on small objects.</p>
+</div></details>
+<details class="qa" id="q9"><summary>
+<span class="qa-n">Q9</span><span class="qa-q">Walk through Faster R-CNN at inference, from image to final boxes.</span>
+</summary><div class="qa-body">
+<p>The backbone (often with an FPN) runs once. The RPN predicts objectness and deltas for <span class="math inline">k</span> anchors per location; the decoded, clipped boxes go through NMS at IoU 0.7 and the top few hundred become proposals. RoIAlign pools a fixed-size feature for each proposal, and the head outputs probabilities over <span class="math inline">n_{\text{cls}} + 1</span> classes and class-specific deltas that refine each box again. Per class, low scores are dropped, NMS at about IoU 0.5 removes duplicates, and the top 100 detections are returned.</p>
+</div></details>
+<details class="qa" id="q10"><summary>
+<span class="qa-n">Q10</span><span class="qa-q">Why does COCO average AP over IoU thresholds from 0.5 to 0.95 instead of using 0.5?</span>
+</summary><div class="qa-body">
+<p>At IoU 0.5 a loose box still counts, so AP<span class="math inline">_{50}</span> cannot tell rough from precise localization. Averaging over thresholds up to 0.95 gives credit in proportion to how tight the boxes are: in the worked example AP<span class="math inline">_{50}</span> is 0.63 but the average is 0.29, because the matches have IoU between 0.58 and 0.82. COCO AP therefore responds to localization improvements, such as RoIAlign or better box losses, that barely move AP<span class="math inline">_{50}</span>.</p>
+</div></details>
+<h2 id="segmentation">Segmentation</h2>
+<h3 id="semantic-instance-and-panoptic">Semantic, instance and panoptic</h3>
+<p>Segmentation labels pixels. The three variants differ in whether they separate objects of the same class.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>Task</th>
+<th>Output</th>
+<th>Separates objects of one class?</th>
+<th>Main metric</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Semantic</td>
+<td>one class per pixel</td>
+<td>no: two adjacent cars are one “car” region</td>
+<td>mIoU</td>
+</tr>
+<tr>
+<td>Instance</td>
+<td>one mask, class and score per object, for countable “thing” classes</td>
+<td>yes; masks may overlap; background is unlabeled</td>
+<td>mask AP</td>
+</tr>
+<tr>
+<td>Panoptic</td>
+<td>a class and an instance id for every pixel, no overlaps</td>
+<td>yes for things; amorphous “stuff” (sky, road, grass) gets one region per class</td>
+<td>PQ</td>
+</tr>
+</tbody>
+</table>
+<h3 id="fcn">FCN</h3>
+<p>The fully convolutional network (FCN, Long et al., 2015) turned an ImageNet classifier into a segmenter. A fully connected layer applied to a <span class="math inline">7 \times 7 \times 512</span> feature map is the same computation as a <span class="math inline">7 \times 7</span> convolution with as many output channels, so rewriting the classifier’s fully connected layers as convolutions lets it accept any input size and output a coarse map of class scores (stride 32) instead of one vector. That map is upsampled to the input resolution by a transposed convolution initialized to bilinear interpolation, and trained with per-pixel cross-entropy. Upsampling by 32 in one step gives blobby boundaries (FCN-32s), so FCN adds score maps predicted from the earlier pool4 (stride 16) and pool3 (stride 8) features before upsampling: FCN-16s and FCN-8s, each sharper than the last. This combination of coarse, semantic and fine, local predictions is the idea every later segmentation architecture develops.</p>
+<h3 id="u-net">U-Net</h3>
+<p>U-Net (Ronneberger et al., 2015) makes the decoder as large as the encoder. The contracting path repeats two <span class="math inline">3 \times 3</span> convolutions with ReLU and a <span class="math inline">2 \times 2</span> max-pooling, doubling the channels from 64 to 1024. The expanding path repeats a <span class="math inline">2 \times 2</span> up-convolution that halves the channels, concatenation with the encoder features at the same scale, and two <span class="math inline">3 \times 3</span> convolutions; a <span class="math inline">1 \times 1</span> convolution gives class scores. The original convolutions are unpadded, so a <span class="math inline">572 \times 572</span> input yields a <span class="math inline">388 \times 388</span> output and large images are processed in overlapping tiles. Built for biomedical images with few labels, it relied on elastic-deformation augmentation and a loss weighting that emphasized the thin gaps between touching cells.</p>
+<p>The skip connections are the key part. Pooling discards exact positions, and the decoder cannot recover a boundary’s position from coarse features alone, so it receives the encoder’s high-resolution features directly. U-Net’s skips concatenate, ResNet’s add. The same design became the standard denoiser in <a href="diffusion-models.html">diffusion models</a>, with attention at low resolutions and the noise level injected into every block.</p>
+<details class="qa qa-asked" id="q11"><summary>
+<span class="qa-n">Q11</span><span class="qa-q">Why does a U-Net downsample and upsample, and what do its skip connections do?</span><span class="qa-badge" title="Reported in a real interview">Asked · ByteDance 2020, Baidu 2024 (Nowcoder)</span>
+</summary><div class="qa-body">
+<p>Downsampling grows the receptive field cheaply, so deep features see context from a large area, and saves computation; upsampling returns to full resolution because the output is a per-pixel map. Pooling discards exact positions, so the skip connections concatenate the encoder’s features at each scale into the decoder at the same scale, supplying the detail needed for sharp boundaries and shortening gradient paths. U-Net skips concatenate while ResNet skips add. Diffusion U-Nets reuse the structure: coarse levels handle global layout, fine levels and skips handle detail, attention sits at low resolutions, and the timestep embedding enters every residual block.</p>
+</div></details>
+<h3 id="deeplab-and-atrous-convolution">DeepLab and atrous convolution</h3>
+<p>Pooling by 32 loses detail, but simply removing the strides shrinks every later layer’s receptive field and breaks the pretrained weights. <strong>Atrous (dilated) convolution</strong> spaces the kernel taps <span class="math inline">r</span> pixels apart:</p>
+<p><span class="math display">
+y[i] = \sum_{k} x[i + r\,k]\; w[k].
+</span></p>
+<p>A <span class="math inline">3 \times 3</span> kernel with rate <span class="math inline">r</span> spans <span class="math inline">3 + 2(r - 1) = 2r + 1</span> pixels per side but still has 9 weights. DeepLab removes the strides of the last one or two backbone stages and dilates every later convolution by the factor the removed strides would have contributed (rate 2 after one removed stride, 4 after two). The network then keeps the pretrained weights and receptive fields while producing features at output stride 16 or 8 instead of 32. The price is computation: going from output stride 16 to 8 makes the last stage process 4 times as many positions.</p>
+<p><strong>Atrous spatial pyramid pooling</strong> (ASPP) runs several atrous convolutions with different rates in parallel and concatenates them, so each position sees context at several scales. DeepLabv3 at output stride 16 uses a <span class="math inline">1 \times 1</span> convolution, three <span class="math inline">3 \times 3</span> convolutions at rates 6, 12 and 18 (spans of 13, 25 and 37 cells; 37 cells cover <span class="math inline">37 \times 16 = 592</span> input pixels), and an image-level branch that global-average-pools the features. That branch is needed because at rates close to the feature-map size most taps fall into padding and the kernel degenerates to its center weight. DeepLabv1 and v2 refined boundaries with a fully connected CRF (v2 introduced ASPP); v3 dropped the CRF; v3+ (Chen et al., 2018) added a light decoder that merges low-level features, and depthwise-separable atrous convolutions.</p>
+<h3 id="mask-r-cnn">Mask R-CNN</h3>
+<p>Mask R-CNN (He et al., 2017) is Faster R-CNN with a third head. For each proposal, a small FCN on the RoIAligned features predicts one <span class="math inline">m \times m</span> mask per class (<span class="math inline">28 \times 28</span> in the FPN version), each with a per-pixel sigmoid. The mask loss is the average binary cross-entropy of the mask for the proposal’s ground-truth class only; the other classes’ masks receive no gradient. This decouples mask and class prediction: the classification head decides what the object is, and the mask head only has to decide which pixels belong to it, without classes competing per pixel as they would under a softmax. The total loss is <span class="math inline">L = L_{\text{cls}} + L_{\text{box}} + L_{\text{mask}}</span>. At inference, the mask of the predicted class is resized to the box and thresholded at 0.5. RoIAlign matters most here, because a mask that is shifted by a few pixels has a visibly lower IoU. The same design predicts human keypoints by treating each keypoint as a one-hot <span class="math inline">m \times m</span> mask.</p>
+<p>Later universal architectures such as Mask2Former (Cheng et al., 2022) handle semantic, instance and panoptic segmentation with one DETR-style model: each query predicts a class and a mask, trained with Hungarian matching.</p>
+<h3 id="losses-cross-entropy-dice-and-iou">Losses: cross-entropy, Dice and IoU</h3>
+<p><strong>Per-pixel cross-entropy</strong> averages <span class="math inline">-\log \hat p_i(y_i)</span> over pixels. Unlabeled pixels are excluded with an ignore index (255 in many datasets), and rare classes can be up-weighted. Its gradient with respect to each pixel’s logits is <span class="math inline">\hat p_i - \mathbf{y}_i</span>, a purely local signal: every pixel pushes on its own, so the class with the most pixels supplies most of the gradient.</p>
+<p><strong>Dice loss.</strong> For a binary mask with predicted probabilities <span class="math inline">p_i</span> and labels <span class="math inline">g_i \in \{0, 1\}</span>, the soft Dice coefficient and loss are</p>
+<p><span class="math display">
+D = \frac{2\sum_i p_i g_i}{\sum_i p_i + \sum_i g_i} = \frac{2I}{S}, \qquad L_{\text{Dice}} = 1 - D,
+</span></p>
+<p>where <span class="math inline">I = \sum_i p_i g_i</span> is the soft intersection and <span class="math inline">S = \sum_i p_i + \sum_i g_i</span>. With hard 0/1 predictions this is the familiar <span class="math inline">2|P \cap G|/(|P| + |G|)</span>. (V-Net, Milletari et al., 2016, used <span class="math inline">\sum p_i^2 + \sum g_i^2</span> in the denominator; the behavior is similar.) Its gradient follows from the quotient rule, with <span class="math inline">\partial I/\partial p_j = g_j</span> and <span class="math inline">\partial S/\partial p_j = 1</span>:</p>
+<p><span class="math display">
+\frac{\partial D}{\partial p_j} = \frac{2 g_j S - 2I}{S^2} = \begin{cases} \dfrac{2(S - I)}{S^2} &gt; 0 &amp; \text{if } g_j = 1 \ \ \text{(raise foreground)}, \\[2ex] -\dfrac{2I}{S^2} &lt; 0 &amp; \text{if } g_j = 0 \ \ \text{(lower background)}. \end{cases}
+</span></p>
+<p>Every foreground pixel gets the same push up and every background pixel the same push down, and both are divided by <span class="math inline">S^2</span>, a global quantity of the size of the object. <strong>Worked example.</strong> An image has 10,000 pixels and a 100-pixel object, and the network outputs <span class="math inline">p = 0.1</span> everywhere. Then <span class="math inline">I = 100 \times 0.1 = 10</span>, <span class="math inline">S = 10{,}000 \times 0.1 + 100 = 1100</span>, and <span class="math inline">D = 0.018</span>. Each foreground pixel’s gradient is <span class="math inline">2 \times 1090/1100^2 = 0.0018</span> and each background pixel’s is <span class="math inline">-20/1100^2 = -0.0000165</span>, 109 times smaller. Summed over pixels, the foreground total is <span class="math inline">0.180</span> and the background total <span class="math inline">-0.164</span>: the two classes pull with nearly equal total strength although background has 99 times more pixels. Under per-pixel cross-entropy, the summed logit gradients are <span class="math inline">100 \times (0.1 - 1) = -90</span> for foreground and <span class="math inline">9900 \times 0.1 = 990</span> for background, so background dominates elevenfold. That is the intuition for Dice: it measures overlap relative to the object’s size, so it is insensitive to class imbalance and suits small structures such as lesions.</p>
+<p>Its costs: when the object is tiny or absent, <span class="math inline">S</span> is small and the gradient is large and noisy, so a smoothing constant is added to numerator and denominator; it does not produce calibrated probabilities; and it can be unstable early in training. A common recipe is cross-entropy plus Dice.</p>
+<p><strong>IoU (Jaccard) loss.</strong> The soft Jaccard index is <span class="math inline">J = I/(S - I)</span>, and <span class="math inline">L_{\text{IoU}} = 1 - J</span>. Dice and Jaccard are monotonically related on a single mask: from <span class="math inline">J = I/(S - I)</span> we get <span class="math inline">S = I(1 + J)/J</span>, and substituting into <span class="math inline">D = 2I/S</span> gives</p>
+<p><span class="math display">
+D = \frac{2J}{1 + J},
+</span></p>
+<p>so they rank predictions of one image identically (in the example, <span class="math inline">J = 10/1090 = 0.0092</span> and <span class="math inline">2J/(1+J) = 0.018 = D</span>), but their averages over a dataset weight errors differently. The Lovász-softmax loss (Berman et al., 2018) is a tighter convex surrogate for the Jaccard loss, designed to optimize mIoU directly.</p>
+<h3 id="metrics-miou-and-panoptic-quality">Metrics: mIoU and panoptic quality</h3>
+<p><strong>mIoU.</strong> Accumulate one confusion matrix <span class="math inline">M</span> over the whole test set, where <span class="math inline">M_{ab}</span> counts pixels of true class <span class="math inline">a</span> predicted as class <span class="math inline">b</span>. For class <span class="math inline">c</span>, <span class="math inline">\mathrm{TP}_c = M_{cc}</span>, <span class="math inline">\mathrm{FN}_c</span> is the rest of row <span class="math inline">c</span> and <span class="math inline">\mathrm{FP}_c</span> the rest of column <span class="math inline">c</span>, so</p>
+<p><span class="math display">
+\mathrm{IoU}_c = \frac{M_{cc}}{\sum_b M_{cb} + \sum_a M_{ac} - M_{cc}}, \qquad \mathrm{mIoU} = \frac{1}{n_{\text{cls}}}\sum_c \mathrm{IoU}_c .
+</span></p>
+<p><strong>Worked example.</strong> Three classes with confusion matrix (rows true, columns predicted) <span class="math inline">\begin{bmatrix} 50 &amp; 3 &amp; 2 \\ 4 &amp; 20 &amp; 1 \\ 1 &amp; 0 &amp; 9 \end{bmatrix}</span>. Class 0: <span class="math inline">50/(55 + 55 - 50) = 0.833</span>. Class 1: <span class="math inline">20/(25 + 23 - 20) = 0.714</span>. Class 2: <span class="math inline">9/(10 + 12 - 9) = 0.692</span>. The mIoU is <span class="math inline">0.747</span>. Pixel accuracy is <span class="math inline">79/90 = 0.878</span>, higher because it is dominated by the large class 0. mIoU gives each class equal weight, so small classes matter.</p>
+<aside class="callout callout-pitfall"><p class="callout-label">Common pitfall</p>
+<p>Averaging per-image IoUs is not the same as the dataset-level mIoU, and it is ill-defined for classes absent from an image (0/0). Standard benchmarks accumulate intersections and unions over the whole dataset first, then divide. When computing over batches, accumulate the confusion matrix, not per-batch IoUs.</p>
+</aside>
+<p><strong>Panoptic quality</strong> (Kirillov et al., 2019) first matches predicted and true segments of the same class, counting a pair as a match when their IoU exceeds 0.5. Because panoptic segments do not overlap, such a match is unique: if two predicted segments <span class="math inline">p_1, p_2</span> both had IoU above 0.5 with ground truth <span class="math inline">g</span>, then <span class="math inline">|p_k \cap g| &gt; 0.5\,|p_k \cup g| \ge 0.5\,|g|</span> for each, so <span class="math inline">|p_1 \cap g| + |p_2 \cap g| &gt; |g|</span>, impossible for disjoint <span class="math inline">p_1, p_2</span>. So no matching algorithm is needed. Then, per class,</p>
+<p><span class="math display">
+\mathrm{PQ} = \frac{\sum_{(p, g) \in \mathrm{TP}} \mathrm{IoU}(p, g)}{|\mathrm{TP}| + \tfrac12|\mathrm{FP}| + \tfrac12|\mathrm{FN}|}
+= \underbrace{\frac{\sum_{\mathrm{TP}} \mathrm{IoU}}{|\mathrm{TP}|}}_{\text{segmentation quality (SQ)}} \times \underbrace{\frac{|\mathrm{TP}|}{|\mathrm{TP}| + \tfrac12|\mathrm{FP}| + \tfrac12|\mathrm{FN}|}}_{\text{recognition quality (RQ)}},
+</span></p>
+<p>averaged over classes, things and stuff alike. Example: three true objects and three predicted segments; two matches with IoU 0.9 and 0.6, one unmatched prediction (FP) and one unmatched object (FN). Then <span class="math inline">\mathrm{PQ} = 1.5/(2 + 0.5 + 0.5) = 0.5</span>, with <span class="math inline">\mathrm{SQ} = 0.75</span> and <span class="math inline">\mathrm{RQ} = 2/3</span>. RQ is an F1 score for detection and SQ is the average mask quality of what was detected.</p>
+<h3 id="segment-anything">Segment Anything</h3>
+<p>SAM (Kirillov et al., 2023) defines <em>promptable segmentation</em>: given an image and a prompt (foreground or background points, a box, or a rough mask), return a valid mask for what the prompt indicates. A large MAE-pretrained ViT encodes the image once; a light prompt encoder and a small two-way transformer decoder then produce masks fast enough for interactive use. A single point is ambiguous (the shirt or the whole person?), so SAM returns three candidate masks with a predicted IoU for each. Its generality comes largely from data: a model-in-the-loop data engine (assisted manual, then semi-automatic, then fully automatic annotation) produced SA-1B, 11 million images with 1.1 billion masks. The masks carry no class labels, so SAM is often prompted with a detector’s boxes. SAM 2 (Ravi et al., 2024) extends it to video with a memory of past frames, so a prompt on one frame segments and tracks the object through the clip.</p>
+<details class="qa qa-asked" id="q12"><summary>
+<span class="qa-n">Q12</span><span class="qa-q">How would you combine super-resolution with semantic segmentation?</span><span class="qa-badge" title="Reported in a real interview">Asked · Horizon Robotics, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>It works in both directions. Segmentation can guide SR: condition the SR network on semantic probability maps so that generated texture matches each region’s class, as SFTGAN does with spatial feature transform layers that scale and shift features according to the segmentation. SR can help segmentation: an SR branch sharing the encoder keeps fine detail in the shared features (dual super-resolution learning), or small, distant regions are super-resolved before segmenting. Test it with mIoU overall and on small objects and thin structures, against a strong segmenter run at higher input resolution with the same compute.</p>
+</div></details>
+<details class="qa" id="q13"><summary>
+<span class="qa-n">Q13</span><span class="qa-q">When would you use Dice loss instead of cross-entropy for segmentation, and what goes wrong with it?</span>
+</summary><div class="qa-body">
+<p>When the foreground is a small fraction of the image, as with medical lesions; usually Dice is added to cross-entropy. Its gradient is normalized by the total predicted plus true foreground, so foreground and background pull with comparable total strength, while cross-entropy’s per-pixel sum is dominated by the majority class (11 to 1 in the worked example). Problems: tiny or empty masks make it noisy (add smoothing and decide how empty ground truth is scored), its outputs are not calibrated probabilities, and per-image overlap is not dataset-level mIoU.</p>
+</div></details>
+<h2 id="other-dense-prediction-tasks">Other dense prediction tasks</h2>
+<h3 id="keypoints-and-human-pose">Keypoints and human pose</h3>
+<p>Pose estimation locates <span class="math inline">J</span> body keypoints (COCO uses 17). The dominant approach predicts one <strong>heatmap</strong> per keypoint instead of regressing coordinates. The training target for keypoint <span class="math inline">j</span> at location <span class="math inline">\mu_j</span> is a Gaussian bump <span class="math inline">H_j(\mathbf{q}) = \exp\big(-\lVert \mathbf{q} - \mu_j\rVert^2 / (2\sigma^2)\big)</span> on a grid at stride 4 (a <span class="math inline">64 \times 48</span> map for a <span class="math inline">256 \times 192</span> person crop), trained with mean squared error. Heatmaps keep the problem fully convolutional (a shifted person gives a shifted heatmap), allow several candidate locations, and train more easily than direct regression of coordinates from a pooled vector. Stacked hourglass networks (Newell et al., 2016) are an early, influential example. The prediction is the heatmap’s argmax, but at stride 4 the argmax alone is off by up to 2 pixels in each direction, so implementations shift it a quarter cell toward the higher of its two neighbors, or fit a local quadratic.</p>
+<p><em>Top-down</em> methods detect each person and run a single-person network on each crop (SimpleBaselines, Xiao et al., 2018; HRNet, Sun et al., 2019, which keeps a high-resolution branch throughout); they are accurate, but cost grows with the number of people. <em>Bottom-up</em> methods find all keypoints at once and group them into people; OpenPose (Cao et al., 2017) predicts part affinity fields, vector fields along each limb that score candidate connections. COCO evaluates keypoints with object keypoint similarity, <span class="math inline">\mathrm{OKS} = \sum_j \exp\big(-d_j^2/(2 s^2 k_j^2)\big)\,[v_j &gt; 0] / \sum_j [v_j &gt; 0]</span>, with distance error <span class="math inline">d_j</span>, object area <span class="math inline">s^2</span>, per-keypoint tolerance <span class="math inline">k_j</span> and visibility flag <span class="math inline">v_j</span>; OKS plays the role IoU plays for boxes.</p>
+<h3 id="monocular-depth">Monocular depth</h3>
+<p>Predicting depth from one image is ill-posed: a scene and a copy of it twice as large and twice as far away produce the same image, so absolute scale can come only from learned priors about object sizes. Supervised methods train on depth from LiDAR or RGB-D sensors. Eigen et al. (2014) used a scale-invariant loss on log depths: with <span class="math inline">d_i = \log \hat z_i - \log z_i</span> over <span class="math inline">n</span> pixels,</p>
+<p><span class="math display">
+L = \frac{1}{n}\sum_i d_i^2 - \frac{\lambda}{n^2}\Big(\sum_i d_i\Big)^2 .
+</span></p>
+<p>With <span class="math inline">\lambda = 1</span> this is the variance of <span class="math inline">d_i</span>, which does not change when every prediction is multiplied by the same factor (that adds a constant to every <span class="math inline">d_i</span>): a prediction twice the true depth everywhere has loss 0. They trained with <span class="math inline">\lambda = 0.5</span>. MiDaS (Ranftl et al., 2020) used a loss invariant to both scale and shift of inverse depth, which allowed mixing datasets with incompatible depth scales and gave strong zero-shot <em>relative</em> depth; Depth Anything (Yang et al., 2024) scaled this with large amounts of pseudo-labeled unlabeled images. Self-supervised methods learn from stereo pairs (Monodepth, Godard et al., 2017, reconstructs one view from the other through the predicted disparity) or from video with a predicted camera motion. Common metrics are the absolute relative error <span class="math inline">\frac{1}{n}\sum |\hat z_i - z_i|/z_i</span> and the fraction of pixels with <span class="math inline">\max(\hat z_i/z_i, z_i/\hat z_i) &lt; 1.25</span>.</p>
+<h3 id="optical-flow">Optical flow</h3>
+<p>Optical flow assigns each pixel a 2D displacement <span class="math inline">(u, v)</span> between two frames. The classical starting point is <strong>brightness constancy</strong>: a point keeps its intensity as it moves, <span class="math inline">I(x + u, y + v, t + 1) = I(x, y, t)</span>. For small motion, a first-order Taylor expansion of the left side gives <span class="math inline">I + I_x u + I_y v + I_t = I</span>, so</p>
+<p><span class="math display">
+I_x u + I_y v + I_t = 0 .
+</span></p>
+<p>This is one equation in two unknowns per pixel. Writing it as <span class="math inline">\nabla I \cdot (u, v) = -I_t</span> shows that only the component of motion along the gradient, <span class="math inline">-I_t/\lVert \nabla I\rVert</span>, is determined; motion along an edge is invisible. This is the <strong>aperture problem</strong>. Example: at a vertical edge with <span class="math inline">\nabla I = (2, 0)</span> and <span class="math inline">I_t = -4</span>, the equation reads <span class="math inline">2u = 4</span>, so <span class="math inline">u = 2</span> and <span class="math inline">v</span> can be anything: a vertical line moving diagonally looks, through a small window, exactly like one moving horizontally.</p>
+<p>Two classical fixes add assumptions. <strong>Lucas–Kanade</strong> (1981) assumes the flow is constant in a small window and solves the stacked equations by least squares,</p>
+<p><span class="math display">
+\Big(\sum_{\text{window}} \nabla I\, \nabla I^\top\Big) \begin{bmatrix} u \\ v \end{bmatrix} = -\sum_{\text{window}} \nabla I\; I_t ,
+</span></p>
+<p>which is well-posed only where the <span class="math inline">2 \times 2</span> structure tensor on the left has two large eigenvalues, that is, at corners and textured patches. <strong>Horn–Schunck</strong> (1981) instead adds a global smoothness term, minimizing <span class="math inline">\int (I_x u + I_y v + I_t)^2 + \alpha^2(\lVert\nabla u\rVert^2 + \lVert\nabla v\rVert^2)</span>, which fills in flow where the data say nothing. Both need coarse-to-fine image pyramids for motions larger than a pixel or two, because the Taylor expansion fails.</p>
+<p><strong>RAFT</strong> (Teed and Deng, 2020) is the reference learned method. It correlates features of every pixel pair between the two frames at 1/8 resolution into a 4D volume, pools it into a pyramid, and refines a flow field from zero with a recurrent unit that repeatedly looks up correlations around the current estimate and outputs a correction; keeping all pairs avoids losing small, fast objects. Details are on <a href="vision-backbones.html#optical-flow">vision backbones</a>. Flow is scored by end-point error (mean distance between predicted and true vectors) and used for stabilization, frame interpolation, alignment in video super-resolution and filtering static clips from video training data. It measures 2D image motion, not 3D scene motion, and is undefined at occlusions.</p>
+<details class="qa" id="q14"><summary>
+<span class="qa-n">Q14</span><span class="qa-q">Why can’t optical flow be computed from a single pixel, and how do Lucas–Kanade and Horn–Schunck get around it?</span>
+</summary><div class="qa-body">
+<p>Linearized brightness constancy gives one equation, <span class="math inline">I_x u + I_y v + I_t = 0</span>, for two unknowns, so only the flow component along the image gradient is determined (the aperture problem). Lucas–Kanade assumes constant flow in a small window and solves the overdetermined system by least squares, which works where the structure tensor <span class="math inline">\sum \nabla I \nabla I^\top</span> is well-conditioned (corners, texture) and fails on edges and flat regions. Horn–Schunck adds a global smoothness penalty that fills in uninformative regions but blurs motion boundaries. Both linearize, so large motions need coarse-to-fine pyramids; RAFT replaces linearization with feature correlation and iterative refinement.</p>
+</div></details>
+<h2 id="image-processing-for-restoration-and-generation">Image processing for restoration and generation</h2>
+<p>Restoration and generation models are trained and scored on images produced by resizing, blurring and color conversion, and the conventions behind those steps silently change benchmark numbers. This section covers only those pieces; <a href="restoration-super-resolution.html">restoration and super-resolution</a> builds full degradation models on top of them.</p>
+<h3 id="images-as-arrays-and-color-spaces">Images as arrays and color spaces</h3>
+<p>An image is an <span class="math inline">H \times W \times C</span> array: rows are <span class="math inline">y</span>, columns are <span class="math inline">x</span>. Files usually hold 8-bit unsigned integers in <span class="math inline">[0, 255]</span>; networks want floats. NumPy and OpenCV use height–width–channel order, PyTorch uses channel–height–width, and OpenCV loads color images in BGR order, not RGB. Arithmetic on <code>uint8</code> wraps around silently: <span class="math inline">200 + 100</span> gives <span class="math inline">44</span> (<span class="math inline">300 \bmod 256</span>), so convert to float (or a wider integer type) before filtering or blending.</p>
+<p><strong>sRGB and linear light.</strong> Stored sRGB values are gamma-encoded, roughly the 1/2.2 power of linear light intensity, which spends more code values on dark tones where vision is more sensitive. Physically meaningful operations (averaging, blurring, resizing, blending) belong in linear light, although most pipelines skip the conversion.</p>
+<p><strong>YCbCr</strong> separates brightness (luma <span class="math inline">Y</span>) from two color-difference signals. With BT.601 weights,</p>
+<p><span class="math display">
+Y = 0.299R + 0.587G + 0.114B, \qquad C_b = \frac{B - Y}{2(1 - 0.114)}, \qquad C_r = \frac{R - Y}{2(1 - 0.299)},
+</span></p>
+<p>where the denominators scale each difference into <span class="math inline">[-0.5, 0.5]</span> (JPEG then adds 128 on an 8-bit scale, so <span class="math inline">C_b = 128 + 0.564(B - Y)</span>). The weights reflect that green contributes most to perceived brightness and blue least. MATLAB’s <code>rgb2ycbcr</code>, used by most super-resolution benchmark code, uses the studio range instead: <span class="math inline">Y = 16 + 65.481R + 128.553G + 24.966B</span> for <span class="math inline">R, G, B \in [0, 1]</span>, which maps white to 235 and black to 16.</p>
+<p><strong>Why super-resolution works on luma.</strong> Human vision resolves fine detail much better in brightness than in color, which is why JPEG and video codecs commonly store chroma at half resolution in each direction (4:2:0 subsampling); most edges and texture therefore live in <span class="math inline">Y</span>. Early SR networks such as SRCNN super-resolved only <span class="math inline">Y</span> and upsampled <span class="math inline">C_b, C_r</span> bicubically, and SR papers by convention report PSNR and SSIM on <span class="math inline">Y</span> with a few border pixels cropped. PSNR on <span class="math inline">Y</span> and on RGB differ for the same images, so state the convention (<a href="evaluation-metrics.html">evaluation metrics</a>).</p>
+<p>Other spaces: HSV and HSL (hue, saturation, value or lightness) for intuitive color edits; CIE XYZ, the device-independent reference; and CIELAB, designed so that Euclidean distance roughly matches perceived color difference.</p>
+<details class="qa qa-asked" id="q15"><summary>
+<span class="qa-n">Q15</span><span class="qa-q">How do RAW and RGB images differ, and which colour spaces do you know?</span><span class="qa-badge" title="Reported in a real interview">Asked · ByteDance image intern, Nowcoder 2020</span>
+</summary><div class="qa-body">
+<p>RAW data are linear sensor readings, 10 to 14 bits deep, with one color per pixel behind a Bayer color filter array, before white balance or gamma. An sRGB image is the output of the camera’s image signal processor: black-level subtraction, demosaicing, white balance, a color-correction matrix, denoising and sharpening, tone mapping and gamma, then 8-bit quantization and usually compression. RAW keeps linear noise statistics and more dynamic range, which is why denoising and low-light enhancement work better on it. Color spaces: sRGB (gamma-encoded) and linear RGB; CIE XYZ; YCbCr or YUV, which separate luma from chroma for compression and are why SR papers evaluate on the Y channel; HSV and HSL for hue and saturation edits; and CIELAB, approximately perceptually uniform. Higher bit depth reduces banding in smooth gradients.</p>
+</div></details>
+<h3 id="gaussian-blur-as-a-degradation-kernel">Gaussian blur as a degradation kernel</h3>
+<p>Super-resolution and deblurring models are usually trained on pairs synthesized from clean images with the degradation model</p>
+<p><span class="math display">
+y = (k * x)\downarrow_s + n ,
+</span></p>
+<p>blur the high-resolution image <span class="math inline">x</span> with a kernel <span class="math inline">k</span>, keep every <span class="math inline">s</span>-th pixel, and add noise <span class="math inline">n</span>. The kernel stands for the camera’s optical blur and pixel integration, and it doubles as the anti-aliasing filter for the downsampling (next subsection). It is most often a Gaussian, isotropic or anisotropic with a random covariance, as in BSRGAN’s randomized degradation pipeline (Zhang et al., 2021). A model trained on one kernel tends to fail on images blurred by another, which is the starting point of blind super-resolution (<a href="restoration-super-resolution.html">restoration and super-resolution</a>).</p>
+<p><strong>Convolution.</strong> Blurring is a linear shift-invariant filter: every output pixel is the same weighted sum of its neighbors, <span class="math inline">(x * k)[i, j] = \sum_{u, v} x[i - u, j - v]\, k[u, v]</span>. Convolution flips the kernel and correlation does not; deep-learning “convolution” layers compute correlation, which makes no difference for learned kernels or for symmetric ones such as the Gaussian. At the borders, reflection padding avoids the dark frame that zero padding produces in a blurred image.</p>
+<p><strong>The Gaussian kernel</strong> is <span class="math inline">G_\sigma(u, v) = \frac{1}{2\pi\sigma^2} e^{-(u^2 + v^2)/(2\sigma^2)}</span>, truncated at radius <span class="math inline">r = \lceil 3\sigma \rceil</span> (so <span class="math inline">k = 2r + 1</span> taps per side) and renormalized to sum to 1. An anisotropic Gaussian replaces <span class="math inline">\sigma^2 I</span> by a covariance <span class="math inline">\Sigma</span>, usually built from two standard deviations and a rotation angle.</p>
+<p><strong>Separability, derived.</strong> The isotropic Gaussian factors as <span class="math inline">G(u, v) = g(u)\, g(v)</span>, with <span class="math inline">g</span> the 1D Gaussian, because <span class="math inline">e^{-(u^2 + v^2)/2\sigma^2} = e^{-u^2/2\sigma^2} e^{-v^2/2\sigma^2}</span>. Then</p>
+<p><span class="math display">
+\begin{aligned}
+(x * G)[i, j] &amp;= \sum_u \sum_v x[i - u, j - v]\; g(u)\, g(v) &amp;&amp; \text{substitute the factorization} \\
+&amp;= \sum_u g(u) \underbrace{\Big(\sum_v x[i - u, j - v]\; g(v)\Big)}_{x_1[i - u,\ j]} &amp;&amp; g(u) \text{ does not depend on } v \\
+&amp;= \sum_u g(u)\, x_1[i - u, j] ,
+\end{aligned}
+</span></p>
+<p>where <span class="math inline">x_1</span> is the image filtered along each row with the 1D kernel; the outer sum then filters along the columns. So a 2D Gaussian blur is two 1D passes, and the cost per pixel drops from <span class="math inline">k^2</span> to <span class="math inline">2k</span> multiply-adds. For <span class="math inline">\sigma = 3</span>, <span class="math inline">k = 19</span>: 361 versus 38, a factor of 9.5, or 2.25 versus 0.24 billion multiply-adds on a <span class="math inline">1920 \times 1080</span> RGB image. A kernel is separable exactly when its matrix has rank 1, and the SVD gives the two factors. An anisotropic Gaussian is separable along <span class="math inline">x</span> and <span class="math inline">y</span> only when its covariance is diagonal: otherwise the exponent contains a cross term proportional to <span class="math inline">uv</span>, which does not split into a function of <span class="math inline">u</span> times a function of <span class="math inline">v</span>, so a rotated kernel needs a full 2D convolution. In PyTorch a fixed blur is a depthwise <code>conv2d</code> (<code>groups</code> equal to the number of channels), or two of them with <span class="math inline">k \times 1</span> and <span class="math inline">1 \times k</span> kernels.</p>
+<details class="qa" id="q16"><summary>
+<span class="qa-n">Q16</span><span class="qa-q">Why is a Gaussian the usual blur kernel when synthesizing SR training data, and how do you apply it cheaply?</span>
+</summary><div class="qa-body">
+<p>It is a reasonable model of optical blur and sensor integration, it is a smooth low-pass filter that suppresses aliasing before downsampling (its frequency response is again a Gaussian, with no ripples), and a few parameters (two widths and an angle) span a useful family of isotropic and anisotropic kernels to randomize over. An isotropic or axis-aligned Gaussian is separable, so apply it as two 1D depthwise convolutions, <span class="math inline">2k</span> instead of <span class="math inline">k^2</span> multiply-adds per pixel; a rotated anisotropic kernel needs one 2D depthwise convolution. Use reflection padding, and remember that real camera blur also includes motion, defocus and lens aberrations, which is why practical degradation pipelines randomize the kernel and its order relative to noise and compression.</p>
+</div></details>
+<h3 id="the-fourier-transform-the-convolution-theorem-and-aliasing">The Fourier transform, the convolution theorem and aliasing</h3>
+<p>The 2D discrete Fourier transform writes an <span class="math inline">M \times N</span> image as a sum of 2D sinusoids:</p>
+<p><span class="math display">
+X[k, l] = \sum_{m=0}^{M-1}\sum_{n=0}^{N-1} x[m, n]\; e^{-2\pi i\,(km/M + ln/N)} .
+</span></p>
+<p>Low frequencies describe smooth variation, high frequencies describe edges, texture and noise. Natural images have most of their energy at low frequencies, with amplitude falling roughly in inverse proportion to frequency.</p>
+<p><strong>Convolution theorem.</strong> For circular convolution <span class="math inline">y[n] = \sum_m x[m]\, h[(n - m) \bmod N]</span> (1D for brevity),</p>
+<p><span class="math display">
+\begin{aligned}
+Y[k] &amp;= \sum_n \sum_m x[m]\, h[(n - m) \bmod N]\, e^{-2\pi i k n/N} &amp;&amp; \text{definition of the DFT} \\
+&amp;= \sum_m x[m]\, e^{-2\pi i k m/N} \sum_{n&#39;} h[n&#39;]\, e^{-2\pi i k n&#39;/N} &amp;&amp; n&#39; = (n - m) \bmod N, \text{ and } e^{-2\pi i k n/N} \text{ has period } N \\
+&amp;= X[k]\, H[k].
+\end{aligned}
+</span></p>
+<p>Convolution in space is multiplication in frequency. So a filter is described by its frequency response <span class="math inline">H</span>, and convolution can be computed with FFTs in <span class="math inline">O(N \log N)</span> instead of <span class="math inline">O(Nk)</span> for a kernel of length <span class="math inline">k</span>, after zero-padding both signals to length at least <span class="math inline">N + k - 1</span> so the circular wrap does not corrupt the result; this pays off for large kernels. The Fourier transform of a Gaussian is a Gaussian: a blur of standard deviation <span class="math inline">\sigma</span> pixels multiplies frequency <span class="math inline">f</span> (in cycles per pixel) by <span class="math inline">e^{-2\pi^2\sigma^2 f^2}</span>, so a wider blur keeps fewer frequencies.</p>
+<p><strong>Sampling and aliasing.</strong> Sampling with one sample per unit makes frequencies <span class="math inline">f</span> and <span class="math inline">f + 1</span> indistinguishable, and also <span class="math inline">f</span> and <span class="math inline">1 - f</span> for real signals. Only frequencies below the <strong>Nyquist frequency</strong>, half the sampling rate (0.5 cycles per sample), are represented uniquely; a frequency above it appears as a lower one, which is aliasing. Example: <span class="math inline">\cos(2\pi \cdot 0.7 n) = \cos(2\pi n - 2\pi \cdot 0.3 n) = \cos(2\pi \cdot 0.3 n)</span> at every integer <span class="math inline">n</span>, so a 0.7 cycles-per-sample pattern is recorded as 0.3. If a band-limited signal is sampled above twice its highest frequency, it can be reconstructed exactly (the sampling theorem).</p>
+<p><strong>Why blur before downsampling.</strong> Keeping every second pixel halves the sampling rate, so the new Nyquist limit is 0.25 cycles per original pixel. A stripe pattern at 0.4 cycles per pixel becomes 0.8 cycles per new pixel after decimation and aliases to <span class="math inline">1 - 0.8 = 0.2</span>: a false, coarser stripe pattern (moiré) that was never in the scene and cannot be separated from real content afterwards. So low-pass filter first. A Gaussian with <span class="math inline">\sigma = 1</span> pixel keeps 73% of the amplitude at 0.125 cycles per pixel, 29% at the new Nyquist limit 0.25, and only 4% at 0.4, trading a little blur for almost no aliasing. That is why image pyramids blur before each halving, why antialiased resizers widen their kernel when shrinking, and why strided convolutions and pooling in CNNs are not shift-invariant unless a blur precedes the subsampling (Zhang, 2019). <a href="restoration-super-resolution.html#sampling-and-aliasing">Restoration and super-resolution</a> derives the decimation spectrum in full.</p>
+<details class="qa qa-asked" id="q17"><summary>
+<span class="qa-n">Q17</span><span class="qa-q">What changes when you use interpolation to downsample instead of upsample?</span><span class="qa-badge" title="Reported in a real interview">Asked · Megvii PhD researcher, Nowcoder 2021</span>
+</summary><div class="qa-body">
+<p>Upsampling only fills in values between samples; downsampling must also remove frequencies above the new Nyquist limit, or they alias into moiré and jagged edges. Bilinear and bicubic kernels span only 2 or 4 input pixels, a reasonable low-pass filter when upsampling but far too narrow when shrinking by a large factor, when most input pixels are simply skipped. Correct downsampling widens the kernel by the scale factor: antialiased resizing, as in PIL, MATLAB’s <code>imresize</code> by default, PyTorch’s <code>F.interpolate(..., antialias=True)</code>, or OpenCV’s <code>INTER_AREA</code>. This matters for SR because low-resolution training inputs are made by downsampling: a model trained on one resizer’s output can fail on images from another resizer or a real camera.</p>
+</div></details>
+<h3 id="interpolation-nearest-bilinear-bicubic">Interpolation: nearest, bilinear, bicubic</h3>
+<p>Resizing evaluates a continuous reconstruction of the image at new positions. All three standard methods are separable: interpolate along <span class="math inline">x</span>, then along <span class="math inline">y</span>.</p>
+<p><strong>Coordinate mapping.</strong> First map output index <span class="math inline">j</span> to a continuous input coordinate. If pixel <span class="math inline">j</span> covers the interval <span class="math inline">[j, j + 1)</span>, its center is at <span class="math inline">j + 0.5</span>; scaling the centers by <span class="math inline">W_{\text{in}}/W_{\text{out}}</span> and converting back to index units gives</p>
+<p><span class="math display">
+x_{\text{in}} = (j + 0.5)\,\frac{W_{\text{in}}}{W_{\text{out}}} - 0.5 \quad (\texttt{align\_corners=False}), \qquad x_{\text{in}} = j\,\frac{W_{\text{in}} - 1}{W_{\text{out}} - 1} \quad (\texttt{align\_corners=True}).
+</span></p>
+<p>The first aligns the images’ outer edges (pixel areas), the second the centers of the corner pixels. Library defaults differ, and the resulting sub-pixel shifts lower PSNR in super-resolution comparisons.</p>
+<p><strong>Nearest neighbor</strong> takes the input pixel whose area contains the output pixel’s center, <span class="math inline">\lfloor (j + 0.5)\, W_{\text{in}}/W_{\text{out}} \rfloor</span>. Its kernel is a box: blocky output, no new values, which is exactly right for label maps and masks.</p>
+<p><strong>Bilinear</strong> interpolation at a point <span class="math inline">(x, y)</span> with <span class="math inline">x_0 = \lfloor x \rfloor</span>, <span class="math inline">x_1 = x_0 + 1</span>, <span class="math inline">\delta_x = x - x_0</span> (likewise for <span class="math inline">y</span>) interpolates linearly along <span class="math inline">x</span> on the two neighboring rows and then along <span class="math inline">y</span>:</p>
+<p><span class="math display">
+\begin{aligned}
+\text{top} &amp;= (1 - \delta_x)\, I[y_0, x_0] + \delta_x\, I[y_0, x_1], \qquad \text{bottom} = (1 - \delta_x)\, I[y_1, x_0] + \delta_x\, I[y_1, x_1], \\
+I(x, y) &amp;= (1 - \delta_y)\,\text{top} + \delta_y\,\text{bottom} \\
+&amp;= (1 - \delta_x)(1 - \delta_y)\, I_{00} + \delta_x (1 - \delta_y)\, I_{01} + (1 - \delta_x)\delta_y\, I_{10} + \delta_x \delta_y\, I_{11}.
+\end{aligned}
+</span></p>
+<p>Each corner’s weight is the area of the rectangle opposite it, and the weights sum to <span class="math inline">(1 - \delta_x + \delta_x)(1 - \delta_y + \delta_y) = 1</span>. <strong>Worked example.</strong> For the <span class="math inline">2 \times 2</span> image <span class="math inline">\begin{bmatrix} 10 &amp; 20 \\ 30 &amp; 40 \end{bmatrix}</span> at <span class="math inline">(x, y) = (0.25, 0.5)</span>: <span class="math inline">0.375 \cdot 10 + 0.125 \cdot 20 + 0.375 \cdot 30 + 0.125 \cdot 40 = 3.75 + 2.5 + 11.25 + 5 = 22.5</span>. Upsampling the same image by 2 with <code>align_corners=False</code> maps output columns to <span class="math inline">x = -0.25, 0.25, 0.75, 1.25</span>, clamped to <span class="math inline">0, 0.25, 0.75, 1</span>, giving rows <span class="math inline">(10, 12.5, 17.5, 20)</span>, <span class="math inline">(15, 17.5, 22.5, 25)</span>, <span class="math inline">(25, 27.5, 32.5, 35)</span>, <span class="math inline">(30, 32.5, 37.5, 40)</span>. With <code>align_corners=True</code> the columns map to <span class="math inline">0, 1/3, 2/3, 1</span> and the first row is <span class="math inline">(10, 13.33, 16.67, 20)</span>. Both match <code>F.interpolate</code>. The bilinear kernel is a triangle of width 2 (frequency response <span class="math inline">\mathrm{sinc}^2</span>), smoother but blurrier than nearest.</p>
+<p><strong>Bicubic</strong> interpolation uses 4 taps per axis (16 in 2D) with Keys’ cubic convolution kernel,</p>
+<p><span class="math display">
+w(s) = \begin{cases} (a + 2)|s|^3 - (a + 3)|s|^2 + 1 &amp; |s| \le 1, \\ a|s|^3 - 5a|s|^2 + 8a|s| - 4a &amp; 1 &lt; |s| &lt; 2, \\ 0 &amp; \text{otherwise.} \end{cases}
+</span></p>
+<p>Halfway between pixels, the four weights are <span class="math inline">(-0.0625, 0.5625, 0.5625, -0.0625)</span> for <span class="math inline">a = -0.5</span> (MATLAB) and <span class="math inline">(-0.094, 0.594, 0.594, -0.094)</span> for <span class="math inline">a = -0.75</span> (PyTorch and OpenCV). The negative outer lobes sharpen the result, a better approximation of ideal sinc interpolation, but overshoot at edges (slight ringing) and can produce values outside <span class="math inline">[0, 255]</span>, so outputs are clamped.</p>
+<details class="qa qa-asked" id="q18"><summary>
+<span class="qa-n">Q18</span><span class="qa-q">Implement 2x bilinear interpolation. What are the pitfalls?</span><span class="qa-badge" title="Reported in a real interview">Asked · Megvii PhD SR (2021, 2022), Adobe RI (3 reports)</span>
+</summary><div class="qa-body">
+<p>Map output pixel <span class="math inline">j</span> to <span class="math inline">x = (j + 0.5)/2 - 0.5</span> for the pixel-center convention (PyTorch’s <code>align_corners=False</code>) or <span class="math inline">x = j(W_{\text{in}} - 1)/(W_{\text{out}} - 1)</span> for <code>align_corners=True</code>, clamp to the image, take <span class="math inline">x_0 = \lfloor x \rfloor</span>, <span class="math inline">x_1 = \min(x_0 + 1, W - 1)</span>, <span class="math inline">\delta_x = x - x_0</span>, likewise for <span class="math inline">y</span>, and blend the four neighbors with weights <span class="math inline">(1-\delta_x)(1-\delta_y)</span>, <span class="math inline">\delta_x(1-\delta_y)</span>, <span class="math inline">(1-\delta_x)\delta_y</span> and <span class="math inline">\delta_x\delta_y</span>. Vectorize with index and weight arrays per axis and gather instead of looping; the operation is separable. Pitfalls: the half-pixel convention differs across libraries and settings and shifts the result by sub-pixel amounts that cost PSNR; indices must be clamped at the border; integer images must be converted to float; and plain bilinear aliases when downsampling. The tested implementation is in the code section.</p>
+</div></details>
+<details class="qa qa-asked" id="q19"><summary>
+<span class="qa-n">Q19</span><span class="qa-q">Implement nearest-neighbour upsampling. How does it differ from bilinear?</span><span class="qa-badge" title="Reported in a real interview">Asked · Megvii CV algorithm, Nowcoder 2022</span>
+</summary><div class="qa-body">
+<p>For each output pixel, copy the input pixel whose area contains the output pixel’s center: index <span class="math inline">\lfloor (j + 0.5)\, W_{\text{in}}/W_{\text{out}} \rfloor</span>, clamped to <span class="math inline">W_{\text{in}} - 1</span>, along each axis, then gather <code>img[ys[:, None], xs[None, :]]</code>. This matches PyTorch’s <code>mode="nearest-exact"</code>; the older <code>mode="nearest"</code> uses <span class="math inline">\lfloor j\, W_{\text{in}}/W_{\text{out}} \rfloor</span>, which picks different pixels at non-integer scales. For an integer factor <span class="math inline">s</span> both equal <code>img.repeat(s, 0).repeat(s, 1)</code>. Compared with bilinear: a box kernel instead of a triangle, so blocky output instead of blur; no new values, which makes it correct for masks and label maps; even worse aliasing when downsampling; and a backward pass that sums the gradients of each copied block. Nearest upsampling followed by a convolution avoids the checkerboard artifacts of transposed convolutions.</p>
+</div></details>
+<details class="qa qa-asked" id="q20"><summary>
+<span class="qa-n">Q20</span><span class="qa-q">Write pseudocode for quadrilinear interpolation in PyTorch or CUDA.</span><span class="qa-badge" title="Reported in a real interview">Asked · Ant digital human (Nowcoder roundup 2025)</span>
+</summary><div class="qa-body">
+<p>It is linear interpolation along each of four axes. Find the grid cell that contains the point, take the fractional offset <span class="math inline">f_a</span> along each axis, and sum the cell’s <span class="math inline">2^4 = 16</span> corners, each weighted by the product of four 1D weights:</p>
+<p><span class="math display">
+v(\mathbf{x}) = \sum_{\mathbf{c} \in \{0,1\}^4} \Big(\prod_{a=1}^4 f_a^{c_a}(1 - f_a)^{1 - c_a}\Big)\, G[i_1 + c_1, \dots, i_4 + c_4].
+</span></p>
+<p>The weights sum to <span class="math inline">\prod_a (f_a + 1 - f_a) = 1</span>. Equivalently, do 15 linear interpolations: 8 along the first axis, then 4, 2 and 1.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> itertools, torch</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> multilinear(grid, pts):</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;grid: (C, D1, ..., Dn); pts: (N, n) continuous index coordinates. n = 4 is quadrilinear.&quot;&quot;&quot;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    C, <span class="op">*</span>D <span class="op">=</span> grid.shape</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    hi <span class="op">=</span> torch.tensor(D) <span class="op">-</span> <span class="dv">1</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    pts <span class="op">=</span> torch.minimum(pts.clamp(<span class="bu">min</span><span class="op">=</span><span class="dv">0</span>), hi)          <span class="co"># clamp to the grid</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    i0 <span class="op">=</span> torch.minimum(pts.floor().<span class="bu">long</span>(), hi <span class="op">-</span> <span class="dv">1</span>)     <span class="co"># lower corner, so i0 + 1 is valid</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    f <span class="op">=</span> pts <span class="op">-</span> i0                                       <span class="co"># fractional offsets in [0, 1]</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    out <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> c <span class="kw">in</span> itertools.product((<span class="dv">0</span>, <span class="dv">1</span>), repeat<span class="op">=</span><span class="bu">len</span>(D)): <span class="co"># the 2^n cell corners</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        c <span class="op">=</span> torch.tensor(c)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        w <span class="op">=</span> torch.where(c.<span class="bu">bool</span>(), f, <span class="dv">1</span> <span class="op">-</span> f).prod(<span class="dv">1</span>)    <span class="co"># product of 1D weights, (N,)</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        out <span class="op">=</span> out <span class="op">+</span> grid[(<span class="bu">slice</span>(<span class="va">None</span>), <span class="op">*</span>(i0 <span class="op">+</span> c).unbind(<span class="dv">1</span>))] <span class="op">*</span> w   <span class="co"># gather (C, N)</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> out.T                                       <span class="co"># (N, C)</span></span></code></pre></div>
+<p>Tested: it reproduces the multilinear function <span class="math inline">x_1x_2x_3x_4 + x_1</span> exactly and, with three axes, matches <code>F.grid_sample</code> (trilinear, <code>align_corners=True</code>); autograd gives gradients for both the grid and the coordinates. In CUDA, launch one thread per point, loop over the 16 corners (bit <span class="math inline">a</span> of the corner index picks <span class="math inline">i_a</span> or <span class="math inline">i_a + 1</span>), and in the backward pass scatter <span class="math inline">w\,\partial L/\partial v</span> into the corners with <code>atomicAdd</code>, since many points share a cell. Texture hardware filters at most three dimensions, so a 4D lookup does the 16 reads by hand or combines two trilinear fetches with a final linear step. The cost is <span class="math inline">O(16NC)</span>, dominated by memory reads.</p>
+</div></details>
+<h2 id="camera-model-nerf-and-gaussian-splatting">Camera model, NeRF and Gaussian splatting</h2>
+<p><strong>Pinhole camera.</strong> A camera moves a world point into its own coordinates with the extrinsics, <span class="math inline">\mathbf{X}_c = R\mathbf{X}_w + \mathbf{t}</span>, and projects it with the intrinsics <span class="math inline">K</span>: by similar triangles a point at depth <span class="math inline">Z</span> lands at <span class="math inline">u = f_x X/Z + c_x</span>, <span class="math inline">v = f_y Y/Z + c_y</span>, or in matrix form <span class="math inline">Z\,(u, v, 1)^\top = K\mathbf{X}_c</span> with <span class="math inline">K = \begin{bmatrix} f_x &amp; 0 &amp; c_x \\ 0 &amp; f_y &amp; c_y \\ 0 &amp; 0 &amp; 1 \end{bmatrix}</span>, where <span class="math inline">f_x, f_y</span> are focal lengths in pixels and <span class="math inline">(c_x, c_y)</span> is the principal point (Hartley and Zisserman, 2004). Example: with <span class="math inline">f_x = f_y = 800</span> and <span class="math inline">(c_x, c_y) = (320, 240)</span>, the camera-frame point <span class="math inline">(0.5, -0.25, 4)</span> lands at <span class="math inline">u = 800 \cdot 0.125 + 320 = 420</span>, <span class="math inline">v = 800 \cdot (-0.0625) + 240 = 190</span>. The depth divides out, so every point on the ray from the camera center <span class="math inline">\mathbf{o} = -R^\top\mathbf{t}</span> in direction <span class="math inline">\mathbf{d} \propto R^\top K^{-1}(u, v, 1)^\top</span> lands on the same pixel. NeRF and Gaussian splatting start from exactly these rays, with <span class="math inline">K</span>, <span class="math inline">R</span> and <span class="math inline">\mathbf{t}</span> for every training photo estimated by structure from motion, usually with COLMAP (Schönberger and Frahm, 2016).</p>
+<p><strong>NeRF</strong> (Mildenhall et al., 2020) represents one scene as an MLP that maps a 3D position and a viewing direction to a volume density <span class="math inline">\sigma</span> and a color <span class="math inline">\mathbf{c}</span> (density depends only on position, so geometry is consistent across views; color also depends on direction, which models reflections). A pixel’s color is rendered by sampling points <span class="math inline">t_i</span> along its camera ray <span class="math inline">\mathbf{r}(t) = \mathbf{o} + t\mathbf{d}</span> and compositing them,</p>
+<p><span class="math display">
+\hat C = \sum_i T_i\,\big(1 - e^{-\sigma_i\delta_i}\big)\,\mathbf{c}_i, \qquad T_i = \exp\Big(-\sum_{j &lt; i}\sigma_j\delta_j\Big),
+</span></p>
+<p>where <span class="math inline">\delta_i</span> is the spacing between samples, <span class="math inline">1 - e^{-\sigma_i\delta_i}</span> is the opacity of segment <span class="math inline">i</span>, and <span class="math inline">T_i</span> is the transmittance, the probability that light reaches it unblocked. Rendering is differentiable, so the MLP is fitted to posed photographs (poses from structure from motion) by minimizing pixel error. Two details made it work: a positional encoding that maps each coordinate <span class="math inline">p</span> to <span class="math inline">\big(\sin(2^k\pi p), \cos(2^k\pi p)\big)</span> for <span class="math inline">k = 0, \dots, L - 1</span> (<span class="math inline">L = 10</span> for position, 4 for direction), without which the MLP produces only blurry, low-frequency results; and hierarchical sampling, where a coarse network’s weights along each ray decide where 128 extra samples go for a fine network (64 coarse samples per ray). Its costs are per-scene optimization (around 1–2 days per scene on one V100 in the paper) and slow rendering, since each pixel needs hundreds of network evaluations.</p>
+<p><strong>3D Gaussian splatting</strong> (Kerbl et al., 2023) replaces the network with a large set of explicit 3D Gaussians (often millions), initialized from the structure-from-motion points. Each has a position, a covariance stored as a rotation and per-axis scales (<span class="math inline">\Sigma = R S S^\top R^\top</span>, which stays positive semi-definite during optimization), an opacity, and view-dependent color as spherical-harmonic coefficients. To render, each Gaussian is projected to a 2D Gaussian on the image (covariance <span class="math inline">J W \Sigma W^\top J^\top</span>, with <span class="math inline">W</span> the viewing transform and <span class="math inline">J</span> the Jacobian of the projection), the splats are sorted by depth per screen tile, and each pixel alpha-blends them front to back with NeRF’s compositing formula. All parameters are optimized on photometric loss, with periodic densification (cloning small and splitting large Gaussians where the gradient is large) and pruning of transparent ones. Rasterization makes rendering real-time (30 frames per second or more at 1080p in the paper) at quality comparable to the best NeRF variants, at the cost of much more memory.</p>
+<details class="qa qa-asked" id="q21"><summary>
+<span class="qa-n">Q21</span><span class="qa-q">How do multi-view stereo and NeRF differ in where they sample 3D points?</span><span class="qa-badge" title="Reported in a real interview">Asked · Ant digital human (Nowcoder roundup 2025)</span>
+</summary><div class="qa-body">
+<p>Multi-view stereo (MVS) tests a fixed set of depth hypotheses for each pixel of a reference view and picks one by matching; NeRF samples points along each pixel’s ray, at positions that change every iteration, and integrates a learned density and color. Plane-sweep MVS chooses <span class="math inline">D</span> depths between near and far bounds (MVSNet used 256), warps each source image or feature map into the reference view as if the scene were a plane at each depth, scores photometric consistency (NCC, or the variance of warped features across views) into a cost volume over pixels and depths, regularizes it (semi-global matching or a 3D CNN), and takes a (soft) argmin per pixel before fusing depth maps. NeRF draws one uniform sample per bin along the ray (stratified sampling), evaluates a coarse network, turns the weights <span class="math inline">w_i = T_i(1 - e^{-\sigma_i\delta_i})</span> into a piecewise-constant distribution, and draws more samples from it by inverse-transform sampling for the fine network (64 plus 128 in the paper). Trade-offs: learned MVS is feed-forward and outputs depth directly but needs texture and roughly Lambertian surfaces and handles occlusion heuristically; NeRF models occlusion through transmittance and view-dependent appearance but needs per-scene optimization and wastes samples in empty space. They combine well: MVS depth can concentrate NeRF’s samples near surfaces.</p>
+</div></details>
+<h2 id="from-scratch-code">From-scratch code</h2>
+<p>Each snippet below was run with Python 3, NumPy and PyTorch 2.11, and the printed results are shown in comments.</p>
+<p><strong>IoU and NMS</strong>, checked against <code>torchvision.ops.nms</code>. The IoU function broadcasts to the full <span class="math inline">N \times M</span> matrix; NMS keeps a box and drops everything that overlaps it by more than the threshold, as in the worked example.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np, torch, torchvision</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> box_iou(a, b):</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;a: (N, 4), b: (M, 4) boxes as (x1, y1, x2, y2). Returns the (N, M) IoU matrix.&quot;&quot;&quot;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    tl <span class="op">=</span> np.maximum(a[:, <span class="va">None</span>, :<span class="dv">2</span>], b[<span class="va">None</span>, :, :<span class="dv">2</span>])          <span class="co"># top-left of each intersection</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    br <span class="op">=</span> np.minimum(a[:, <span class="va">None</span>, <span class="dv">2</span>:], b[<span class="va">None</span>, :, <span class="dv">2</span>:])          <span class="co"># bottom-right</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    inter <span class="op">=</span> np.clip(br <span class="op">-</span> tl, <span class="dv">0</span>, <span class="va">None</span>).prod(<span class="op">-</span><span class="dv">1</span>)               <span class="co"># zero if the boxes do not overlap</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    area <span class="op">=</span> <span class="kw">lambda</span> x: (x[:, <span class="dv">2</span>] <span class="op">-</span> x[:, <span class="dv">0</span>]) <span class="op">*</span> (x[:, <span class="dv">3</span>] <span class="op">-</span> x[:, <span class="dv">1</span>])</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> inter <span class="op">/</span> (area(a)[:, <span class="va">None</span>] <span class="op">+</span> area(b)[<span class="va">None</span>, :] <span class="op">-</span> inter)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> nms(boxes, scores, thr<span class="op">=</span><span class="fl">0.5</span>):</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    order <span class="op">=</span> np.argsort(<span class="op">-</span>scores, kind<span class="op">=</span><span class="st">&quot;stable&quot;</span>)    <span class="co"># highest score first</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    keep <span class="op">=</span> []</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> order.size <span class="op">&gt;</span> <span class="dv">0</span>:</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>        i <span class="op">=</span> order[<span class="dv">0</span>]</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>        keep.append(i)                            <span class="co"># the best remaining box survives</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>        ious <span class="op">=</span> box_iou(boxes[i:i <span class="op">+</span> <span class="dv">1</span>], boxes[order[<span class="dv">1</span>:]])[<span class="dv">0</span>]</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>        order <span class="op">=</span> order[<span class="dv">1</span>:][ious <span class="op">&lt;=</span> thr]            <span class="co"># drop boxes that overlap it too much</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.array(keep)</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(box_iou(np.array([[<span class="fl">1.</span>, <span class="dv">1</span>, <span class="dv">5</span>, <span class="dv">5</span>]]), np.array([[<span class="fl">3.</span>, <span class="dv">2</span>, <span class="dv">7</span>, <span class="dv">6</span>], [<span class="dv">5</span>, <span class="dv">5</span>, <span class="dv">9</span>, <span class="dv">9</span>]])))  <span class="co"># [[0.2308 0.]]</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>rng <span class="op">=</span> np.random.default_rng(<span class="dv">0</span>)</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>xy <span class="op">=</span> rng.uniform(<span class="dv">0</span>, <span class="dv">100</span>, (<span class="dv">500</span>, <span class="dv">2</span>))<span class="op">;</span> wh <span class="op">=</span> rng.uniform(<span class="dv">10</span>, <span class="dv">40</span>, (<span class="dv">500</span>, <span class="dv">2</span>))</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>boxes <span class="op">=</span> np.hstack([xy, xy <span class="op">+</span> wh])<span class="op">;</span> scores <span class="op">=</span> rng.random(<span class="dv">500</span>)</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>ref <span class="op">=</span> torchvision.ops.nms(torch.tensor(boxes), torch.tensor(scores), <span class="fl">0.5</span>).numpy()</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>mine <span class="op">=</span> nms(boxes, scores, <span class="fl">0.5</span>)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="bu">len</span>(mine), np.array_equal(mine, ref))   <span class="co"># 274 True (both sorted by decreasing score)</span></span></code></pre></div>
+<p><strong>Bilinear resize</strong>, checked against <code>F.interpolate</code> for both values of <code>align_corners</code>, for upsampling and downsampling and non-integer factors. Without <code>antialias=True</code>, PyTorch’s bilinear downsampling uses the same 2-tap kernel, so it matches; with antialiasing it would not.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np, torch, torch.nn.functional <span class="im">as</span> F</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> bilinear_resize(img, out_h, out_w, align_corners<span class="op">=</span><span class="va">False</span>):</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;img: (H, W) or (H, W, C) float array.&quot;&quot;&quot;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    H, W <span class="op">=</span> img.shape[:<span class="dv">2</span>]</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> coords(n_out, n_in):</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        j <span class="op">=</span> np.arange(n_out)</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> align_corners:                          <span class="co"># corner pixel centers map onto each other</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>            x <span class="op">=</span> j <span class="op">*</span> (n_in <span class="op">-</span> <span class="dv">1</span>) <span class="op">/</span> <span class="bu">max</span>(n_out <span class="op">-</span> <span class="dv">1</span>, <span class="dv">1</span>)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">else</span>:                                      <span class="co"># pixel areas map onto each other</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>            x <span class="op">=</span> np.clip((j <span class="op">+</span> <span class="fl">0.5</span>) <span class="op">*</span> n_in <span class="op">/</span> n_out <span class="op">-</span> <span class="fl">0.5</span>, <span class="dv">0</span>, n_in <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        x0 <span class="op">=</span> np.minimum(np.floor(x).astype(<span class="bu">int</span>), n_in <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>        x1 <span class="op">=</span> np.minimum(x0 <span class="op">+</span> <span class="dv">1</span>, n_in <span class="op">-</span> <span class="dv">1</span>)          <span class="co"># clamp at the border</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> x0, x1, x <span class="op">-</span> x0</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    y0, y1, dy <span class="op">=</span> coords(out_h, H)</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    x0, x1, dx <span class="op">=</span> coords(out_w, W)</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    extra <span class="op">=</span> (<span class="va">None</span>,) <span class="op">*</span> (img.ndim <span class="op">-</span> <span class="dv">2</span>)               <span class="co"># broadcast over channels if present</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    dy, dx <span class="op">=</span> dy[(<span class="bu">slice</span>(<span class="va">None</span>), <span class="va">None</span>) <span class="op">+</span> extra], dx[(<span class="va">None</span>, <span class="bu">slice</span>(<span class="va">None</span>)) <span class="op">+</span> extra]</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    top <span class="op">=</span> img[y0][:, x0] <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> dx) <span class="op">+</span> img[y0][:, x1] <span class="op">*</span> dx   <span class="co"># along x on row y0</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    bot <span class="op">=</span> img[y1][:, x0] <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> dx) <span class="op">+</span> img[y1][:, x1] <span class="op">*</span> dx   <span class="co"># along x on row y1</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> top <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> dy) <span class="op">+</span> bot <span class="op">*</span> dy                         <span class="co"># then along y</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>img <span class="op">=</span> np.random.default_rng(<span class="dv">0</span>).random((<span class="dv">7</span>, <span class="dv">9</span>, <span class="dv">3</span>))</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>t <span class="op">=</span> torch.tensor(img).permute(<span class="dv">2</span>, <span class="dv">0</span>, <span class="dv">1</span>)[<span class="va">None</span>]               <span class="co"># (1, C, H, W)</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> ac <span class="kw">in</span> (<span class="va">False</span>, <span class="va">True</span>):</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> size <span class="kw">in</span> [(<span class="dv">14</span>, <span class="dv">18</span>), (<span class="dv">5</span>, <span class="dv">4</span>), (<span class="dv">10</span>, <span class="dv">13</span>)]:</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>        ref <span class="op">=</span> F.interpolate(t, size<span class="op">=</span>size, mode<span class="op">=</span><span class="st">&quot;bilinear&quot;</span>, align_corners<span class="op">=</span>ac)[<span class="dv">0</span>].permute(<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">0</span>).numpy()</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(ac, size, np.<span class="bu">abs</span>(bilinear_resize(img, <span class="op">*</span>size, ac) <span class="op">-</span> ref).<span class="bu">max</span>() <span class="op">&lt;</span> <span class="fl">1e-12</span>)   <span class="co"># all True</span></span></code></pre></div>
+<p><strong>Average precision</strong> for the toy example of the mAP section: greedy matching in score order, then COCO-style 101-point interpolation, at one IoU threshold and averaged over ten.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> average_precision(tp, n_gt, n_points<span class="op">=</span><span class="dv">101</span>):</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;tp: 0/1 flags of detections sorted by descending score.&quot;&quot;&quot;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    tp <span class="op">=</span> np.asarray(tp, <span class="bu">float</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    recall <span class="op">=</span> np.cumsum(tp) <span class="op">/</span> n_gt</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    precision <span class="op">=</span> np.cumsum(tp) <span class="op">/</span> np.arange(<span class="dv">1</span>, <span class="bu">len</span>(tp) <span class="op">+</span> <span class="dv">1</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    envelope <span class="op">=</span> np.maximum.accumulate(precision[::<span class="op">-</span><span class="dv">1</span>])[::<span class="op">-</span><span class="dv">1</span>]   <span class="co"># best precision at recall &gt;= r</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    idx <span class="op">=</span> np.searchsorted(recall, np.linspace(<span class="dv">0</span>, <span class="dv">1</span>, n_points), side<span class="op">=</span><span class="st">&quot;left&quot;</span>)</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> np.mean([envelope[i] <span class="cf">if</span> i <span class="op">&lt;</span> <span class="bu">len</span>(tp) <span class="cf">else</span> <span class="fl">0.0</span> <span class="cf">for</span> i <span class="kw">in</span> idx])   <span class="co"># unreached recall -&gt; 0</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> match(dets, iou_thr):</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;dets: list of (score, {gt_id: iou}). Returns TP flags in score order.&quot;&quot;&quot;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    taken, flags <span class="op">=</span> <span class="bu">set</span>(), []</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> score, ious <span class="kw">in</span> <span class="bu">sorted</span>(dets, key<span class="op">=</span><span class="kw">lambda</span> d: <span class="op">-</span>d[<span class="dv">0</span>]):</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>        cands <span class="op">=</span> [(v, g) <span class="cf">for</span> g, v <span class="kw">in</span> ious.items() <span class="cf">if</span> g <span class="kw">not</span> <span class="kw">in</span> taken <span class="kw">and</span> v <span class="op">&gt;=</span> iou_thr]</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> cands:</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>            taken.add(<span class="bu">max</span>(cands)[<span class="dv">1</span>])<span class="op">;</span> flags.append(<span class="dv">1</span>)    <span class="co"># best free ground truth</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>        <span class="cf">else</span>:</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>            flags.append(<span class="dv">0</span>)                              <span class="co"># duplicate or poor overlap</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> flags</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>dets <span class="op">=</span> [(<span class="fl">0.95</span>, {<span class="st">&quot;g1&quot;</span>: <span class="fl">0.82</span>}), (<span class="fl">0.90</span>, {<span class="st">&quot;g1&quot;</span>: <span class="fl">0.71</span>}), (<span class="fl">0.80</span>, {<span class="st">&quot;g3&quot;</span>: <span class="fl">0.66</span>}),</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>        (<span class="fl">0.70</span>, {<span class="st">&quot;g2&quot;</span>: <span class="fl">0.58</span>}), (<span class="fl">0.60</span>, {<span class="st">&quot;g4&quot;</span>: <span class="fl">0.30</span>}), (<span class="fl">0.50</span>, {})]</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>ap50 <span class="op">=</span> average_precision(match(dets, <span class="fl">0.5</span>), n_gt<span class="op">=</span><span class="dv">4</span>)</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>ap <span class="op">=</span> np.mean([average_precision(match(dets, t), n_gt<span class="op">=</span><span class="dv">4</span>) <span class="cf">for</span> t <span class="kw">in</span> np.linspace(<span class="fl">0.5</span>, <span class="fl">0.95</span>, <span class="dv">10</span>)])</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="bu">round</span>(ap50, <span class="dv">4</span>), <span class="bu">round</span>(ap, <span class="dv">4</span>))                               <span class="co"># 0.6287 0.2875</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="bu">round</span>(average_precision(match(dets, <span class="fl">0.5</span>), <span class="dv">4</span>, n_points<span class="op">=</span><span class="dv">11</span>), <span class="dv">4</span>))   <span class="co"># 0.6136</span></span></code></pre></div>
+<details class="qa qa-asked" id="q22"><summary>
+<span class="qa-n">Q22</span><span class="qa-q">Implement IoU and non-maximum suppression.</span><span class="qa-badge" title="Reported in a real interview">Asked · Xiaomi, Baidu, Ctrip, Horizon (4 reports)</span>
+</summary><div class="qa-body">
+<p>Use the code above. For IoU, the intersection’s top-left corner is the elementwise maximum of the top-left corners and its bottom-right corner the minimum of the bottom-right ones; clip its width and height at zero and divide by the sum of the areas minus the intersection; broadcasting gives the <span class="math inline">N \times M</span> matrix at once. For NMS, sort by score, keep the top box, drop the remaining boxes whose IoU with it exceeds the threshold, and repeat; worst case <span class="math inline">O(N^2)</span>. Run it per class, or offset boxes by class index so classes never overlap. Mention Soft-NMS for crowded scenes, polygon intersection (Sutherland–Hodgman clipping) for rotated boxes, and accumulating intersections and unions before dividing when computing mIoU over a dataset.</p>
+</div></details>
+<h2 id="rapid-fire-review">Rapid-fire review</h2>
+<details class="qa" id="q23"><summary>
+<span class="qa-n">Q23</span><span class="qa-q">Why regress <span class="math inline">\log(w/w_a)</span> rather than <span class="math inline">w - w_a</span>?</span>
+</summary><div class="qa-body">
+<p>The log ratio is unchanged by translating or rescaling the image, unconstrained in sign, symmetric between doubling and halving, and its errors are relative errors, so small and large objects are treated alike.</p>
+</div></details>
+<details class="qa" id="q24"><summary>
+<span class="qa-n">Q24</span><span class="qa-q">IoU of two <span class="math inline">10 \times 10</span> boxes offset by one pixel in <span class="math inline">x</span> and in <span class="math inline">y</span>?</span>
+</summary><div class="qa-body">
+<p>Intersection <span class="math inline">9 \times 9 = 81</span>, union <span class="math inline">200 - 81 = 119</span>, IoU <span class="math inline">= 0.68</span>.</p>
+</div></details>
+<details class="qa" id="q25"><summary>
+<span class="qa-n">Q25</span><span class="qa-q">What is the worst-case cost of greedy NMS, and when does it happen?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">O(N^2)</span> IoU computations, when few boxes overlap so almost every box is kept and compared with all remaining ones. Pre-filtering to the top few thousand by score bounds it.</p>
+</div></details>
+<details class="qa" id="q26"><summary>
+<span class="qa-n">Q26</span><span class="qa-q">Why does RoIAlign matter more for masks than for classification?</span>
+</summary><div class="qa-body">
+<p>The class does not change when the crop shifts by a few pixels, but a mask shifted by a few pixels loses IoU; RoI pooling’s rounding causes shifts of up to half a feature cell.</p>
+</div></details>
+<details class="qa" id="q27"><summary>
+<span class="qa-n">Q27</span><span class="qa-q">What is the focal-loss factor for an example with <span class="math inline">p_t = 0.9</span> and <span class="math inline">\gamma = 2</span>?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">(1 - 0.9)^2 = 0.01</span>: its loss is 100 times smaller than under cross-entropy.</p>
+</div></details>
+<details class="qa" id="q28"><summary>
+<span class="qa-n">Q28</span><span class="qa-q">Which FPN level does a <span class="math inline">112 \times 112</span> RoI use?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">\lfloor 4 + \log_2(112/224) \rfloor = 3</span>, so <span class="math inline">P_3</span>.</p>
+</div></details>
+<details class="qa" id="q29"><summary>
+<span class="qa-n">Q29</span><span class="qa-q">What does FCOS’s center-ness do?</span>
+</summary><div class="qa-body">
+<p>It predicts how central a location is within its box, <span class="math inline">\sqrt{\tfrac{\min(l,r)}{\max(l,r)}\tfrac{\min(t,b)}{\max(t,b)}}</span>, and multiplies the class score at test time so off-center, poorly localized boxes rank lower before NMS.</p>
+</div></details>
+<details class="qa" id="q30"><summary>
+<span class="qa-n">Q30</span><span class="qa-q">Why is DETR’s matching done with the Hungarian algorithm rather than greedily?</span>
+</summary><div class="qa-body">
+<p>Greedy assignment can be far from the minimum total cost (in the example, <span class="math inline">-0.6</span> against <span class="math inline">-1.45</span>); the Hungarian algorithm finds the optimal one-to-one matching in <span class="math inline">O(N^3)</span>.</p>
+</div></details>
+<details class="qa" id="q31"><summary>
+<span class="qa-n">Q31</span><span class="qa-q">What does a dilated <span class="math inline">3 \times 3</span> convolution with rate 6 cover?</span>
+</summary><div class="qa-body">
+<p>13 pixels per side with 9 weights: span <span class="math inline">2r + 1</span>.</p>
+</div></details>
+<details class="qa" id="q32"><summary>
+<span class="qa-n">Q32</span><span class="qa-q">Why does Mask R-CNN use per-class sigmoid masks rather than a softmax over classes?</span>
+</summary><div class="qa-body">
+<p>It decouples masks from classification: the box head decides the class, and the mask head only separates object from background, without classes competing per pixel.</p>
+</div></details>
+<details class="qa" id="q33"><summary>
+<span class="qa-n">Q33</span><span class="qa-q">Write the relation between Dice and IoU.</span>
+</summary><div class="qa-body">
+<p><span class="math inline">D = 2J/(1 + J)</span>, from <span class="math inline">J = I/(S - I)</span> and <span class="math inline">D = 2I/S</span>; they rank predictions of one image identically.</p>
+</div></details>
+<details class="qa" id="q34"><summary>
+<span class="qa-n">Q34</span><span class="qa-q">What does PQ factor into?</span>
+</summary><div class="qa-body">
+<p>Segmentation quality (mean IoU of matched segments) times recognition quality (<span class="math inline">|\mathrm{TP}|/(|\mathrm{TP}| + \tfrac12|\mathrm{FP}| + \tfrac12|\mathrm{FN}|)</span>, an F1 score); matches need IoU above 0.5, which makes them unique.</p>
+</div></details>
+<details class="qa" id="q35"><summary>
+<span class="qa-n">Q35</span><span class="qa-q">Why are pose keypoints predicted as heatmaps?</span>
+</summary><div class="qa-body">
+<p>Heatmaps keep the task fully convolutional and translation-equivariant, allow several candidates, and train more easily than regressing coordinates from a pooled vector; sub-pixel refinement fixes the stride quantization.</p>
+</div></details>
+<details class="qa" id="q36"><summary>
+<span class="qa-n">Q36</span><span class="qa-q">What is the aperture problem?</span>
+</summary><div class="qa-body">
+<p>Linearized brightness constancy gives one equation for two unknowns per pixel, so only the flow component along the image gradient is observable.</p>
+</div></details>
+<details class="qa" id="q37"><summary>
+<span class="qa-n">Q37</span><span class="qa-q">How much does separability save for a <span class="math inline">19 \times 19</span> Gaussian?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">361</span> versus <span class="math inline">38</span> multiply-adds per pixel, a factor of 9.5.</p>
+</div></details>
+<details class="qa" id="q38"><summary>
+<span class="qa-n">Q38</span><span class="qa-q">What degradation model are super-resolution training pairs usually synthesized with?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">y = (k * x)\downarrow_s + n</span>: blur with a kernel (often a random isotropic or anisotropic Gaussian), keep every <span class="math inline">s</span>-th pixel, add noise; the blur doubles as the anti-aliasing filter.</p>
+</div></details>
+<details class="qa" id="q39"><summary>
+<span class="qa-n">Q39</span><span class="qa-q">What does a 0.4 cycles-per-pixel pattern become after keeping every second pixel without blurring?</span>
+</summary><div class="qa-body">
+<p>0.8 cycles per new pixel, above the new Nyquist limit of 0.5, so it aliases to 0.2: a false, coarser pattern.</p>
+</div></details>
+<details class="qa" id="q40"><summary>
+<span class="qa-n">Q40</span><span class="qa-q">What are the bicubic weights halfway between pixels with <span class="math inline">a = -0.5</span>?</span>
+</summary><div class="qa-body">
+<p><span class="math inline">(-0.0625, 0.5625, 0.5625, -0.0625)</span>; the negative lobes sharpen and can overshoot.</p>
+</div></details>
+<details class="qa" id="q41"><summary>
+<span class="qa-n">Q41</span><span class="qa-q">What makes 3D Gaussian splatting faster to render than NeRF?</span>
+</summary><div class="qa-body">
+<p>It rasterizes explicit Gaussians, projected and alpha-blended per screen tile, instead of evaluating a neural network at hundreds of points along every ray.</p>
+</div></details>
+<h2 id="references">References</h2>
+<ol type="1">
+<li>Krizhevsky, Sutskever and Hinton, “ImageNet Classification with Deep Convolutional Neural Networks,” 2012.</li>
+<li>Russakovsky et al., “ImageNet Large Scale Visual Recognition Challenge,” 2015. <a href="https://arxiv.org/abs/1409.0575" target="_blank" rel="noopener">arXiv:1409.0575</a></li>
+<li>Szegedy et al., “Rethinking the Inception Architecture for Computer Vision,” 2016. <a href="https://arxiv.org/abs/1512.00567" target="_blank" rel="noopener">arXiv:1512.00567</a></li>
+<li>Zhang, Cisse, Dauphin and Lopez-Paz, “mixup: Beyond Empirical Risk Minimization,” 2018. <a href="https://arxiv.org/abs/1710.09412" target="_blank" rel="noopener">arXiv:1710.09412</a></li>
+<li>Yun et al., “CutMix: Regularization Strategy to Train Strong Classifiers with Localizable Features,” 2019. <a href="https://arxiv.org/abs/1905.04899" target="_blank" rel="noopener">arXiv:1905.04899</a></li>
+<li>DeVries and Taylor, “Improved Regularization of Convolutional Neural Networks with Cutout,” 2017. <a href="https://arxiv.org/abs/1708.04552" target="_blank" rel="noopener">arXiv:1708.04552</a></li>
+<li>Cubuk et al., “RandAugment: Practical Automated Data Augmentation with a Reduced Search Space,” 2020. <a href="https://arxiv.org/abs/1909.13719" target="_blank" rel="noopener">arXiv:1909.13719</a></li>
+<li>Thulasidasan et al., “On Mixup Training: Improved Calibration and Predictive Uncertainty for Deep Neural Networks,” 2019. <a href="https://arxiv.org/abs/1905.11001" target="_blank" rel="noopener">arXiv:1905.11001</a></li>
+<li>Yosinski et al., “How Transferable Are Features in Deep Neural Networks?,” 2014. <a href="https://arxiv.org/abs/1411.1792" target="_blank" rel="noopener">arXiv:1411.1792</a></li>
+<li>Kornblith, Shlens and Le, “Do Better ImageNet Models Transfer Better?,” 2019. <a href="https://arxiv.org/abs/1805.08974" target="_blank" rel="noopener">arXiv:1805.08974</a></li>
+<li>Kumar et al., “Fine-Tuning Can Distort Pretrained Features and Underperform Out-of-Distribution,” 2022. <a href="https://arxiv.org/abs/2202.10054" target="_blank" rel="noopener">arXiv:2202.10054</a></li>
+<li>Zhang et al., “Understanding Deep Learning Requires Rethinking Generalization,” 2017. <a href="https://arxiv.org/abs/1611.03530" target="_blank" rel="noopener">arXiv:1611.03530</a></li>
+<li>Northcutt, Athalye and Mueller, “Pervasive Label Errors in Test Sets Destabilize Machine Learning Benchmarks,” 2021. <a href="https://arxiv.org/abs/2103.14749" target="_blank" rel="noopener">arXiv:2103.14749</a></li>
+<li>Northcutt, Jiang and Chuang, “Confident Learning: Estimating Uncertainty in Dataset Labels,” 2021.</li>
+<li>Zhang and Sabuncu, “Generalized Cross Entropy Loss for Training Deep Neural Networks with Noisy Labels,” 2018. <a href="https://arxiv.org/abs/1805.07836" target="_blank" rel="noopener">arXiv:1805.07836</a></li>
+<li>Han et al., “Co-teaching: Robust Training of Deep Neural Networks with Extremely Noisy Labels,” 2018. <a href="https://arxiv.org/abs/1804.06872" target="_blank" rel="noopener">arXiv:1804.06872</a></li>
+<li>Patrini et al., “Making Deep Neural Networks Robust to Label Noise: A Loss Correction Approach,” 2017.</li>
+<li>Girshick, Donahue, Darrell and Malik, “Rich Feature Hierarchies for Accurate Object Detection and Semantic Segmentation,” 2014. <a href="https://arxiv.org/abs/1311.2524" target="_blank" rel="noopener">arXiv:1311.2524</a></li>
+<li>Girshick, “Fast R-CNN,” 2015. <a href="https://arxiv.org/abs/1504.08083" target="_blank" rel="noopener">arXiv:1504.08083</a></li>
+<li>Ren, He, Girshick and Sun, “Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks,” 2015. <a href="https://arxiv.org/abs/1506.01497" target="_blank" rel="noopener">arXiv:1506.01497</a></li>
+<li>He, Gkioxari, Dollár and Girshick, “Mask R-CNN,” 2017. <a href="https://arxiv.org/abs/1703.06870" target="_blank" rel="noopener">arXiv:1703.06870</a></li>
+<li>Redmon, Divvala, Girshick and Farhadi, “You Only Look Once: Unified, Real-Time Object Detection,” 2016. <a href="https://arxiv.org/abs/1506.02640" target="_blank" rel="noopener">arXiv:1506.02640</a></li>
+<li>Redmon and Farhadi, “YOLO9000: Better, Faster, Stronger,” 2017. <a href="https://arxiv.org/abs/1612.08242" target="_blank" rel="noopener">arXiv:1612.08242</a></li>
+<li>Redmon and Farhadi, “YOLOv3: An Incremental Improvement,” 2018. <a href="https://arxiv.org/abs/1804.02767" target="_blank" rel="noopener">arXiv:1804.02767</a></li>
+<li>Wang et al., “YOLOv10: Real-Time End-to-End Object Detection,” 2024.</li>
+<li>Liu et al., “SSD: Single Shot MultiBox Detector,” 2016. <a href="https://arxiv.org/abs/1512.02325" target="_blank" rel="noopener">arXiv:1512.02325</a></li>
+<li>Lin, Dollár, Girshick, He, Hariharan and Belongie, “Feature Pyramid Networks for Object Detection,” 2017. <a href="https://arxiv.org/abs/1612.03144" target="_blank" rel="noopener">arXiv:1612.03144</a></li>
+<li>Lin, Goyal, Girshick, He and Dollár, “Focal Loss for Dense Object Detection,” 2017. <a href="https://arxiv.org/abs/1708.02002" target="_blank" rel="noopener">arXiv:1708.02002</a></li>
+<li>Bodla, Singh, Chellappa and Davis, “Soft-NMS: Improving Object Detection with One Line of Code,” 2017. <a href="https://arxiv.org/abs/1704.04503" target="_blank" rel="noopener">arXiv:1704.04503</a></li>
+<li>Rezatofighi et al., “Generalized Intersection over Union: A Metric and a Loss for Bounding Box Regression,” 2019. <a href="https://arxiv.org/abs/1902.09630" target="_blank" rel="noopener">arXiv:1902.09630</a></li>
+<li>Tian, Shen, Chen and He, “FCOS: Fully Convolutional One-Stage Object Detection,” 2019. <a href="https://arxiv.org/abs/1904.01355" target="_blank" rel="noopener">arXiv:1904.01355</a></li>
+<li>Zhou, Wang and Krähenbühl, “Objects as Points,” 2019. <a href="https://arxiv.org/abs/1904.07850" target="_blank" rel="noopener">arXiv:1904.07850</a></li>
+<li>Law and Deng, “CornerNet: Detecting Objects as Paired Keypoints,” 2018. <a href="https://arxiv.org/abs/1808.01244" target="_blank" rel="noopener">arXiv:1808.01244</a></li>
+<li>Carion et al., “End-to-End Object Detection with Transformers,” 2020. <a href="https://arxiv.org/abs/2005.12872" target="_blank" rel="noopener">arXiv:2005.12872</a></li>
+<li>Zhu et al., “Deformable DETR: Deformable Transformers for End-to-End Object Detection,” 2021. <a href="https://arxiv.org/abs/2010.04159" target="_blank" rel="noopener">arXiv:2010.04159</a></li>
+<li>Chen, Sun, Song and Luo, “DiffusionDet: Diffusion Model for Object Detection,” 2023. <a href="https://arxiv.org/abs/2211.09788" target="_blank" rel="noopener">arXiv:2211.09788</a></li>
+<li>Everingham et al., “The PASCAL Visual Object Classes (VOC) Challenge,” 2010.</li>
+<li>Lin et al., “Microsoft COCO: Common Objects in Context,” 2014. <a href="https://arxiv.org/abs/1405.0312" target="_blank" rel="noopener">arXiv:1405.0312</a></li>
+<li>Long, Shelhamer and Darrell, “Fully Convolutional Networks for Semantic Segmentation,” 2015. <a href="https://arxiv.org/abs/1411.4038" target="_blank" rel="noopener">arXiv:1411.4038</a></li>
+<li>Ronneberger, Fischer and Brox, “U-Net: Convolutional Networks for Biomedical Image Segmentation,” 2015. <a href="https://arxiv.org/abs/1505.04597" target="_blank" rel="noopener">arXiv:1505.04597</a></li>
+<li>Chen et al., “DeepLab: Semantic Image Segmentation with Deep Convolutional Nets, Atrous Convolution, and Fully Connected CRFs,” 2017. <a href="https://arxiv.org/abs/1606.00915" target="_blank" rel="noopener">arXiv:1606.00915</a></li>
+<li>Chen, Papandreou, Schroff and Adam, “Rethinking Atrous Convolution for Semantic Image Segmentation,” 2017. <a href="https://arxiv.org/abs/1706.05587" target="_blank" rel="noopener">arXiv:1706.05587</a></li>
+<li>Chen et al., “Encoder-Decoder with Atrous Separable Convolution for Semantic Image Segmentation,” 2018. <a href="https://arxiv.org/abs/1802.02611" target="_blank" rel="noopener">arXiv:1802.02611</a></li>
+<li>Milletari, Navab and Ahmadi, “V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation,” 2016. <a href="https://arxiv.org/abs/1606.04797" target="_blank" rel="noopener">arXiv:1606.04797</a></li>
+<li>Berman, Triki and Blaschko, “The Lovász-Softmax Loss: A Tractable Surrogate for the Optimization of the Intersection-over-Union Measure in Neural Networks,” 2018. <a href="https://arxiv.org/abs/1705.08790" target="_blank" rel="noopener">arXiv:1705.08790</a></li>
+<li>Kirillov, He, Girshick, Rother and Dollár, “Panoptic Segmentation,” 2019. <a href="https://arxiv.org/abs/1801.00868" target="_blank" rel="noopener">arXiv:1801.00868</a></li>
+<li>Cheng et al., “Masked-attention Mask Transformer for Universal Image Segmentation,” 2022. <a href="https://arxiv.org/abs/2112.01527" target="_blank" rel="noopener">arXiv:2112.01527</a></li>
+<li>Kirillov et al., “Segment Anything,” 2023. <a href="https://arxiv.org/abs/2304.02643" target="_blank" rel="noopener">arXiv:2304.02643</a></li>
+<li>Ravi et al., “SAM 2: Segment Anything in Images and Videos,” 2024. <a href="https://arxiv.org/abs/2408.00714" target="_blank" rel="noopener">arXiv:2408.00714</a></li>
+<li>Newell, Yang and Deng, “Stacked Hourglass Networks for Human Pose Estimation,” 2016. <a href="https://arxiv.org/abs/1603.06937" target="_blank" rel="noopener">arXiv:1603.06937</a></li>
+<li>Cao, Simon, Wei and Sheikh, “Realtime Multi-Person 2D Pose Estimation using Part Affinity Fields,” 2017. <a href="https://arxiv.org/abs/1611.08050" target="_blank" rel="noopener">arXiv:1611.08050</a></li>
+<li>Xiao, Wu and Wei, “Simple Baselines for Human Pose Estimation and Tracking,” 2018. <a href="https://arxiv.org/abs/1804.06208" target="_blank" rel="noopener">arXiv:1804.06208</a></li>
+<li>Sun, Xiao, Liu and Wang, “Deep High-Resolution Representation Learning for Human Pose Estimation,” 2019. <a href="https://arxiv.org/abs/1902.09212" target="_blank" rel="noopener">arXiv:1902.09212</a></li>
+<li>Eigen, Puhrsch and Fergus, “Depth Map Prediction from a Single Image using a Multi-Scale Deep Network,” 2014. <a href="https://arxiv.org/abs/1406.2283" target="_blank" rel="noopener">arXiv:1406.2283</a></li>
+<li>Ranftl et al., “Towards Robust Monocular Depth Estimation: Mixing Datasets for Zero-shot Cross-dataset Transfer,” 2020. <a href="https://arxiv.org/abs/1907.01341" target="_blank" rel="noopener">arXiv:1907.01341</a></li>
+<li>Yang et al., “Depth Anything: Unleashing the Power of Large-Scale Unlabeled Data,” 2024. <a href="https://arxiv.org/abs/2401.10891" target="_blank" rel="noopener">arXiv:2401.10891</a></li>
+<li>Godard, Mac Aodha and Brostow, “Unsupervised Monocular Depth Estimation with Left-Right Consistency,” 2017. <a href="https://arxiv.org/abs/1609.03677" target="_blank" rel="noopener">arXiv:1609.03677</a></li>
+<li>Lucas and Kanade, “An Iterative Image Registration Technique with an Application to Stereo Vision,” 1981.</li>
+<li>Horn and Schunck, “Determining Optical Flow,” 1981.</li>
+<li>Teed and Deng, “RAFT: Recurrent All-Pairs Field Transforms for Optical Flow,” 2020. <a href="https://arxiv.org/abs/2003.12039" target="_blank" rel="noopener">arXiv:2003.12039</a></li>
+<li>Keys, “Cubic Convolution Interpolation for Digital Image Processing,” 1981.</li>
+<li>Zhang, Liang, Van Gool and Timofte, “Designing a Practical Degradation Model for Deep Blind Image Super-Resolution,” 2021.</li>
+<li>Zhang, “Making Convolutional Networks Shift-Invariant Again,” 2019.</li>
+<li>Hartley and Zisserman, <em>Multiple View Geometry in Computer Vision</em>, 2nd edition, 2004.</li>
+<li>Schönberger and Frahm, “Structure-from-Motion Revisited,” 2016.</li>
+<li>Mildenhall et al., “NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis,” 2020. <a href="https://arxiv.org/abs/2003.08934" target="_blank" rel="noopener">arXiv:2003.08934</a></li>
+<li>Kerbl, Kopanas, Leimkühler and Drettakis, “3D Gaussian Splatting for Real-Time Radiance Field Rendering,” 2023. <a href="https://arxiv.org/abs/2308.04079" target="_blank" rel="noopener">arXiv:2308.04079</a></li>
+</ol>
+      <nav class="note-pager" aria-label="More notes">
+        <a class="pager-prev" href="cnns-rnns.html"><span class="pager-dir">Previous</span><span class="pager-title">Convolutional and Recurrent Networks</span></a>
+        <a class="pager-next" href="math-for-ml.html"><span class="pager-dir">Next</span><span class="pager-title">Probability, Linear Algebra and Optimization for ML</span></a>
+      </nav>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">&copy; 2026 Wanzhou Lei &middot; <a href="./">All notes</a> &middot; <a href="../index.html">Home</a></div>
+</footer>
+
+<script>
+  // Expand or collapse every practice question; open a question when its #qN anchor is targeted.
+  (function () {
+    var btn = document.getElementById("qa-toggle");
+    var all = function () { return Array.prototype.slice.call(document.querySelectorAll("details.qa")); };
+    if (btn) {
+      if (!all().length) btn.hidden = true;
+      btn.addEventListener("click", function () {
+        var open = btn.getAttribute("data-open") !== "1";
+        all().forEach(function (d) { d.open = open; });
+        btn.setAttribute("data-open", open ? "1" : "0");
+        btn.textContent = open ? "Collapse all answers" : "Expand all answers";
+      });
+    }
+    var openHash = function () {
+      var id = decodeURIComponent(location.hash.slice(1));
+      var el = id && document.getElementById(id);
+      if (el && el.tagName === "DETAILS") el.open = true;
+    };
+    window.addEventListener("hashchange", openHash);
+    openHash();
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll(".note-toc a[href^='#']"));
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    if ("IntersectionObserver" in window && links.length) {
+      var current = null;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var i = targets.indexOf(e.target);
+            if (i >= 0) {
+              if (current) current.classList.remove("active");
+              current = links[i];
+              current.classList.add("active");
+            }
+          }
+        });
+      }, { rootMargin: "-70px 0px -70% 0px" });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+</body>
+</html>
