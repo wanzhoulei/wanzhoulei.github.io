@@ -152,3 +152,9 @@ details.qa[open] > summary { border-bottom: 1px solid var(--line); }
   .note-pager a { max-width: none; }
   .pager-next { text-align: left; margin-left: 0; }
 }
+
+/* Inline SVG figures */
+.note .fig { margin: 18px 0 22px; padding: 14px 10px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.note .fig svg { display: block; width: 100%; height: auto; }
+.note .fig figcaption { margin-top: 10px; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+.note .fig figcaption strong { color: var(--blue); }
